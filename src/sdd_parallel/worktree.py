@@ -8,6 +8,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tomllib
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
@@ -142,10 +143,11 @@ def create_directory_link(target: Path, link: Path) -> None:
     if link.exists() or (hasattr(link, "is_junction") and link.is_junction()) or link.is_symlink():
         remove_directory_link(link)
 
-    if os.name == "nt":
+    if sys.platform == "win32":
         import _winapi
 
-        _winapi.CreateJunction(str(target), str(link))
+        # CreateJunction is only present in _winapi on Windows
+        getattr(_winapi, "CreateJunction")(str(target), str(link))
     else:
         os.symlink(str(target), str(link), target_is_directory=True)
 
