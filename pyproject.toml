@@ -1,0 +1,91 @@
+[project]
+name = "sdd-parallel"
+version = "0.1.0"
+description = "SDD-agnostic multi-track parallel roadmap orchestrator, AST/CRG blast-radius solver, and Git worktree manager for AI coding agents"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "stopActingSoSmall", email = "stopActingSoSmall@users.noreply.github.com" }
+]
+requires-python = ">=3.11"
+keywords = [
+    "ai-agents",
+    "sdd",
+    "bmad",
+    "spec-kit",
+    "gsd",
+    "openspec",
+    "beads",
+    "parallel-orchestration",
+    "merge-bomb",
+    "git-worktree",
+    "parallel-execution",
+    "ast",
+    "blast-radius",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Typing :: Typed",
+]
+dependencies = [
+    "ruamel-yaml>=0.19.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/stopActingSoSmall/sdd-parallel"
+Repository = "https://github.com/stopActingSoSmall/sdd-parallel"
+Issues = "https://github.com/stopActingSoSmall/sdd-parallel/issues"
+Changelog = "https://github.com/stopActingSoSmall/sdd-parallel/blob/master/CHANGELOG.md"
+Documentation = "https://github.com/stopActingSoSmall/sdd-parallel/tree/master/docs/dossier"
+
+[project.optional-dependencies]
+crg = [
+    "code-review-graph>=2.3.9,<3.0.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.6,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+source-include = [
+    "LICENSE",
+    "CHANGELOG.md",
+    "tests/**",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "ruff>=0.16.8",
+]
+
+[project.scripts]
+sdd-parallel = "sdd_parallel.cli:main"
+parallel-flow = "sdd_parallel.cli:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["_bmad", ".agent", ".agents"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+namespace_packages = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

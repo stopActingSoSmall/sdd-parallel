@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+        exclude:
+          # Keep full Python matrix on Ubuntu; run boundary versions on Windows & macOS to optimize CI time
+          - os: windows-latest
+            python-version: "3.12"
+          - os: macos-latest
+            python-version: "3.12"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Python ${{ matrix.python-version }} and dependencies
+        run: |
+          uv python install ${{ matrix.python-version }}
+          uv sync --frozen --python ${{ matrix.python-version }}
+
+      - name: Configure Git identity for worktree tests
+        run: |
+          git config --global user.email "ci@sdd-parallel.local"
+          git config --global user.name "SDD-Parallel CI"
+
+      - name: Lint with Ruff
+        run: uv run ruff check src/ tests/ scripts/
+
+      - name: Typecheck with Mypy (--strict)
+        run: uv run mypy --strict src/sdd_parallel
+
+      - name: Run Pytest suite
+        run: uv run pytest
+
+      - name: Run Standalone Merge-Bomb Demo (All Adapters)
+        run: uv run python -X utf8 -m sdd_parallel.cli demo --kit all
+
+      - name: Verify Package Build (uv build)
+        run: uv build

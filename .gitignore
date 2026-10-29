@@ -1,0 +1,51 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments & uv
+.venv/
+venv/
+ENV/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+
+# Test & type-checker caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local temporary & parallel orchestration runtime files
+.tmp/
+.parallel-lock.json
+.parallel/
+.code-review-graph/
+_bmad-output/
+
+# Private internal strategy, monetization, and workstation-local skills (kept on disk, excluded from public Git)
+docs/marketing/
+docs/dossier/05_product_strategy_and_market_radar.md
+docs/dossier/06_devils_advocate_and_release_roadmap.md
+docs/dossier/08_master_index_and_archive_architecture.md
+docs/i18n/ru/dossier/08_master_index_and_archive_architecture.md
+.agent/skills/safe-push/
+.agents/rules/
+.agents/skills/sdd-dev-playbooks/
+
+# Internal Agent Governance & Research (Local-only, excluded from public GitHub)
+/AGENTS.md
+/CLAUDE.md
+/MASTER_INDEX.md
+/ARCHIVE_INDEX.md
+/phases/
+/docs/legal/
+/docs/research/
+/docs/adr/
+/docs/case-studies/
+/docs/observability_methodology_guide.md
+

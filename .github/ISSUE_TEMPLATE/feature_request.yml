@@ -1,0 +1,52 @@
+name: Feature Request
+description: Suggest an enhancement, new SDD adapter, or architectural idea
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature for sdd-parallel!
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Target Scope or Adapter
+      description: Which part of the system does this feature target?
+      options:
+        - "Core Engine (Wave Scheduler / Conflict Graph / Lock Manifest)"
+        - "Git Worktrees & Track Slots"
+        - "PreToolUse Hooks & Blast-Radius Guard"
+        - "BMAD Adapter"
+        - "Spec Kit Adapter"
+        - "GSD Adapter"
+        - "OpenSpec Adapter"
+        - "Beads Adapter"
+        - "New SDD Adapter Proposal"
+        - "CLI & Developer Experience"
+        - "Documentation / i18n"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a specific limitation or pain point? Please describe clearly.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: A clear and concise description of what you want to happen and how you envision the API or behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or workarounds you've considered.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Links, references, or any other relevant details.

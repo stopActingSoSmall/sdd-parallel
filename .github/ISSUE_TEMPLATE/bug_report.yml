@@ -1,0 +1,88 @@
+name: Bug Report
+description: Report a bug, crash, or unexpected behavior in sdd-parallel
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Before submitting, please check if a similar issue already exists.
+        If you are reporting a security vulnerability, please consult our [Security Policy](https://github.com/stopActingSoSmall/sdd-parallel/blob/master/SECURITY.md) instead.
+  - type: dropdown
+    id: kit
+    attributes:
+      label: Target SDD Framework / Kit
+      description: Which Spec-Driven Development framework was active when the issue occurred?
+      options:
+        - "None / Not Kit Specific"
+        - "BMAD (bmad)"
+        - "GitHub Spec Kit (spec-kit)"
+        - "Get Shit Done (gsd)"
+        - "OpenSpec (openspec)"
+        - "Beads (beads)"
+    validations:
+      required: true
+  - type: dropdown
+    id: agent_env
+    attributes:
+      label: Agent / Orchestration Environment
+      description: In which AI coding environment did this issue occur?
+      options:
+        - "Google Antigravity"
+        - "Claude Code"
+        - "OpenAI Codex"
+        - "Standalone CLI / Terminal"
+        - "Other"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - "Linux / Ubuntu"
+        - "Windows"
+        - "macOS"
+        - "Other"
+    validations:
+      required: true
+  - type: dropdown
+    id: python_version
+    attributes:
+      label: Python Version
+      options:
+        - "3.11"
+        - "3.12"
+        - "3.13"
+        - "Other"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Step-by-step instructions to reproduce the problem.
+      placeholder: |
+        1. Run 'sdd-parallel plan ...'
+        2. Run 'sdd-parallel prepare ...'
+        3. Observe error ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Command Output & Logs
+      description: Output of `sdd-parallel verify-wave`, stack traces, or terminal logs.
+      render: shell
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any other context, repository layout, or screenshots.
