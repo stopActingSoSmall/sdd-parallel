@@ -1,3 +1,4 @@
+<!-- status: draft -->
 # ⚡ SDD-Parallel
 
 [![CI](https://github.com/stopActingSoSmall/sdd-parallel/actions/workflows/ci.yml/badge.svg)](https://github.com/stopActingSoSmall/sdd-parallel/actions/workflows/ci.yml)
