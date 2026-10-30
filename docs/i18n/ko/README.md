@@ -177,6 +177,7 @@ sdd-parallel prepare --wave 1
 ```bash
 uv tool install sdd-parallel     # 또는: pipx install sdd-parallel
 ```
+*(시스템 전역에서 `sdd-parallel` 및 빠른 별칭 `parallel-flow` 사용 가능).*
 
 설치 즉시 `sdd-parallel` CLI 및 단축 별칭인 `parallel-flow`를 전역 환경에서 사용할 수 있습니다.
 
@@ -572,7 +573,7 @@ flowchart TD
     BSP --> Slots
     Slots --> Guard --> Verify
     Verify --> Merge
-    Merge -. Error / Revert .-> Rollback
+    Merge -. 오류 / 취소 .-> Rollback
 ```
 
 ### 9대 핵심 엔지니어링 불변성 원칙 (The 9 Core Engineering Invariants)
@@ -589,7 +590,8 @@ flowchart TD
 
 </details>
 
----
+<details>
+<summary><b>🛠️ 클릭하여 펼치기: 전체 CLI 명령어 레퍼런스 (13개 서브 커맨드 및 옵션)</b></summary>
 
 ## 🛠️ 전체 CLI 명령어 레퍼런스
 
@@ -614,7 +616,7 @@ flowchart TD
 
 </details>
 
----
+</details>
 
 ## 🚢 릴리스 매트릭스: 완료 항목 (v0.1.0) vs 로드맵 (v0.2+)
 

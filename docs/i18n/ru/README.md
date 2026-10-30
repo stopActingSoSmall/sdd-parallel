@@ -177,6 +177,7 @@ sdd-parallel prepare --wave 1
 ```bash
 uv tool install sdd-parallel     # или: pipx install sdd-parallel
 ```
+*(Обе команды — `sdd-parallel` и короткий алиас `parallel-flow` — доступны глобально).*
 
 Обе команды `sdd-parallel` и короткий алиас `parallel-flow` становятся доступны глобально.
 
@@ -542,7 +543,7 @@ my-project/
 
 ```mermaid
 flowchart TD
-    subgraph Inputs["1. Multi-SDD Roadmap Adapters"]
+    subgraph Inputs["1. Адаптеры SDD-роадмапов"]
         BMAD["BMAD Method (v6/v7)"]
         SpecKit["GitHub Spec Kit (.specify/)"]
         GSD["GSD Artifact Hijack (.planning/)"]
@@ -550,16 +551,22 @@ flowchart TD
         Beads["Beads (.beads/*.jsonl)"]
     end
 
-    subgraph Engine["2. Hybrid DAG & Blast-Radius Engine"]
-        AST["Universal AST Classifier\n(SPINE, ADDITIVE_REGISTRY, STANDARD)"]
-        CRG["CRGSidecarAdapter\n(code-review-graph v2.3.9 WAL)"]
-        BSP["Deterministic BSPWaveScheduler\n(K-Track Waves, Kahn Acyclicity)"]
+    subgraph Engine["2. Движок гибридного DAG и Blast Radius"]
+        AST["Универсальный AST-классификатор
+(SPINE, ADDITIVE_REGISTRY, STANDARD)"]
+        CRG["CRGSidecarAdapter
+(код-ревью граф v2.3.9 WAL)"]
+        BSP["Детерминированный BSPWaveScheduler
+(K-трековые волны, ацикличность Кана)"]
     end
 
-    subgraph Actuation["3. Actuation & Scope Guard"]
-        Slots["Fixed Track Slots (track-a/b/c)\n(In-Place Reset, core.fileMode false)"]
-        Guard["Three-Tier Scope Guard\n(PreToolUse + Terminal Guard + chmod a-w)"]
-        Verify["verify-wave Gate\n(git diff merge-base...HEAD audit)"]
+    subgraph Actuation["3. Исполнение и Scope Guard"]
+        Slots["Фиксированные слоты треков (track-a/b/c)
+(In-Place сброс, core.fileMode false)"]
+        Guard["Трёхуровневый Scope Guard
+(PreToolUse + Terminal Guard + chmod a-w)"]
+        Verify["Шлюз verify-wave
+(аудит diff merge-base...HEAD)"]
     end
 
     subgraph Barrier["4. Barrier Checkpoint & Rollback"]
@@ -572,7 +579,7 @@ flowchart TD
     BSP --> Slots
     Slots --> Guard --> Verify
     Verify --> Merge
-    Merge -. Error / Revert .-> Rollback
+    Merge -. Ошибка / Откат .-> Rollback
 ```
 
 ### 9 ключевых инженерных инвариантов
@@ -614,7 +621,7 @@ flowchart TD
 
 </details>
 
----
+</details>
 
 ## 🚢 Матрица релиза: Готово (v0.1.0) vs Роадмап (v0.2+)
 

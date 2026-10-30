@@ -177,6 +177,7 @@ sdd-parallel prepare --wave 1
 ```bash
 uv tool install sdd-parallel     # 或：pipx install sdd-parallel
 ```
+*(系统将全局注册 `sdd-parallel` 命令及快捷别名 `parallel-flow`)*。
 
 安装后，`sdd-parallel` 以及快捷别名 `parallel-flow` 均全局可用。
 
@@ -550,16 +551,16 @@ flowchart TD
         Beads["Beads (.beads/*.jsonl)"]
     end
 
-    subgraph Engine["2. 混合 DAG 与爆炸半径引擎"]
+    subgraph Engine["2. 混合 DAG 与爆炸半径分析引擎"]
         AST["通用 AST 分类器\n(SPINE, ADDITIVE_REGISTRY, STANDARD)"]
         CRG["CRGSidecarAdapter\n(code-review-graph v2.3.9 WAL)"]
-        BSP["确定性 BSPWaveScheduler\n(K-Track Waves, Kahn Acyclicity)"]
+        BSP["确定性 BSPWaveScheduler\n(K-轨道波次调度, Kahn 无环验证)"]
     end
 
-    subgraph Actuation["3. 执行与范围守卫"]
-        Slots["固定轨道槽位 (track-a/b/c)\n(原地重置, core.fileMode false)"]
-        Guard["三层防御范围守卫\n(PreToolUse + Terminal Guard + chmod a-w)"]
-        Verify["verify-wave 检查门禁\n(git diff merge-base...HEAD audit)"]
+    subgraph Actuation["3. 执行驱动与作用域防护网"]
+        Slots["固定轨道槽位 (track-a/b/c)\n(In-Place 重置, core.fileMode false)"]
+        Guard["三层纵深防御 Scope Guard\n(PreToolUse + 终端拦截 + chmod a-w)"]
+        Verify["verify-wave 质量门禁\n(git diff merge-base...HEAD 审计)"]
     end
 
     subgraph Barrier["4. 栅障检查点与回滚"]
@@ -572,7 +573,7 @@ flowchart TD
     BSP --> Slots
     Slots --> Guard --> Verify
     Verify --> Merge
-    Merge -. Error / Revert .-> Rollback
+    Merge -. 异常 / 撤销 .-> Rollback
 ```
 
 ### 9 大核心工程不变量 (The 9 Core Engineering Invariants)
@@ -589,7 +590,8 @@ flowchart TD
 
 </details>
 
----
+<details>
+<summary><b>🛠️ 点击展开：完整 CLI 指令集手册（全部 13 个子命令与参数）</b></summary>
 
 ## 🛠️ 完整 CLI 命令参考手册
 
@@ -614,7 +616,7 @@ flowchart TD
 
 </details>
 
----
+</details>
 
 ## 🚢 发布矩阵：已实现 (v0.1.0) vs 规划路线图 (v0.2+)
 

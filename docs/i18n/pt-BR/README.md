@@ -177,6 +177,7 @@ sdd-parallel prepare --wave 1
 ```bash
 uv tool install sdd-parallel     # ou: pipx install sdd-parallel
 ```
+*(Tanto o comando `sdd-parallel` quanto o alias curto `parallel-flow` ficam disponíveis globalmente).*
 
 Tanto `sdd-parallel` quanto o alias conveniente `parallel-flow` ficam disponíveis globalmente.
 
@@ -572,7 +573,7 @@ flowchart TD
     BSP --> Slots
     Slots --> Guard --> Verify
     Verify --> Merge
-    Merge -. Error / Revert .-> Rollback
+    Merge -. Erro / Reversão .-> Rollback
 ```
 
 ### Os 9 Invariantes Fundamentais de Engenharia
@@ -614,7 +615,7 @@ flowchart TD
 
 </details>
 
----
+</details>
 
 ## 🚢 Matriz de lançamento: Entregue (v0.1.0) vs Roadmap (v0.2+)
 

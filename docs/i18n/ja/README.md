@@ -177,6 +177,7 @@ sdd-parallel prepare --wave 1
 ```bash
 uv tool install sdd-parallel     # または: pipx install sdd-parallel
 ```
+*(コマンド `sdd-parallel` および便利な短縮エイリアス `parallel-flow` がグローバルに利用可能になります)*。
 
 `sdd-parallel` と短縮エイリアス `parallel-flow` の両方がグローバルに利用可能になります。
 
@@ -550,10 +551,10 @@ flowchart TD
         Beads["Beads (.beads/*.jsonl)"]
     end
 
-    subgraph Engine["2. ハイブリッド DAG ＆ 影響半径エンジン"]
-        AST["汎用 AST 分類器\n(SPINE, ADDITIVE_REGISTRY, STANDARD)"]
+    subgraph Engine["2. ハイブリッド DAG ＆ Blast Radius 解析エンジン"]
+        AST["ユニバーサル AST クラシファイア\n(SPINE, ADDITIVE_REGISTRY, STANDARD)"]
         CRG["CRGSidecarAdapter\n(code-review-graph v2.3.9 WAL)"]
-        BSP["決定論的 BSPWaveScheduler\n(K-Track Waves, Kahn Acyclicity)"]
+        BSP["決定論的 BSPWaveScheduler\n(K-トラックウェーブ, Kahn 非輪状性検証)"]
     end
 
     subgraph Actuation["3. 作動（Actuation）＆ スコープガード"]
@@ -614,7 +615,7 @@ flowchart TD
 
 </details>
 
----
+</details>
 
 ## 🚢 リリースマトリクス：実装済み (v0.1.0) vs ロードマップ (v0.2+)
 
