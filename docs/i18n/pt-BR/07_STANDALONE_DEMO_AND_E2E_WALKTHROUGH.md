@@ -323,7 +323,7 @@ git status
 git log -1 --oneline
 ```
 *Estrutura provisionada:*
-- `specs/001-telemetry/{spec.md, plan.md, tasks.md}` — checklist de tarefas no padrão GitHub Spec Kit (`- [ ] 1-1`, `- [ ] 1-2`, `- [ ] 1-3`, `- [ ] 2-1`, `- [ ] 2-2`).
+- `specs/001-telemetry/{spec.md, plan.md, tasks.md}` — checklist de tarefas no padrão GitHub Spec Kit (`- [ ] T001`, `- [ ] T002 [P]`, `- [ ] T003 [P]`, `- [ ] T004`, `- [ ] T005`).
 - `.specify/memory/constitution.md` e `.specify/feature.json` — contratos imutáveis do projeto.
 - `src/demo_app/` — 6 módulos Python com colisão semântica oculta de Tipo 2.
 
@@ -362,15 +362,15 @@ Add-Content -Path .worktrees\track-a\.specify\memory\constitution.md -Value "inv
 
 #### Passo 5. Simular commits concorrentes em cada trilha
 ```powershell
-# Agente em track-a implementa a tarefa 1-2:
+# Agente em track-a implementa a tarefa T002:
 Set-Content -Path .worktrees\track-a\src\demo_app\normalizer.py -Value "def normalize_payload(raw): return {k.strip(): v.strip() for k, v in raw.items()}"
-(Get-Content .worktrees\track-a\specs\001-telemetry\tasks.md) -replace '\[ \] 1-2', '[x] 1-2' | Set-Content .worktrees\track-a\specs\001-telemetry\tasks.md
-git -C .worktrees\track-a commit -am "feat: complete task 1-2"
+(Get-Content .worktrees\track-a\specs\001-telemetry\tasks.md) -replace '\[ \] T002', '[x] T002' | Set-Content .worktrees\track-a\specs\001-telemetry\tasks.md
+git -C .worktrees\track-a commit -am "feat: complete task T002"
 
-# Agente em track-b implementa a tarefa 1-3:
+# Agente em track-b implementa a tarefa T003:
 Set-Content -Path .worktrees\track-b\src\demo_app\exporter.py -Value "def export_events(events): return len(events)"
-(Get-Content .worktrees\track-b\specs\001-telemetry\tasks.md) -replace '\[ \] 1-3', '[x] 1-3' | Set-Content .worktrees\track-b\specs\001-telemetry\tasks.md
-git -C .worktrees\track-b commit -am "feat: complete task 1-3"
+(Get-Content .worktrees\track-b\specs\001-telemetry\tasks.md) -replace '\[ \] T003', '[x] T003' | Set-Content .worktrees\track-b\specs\001-telemetry\tasks.md
+git -C .worktrees\track-b commit -am "feat: complete task T003"
 ```
 
 #### Passo 6. Auditar diferenças e integrar com merge monotônico 3-way
@@ -382,7 +382,7 @@ uv run sdd-parallel verify-wave --wave 1
 # 2. Realizar o merge em barreira com reconciliação 3-way:
 uv run sdd-parallel merge --wave 1
 ```
-*Observação:* Ambas as tarefas concluem com `- [x] 1-2` e `- [x] 1-3` em `specs/001-telemetry/tasks.md` com **0 marcadores de conflito do Git**.
+*Observação:* Ambas as tarefas concluem com `- [x] T002` e `- [x] T003` em `specs/001-telemetry/tasks.md` com **0 marcadores de conflito do Git**.
 
 #### Passo 7. Rollback transacional LIFO
 ```powershell
@@ -391,7 +391,7 @@ uv run sdd-parallel rollback-wave --wave 1 --save-backup
 *Verificação:*
 - A branch de backup `backup/wave-1-before-rollback-...` é preservada.
 - O `master` retorna limpamente para o commit anterior ao merge.
-- Em `specs/001-telemetry/tasks.md`, as tarefas `1-2` e `1-3` são restauradas para pendentes `[ ]`.
+- Em `specs/001-telemetry/tasks.md`, as tarefas `T002` e `T003` são restauradas para pendentes `[ ]`.
 
 ---
 
@@ -411,10 +411,10 @@ uv run sdd-parallel prepare --wave 1
 
 # 3. Simular avanço de tarefas (atualiza sprint-status.yaml):
 (Get-Content .worktrees\track-a\_bmad-output\implementation-artifacts\sprint-status.yaml) -replace '1-2-normalize-telemetry-payload: ready-for-dev', '1-2-normalize-telemetry-payload: done' | Set-Content .worktrees\track-a\_bmad-output\implementation-artifacts\sprint-status.yaml
-git -C .worktrees\track-a commit -am "feat: finish story 1-2"
+git -C .worktrees\track-a commit -am "feat: complete task T002"
 
 (Get-Content .worktrees\track-b\_bmad-output\implementation-artifacts\sprint-status.yaml) -replace '1-3-cli-batch-export: ready-for-dev', '1-3-cli-batch-export: done' | Set-Content .worktrees\track-b\_bmad-output\implementation-artifacts\sprint-status.yaml
-git -C .worktrees\track-b commit -am "feat: finish story 1-3"
+git -C .worktrees\track-b commit -am "feat: complete task T003"
 
 # 4. Verificar e integrar:
 uv run sdd-parallel verify-wave --wave 1
@@ -444,4 +444,4 @@ uv run sdd-parallel rollback-wave --wave 1 --save-backup
 - 📐 **[White Paper de Capacidades e Arquitetura (`02_SYSTEM_CAPABILITIES_WHITE_PAPER.md`)](../../dossier/02_SYSTEM_CAPABILITIES_WHITE_PAPER.md)** — Atenuação matemática do raio de impacto $I(T)$, demonstração de aciclicidade de Kahn, Three-Tier Scope Guard e álgebra de semirreticulados.
 - 🔌 **[Especificação de Integração e Ecossistema (`03_INTEGRATION_AND_ECOSYSTEM_SPEC.md`)](../../dossier/03_INTEGRATION_AND_ECOSYSTEM_SPEC.md)** — Especificações para **BMAD**, **GitHub Spec Kit (`.specify/`)**, **GSD (`.planning/`)**, **OpenSpec** e **Beads**, com esquemas `.parallel-lock.json` e MCP.
 - 📊 **Validação em Ambientes Reais (Brownfield)** — Validação empírica do fluxo de trabalho Two-Stage Assisted em bases de código complexas e multi-épicos.
-- 🛡️ **[Resumo de Invariantes Fundamentais (`README.md`)](../../../README.md#-core-invariants)** — Checklist consolidado de garantias do sistema.
+- 🛡️ **[Resumo de Invariantes Fundamentais (`README.md`)](ARCHITECTURE.md)** — Checklist consolidado de garantias do sistema.

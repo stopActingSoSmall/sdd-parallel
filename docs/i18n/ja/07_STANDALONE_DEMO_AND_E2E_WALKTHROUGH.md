@@ -323,7 +323,7 @@ git status
 git log -1 --oneline
 ```
 *生成されるリポジトリ構成：*
-- `specs/001-telemetry/{spec.md, plan.md, tasks.md}` — GitHub Spec Kit 準拠のタスクリスト (`- [ ] 1-1`, `- [ ] 1-2`, `- [ ] 1-3`, `- [ ] 2-1`, `- [ ] 2-2`)。
+- `specs/001-telemetry/{spec.md, plan.md, tasks.md}` — GitHub Spec Kit 準拠のタスクリスト (`- [ ] T001`, `- [ ] T002 [P]`, `- [ ] T003 [P]`, `- [ ] T004`, `- [ ] T005`)。
 - `.specify/memory/constitution.md`, `.specify/feature.json` — プロジェクトの不変契約。
 - `src/demo_app/` — 隠れた第2種意味的衝突を含む 6 つの Python モジュール。
 
@@ -334,7 +334,7 @@ uv run sdd-parallel plan
 *内部動作：*
 - `specs/**/tasks.md` および `.specify/` から GitHub Spec Kit を自動検出。
 - AST 静的解析が `schema.py` を `SPINE`、`cli.py` を `ADDITIVE_REGISTRY` に分類し、`api.py` と `normalizer.py` 間の依存を検出。
-- タスク `1-2` と `1-3` を **Wave 1** にまとめ、`2-1` を **Wave 2** に分離してマージボムを防止。
+- タスク `T002` と `T003` を **Wave 1** にまとめ、`T004` を **Wave 2** に分離してマージボムを防止。
 
 #### ステップ 3. 固定トラックスロットの準備 (`prepare`)
 ```powershell
@@ -362,15 +362,15 @@ Add-Content -Path .worktrees\track-a\.specify\memory\constitution.md -Value "una
 
 #### ステップ 5. 各トラックからの並行コミットシミュレーション
 ```powershell
-# track-a のエージェントがタスク 1-2 を完了：
+# track-a のエージェントがタスク T002 を完了：
 Set-Content -Path .worktrees\track-a\src\demo_app\normalizer.py -Value "def normalize_payload(raw): return {k.strip(): v.strip() for k, v in raw.items()}"
-(Get-Content .worktrees\track-a\specs\001-telemetry\tasks.md) -replace '\[ \] 1-2', '[x] 1-2' | Set-Content .worktrees\track-a\specs\001-telemetry\tasks.md
-git -C .worktrees\track-a commit -am "feat: complete task 1-2"
+(Get-Content .worktrees\track-a\specs\001-telemetry\tasks.md) -replace '\[ \] T002', '[x] T002' | Set-Content .worktrees\track-a\specs\001-telemetry\tasks.md
+git -C .worktrees\track-a commit -am "feat: complete task T002"
 
-# track-b のエージェントがタスク 1-3 を完了：
+# track-b のエージェントがタスク T003 を完了：
 Set-Content -Path .worktrees\track-b\src\demo_app\exporter.py -Value "def export_events(events): return len(events)"
-(Get-Content .worktrees\track-b\specs\001-telemetry\tasks.md) -replace '\[ \] 1-3', '[x] 1-3' | Set-Content .worktrees\track-b\specs\001-telemetry\tasks.md
-git -C .worktrees\track-b commit -am "feat: complete task 1-3"
+(Get-Content .worktrees\track-b\specs\001-telemetry\tasks.md) -replace '\[ \] T003', '[x] T003' | Set-Content .worktrees\track-b\specs\001-telemetry\tasks.md
+git -C .worktrees\track-b commit -am "feat: complete task T003"
 ```
 
 #### ステップ 6. 差分監査およびバリア単調マージ
@@ -382,7 +382,7 @@ uv run sdd-parallel verify-wave --wave 1
 # 2. バリア統合と 3-way 単調状態マージ：
 uv run sdd-parallel merge --wave 1
 ```
-*確認事項：* `specs/001-telemetry/tasks.md` において `- [x] 1-2` と `- [x] 1-3` が **Git 競合マーカーゼロ** で統合されます。
+*確認事項：* `specs/001-telemetry/tasks.md` において `- [x] T002` と `- [x] T003` が **Git 競合マーカーゼロ** で統合されます。
 
 #### ステップ 7. トランザクション LIFO ロールバック
 ```powershell
@@ -411,10 +411,10 @@ uv run sdd-parallel prepare --wave 1
 
 # 3. タスク進捗のシミュレーション（sprint-status.yaml の更新）：
 (Get-Content .worktrees\track-a\_bmad-output\implementation-artifacts\sprint-status.yaml) -replace '1-2-normalize-telemetry-payload: ready-for-dev', '1-2-normalize-telemetry-payload: done' | Set-Content .worktrees\track-a\_bmad-output\implementation-artifacts\sprint-status.yaml
-git -C .worktrees\track-a commit -am "feat: finish story 1-2"
+git -C .worktrees\track-a commit -am "feat: complete task T002"
 
 (Get-Content .worktrees\track-b\_bmad-output\implementation-artifacts\sprint-status.yaml) -replace '1-3-cli-batch-export: ready-for-dev', '1-3-cli-batch-export: done' | Set-Content .worktrees\track-b\_bmad-output\implementation-artifacts\sprint-status.yaml
-git -C .worktrees\track-b commit -am "feat: finish story 1-3"
+git -C .worktrees\track-b commit -am "feat: complete task T003"
 
 # 4. バリア検証とマージ：
 uv run sdd-parallel verify-wave --wave 1
@@ -444,4 +444,4 @@ uv run sdd-parallel rollback-wave --wave 1 --save-backup
 - 📐 **[アーキテクチャホワイトペーパー (`02_SYSTEM_CAPABILITIES_WHITE_PAPER.md`)](../../dossier/02_SYSTEM_CAPABILITIES_WHITE_PAPER.md)** — 減衰影響半径 $I(T)$ の数理モデル、Kahn の非巡回性証明、三層防御アーキテクチャ、ステータス半束の代数構造。
 - 🔌 **[エコシステムおよび統合仕様書 (`03_INTEGRATION_AND_ECOSYSTEM_SPEC.md`)](../../dossier/03_INTEGRATION_AND_ECOSYSTEM_SPEC.md)** — **BMAD**、**GitHub Spec Kit (`.specify/`)**、**GSD (`.planning/`)**、**OpenSpec**、**Beads** との接続規約と MCP 定義。
 - 📊 **実環境における検証と事例 (Brownfield Verification)** — 複雑な複数エピック本番リポジトリにおける Two-Stage Assisted ワークフローの実証記録。
-- 🛡️ **[基本不変条件の一覧 (`README.md`)](../../../README.md#-core-invariants)** — システムの安全保証チェックリスト。
+- 🛡️ **[基本不変条件の一覧 (`README.md`)](ARCHITECTURE.md)** — システムの安全保証チェックリスト。

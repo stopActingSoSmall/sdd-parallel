@@ -321,7 +321,7 @@ git status
 git log -1 --oneline
 ```
 *生成的仓库结构：*
-- `specs/001-telemetry/{spec.md, plan.md, tasks.md}` — 纯正的 GitHub Spec Kit 任务清单 (`- [ ] 1-1`, `- [ ] 1-2`, `- [ ] 1-3`, `- [ ] 2-1`, `- [ ] 2-2`)。
+- `specs/001-telemetry/{spec.md, plan.md, tasks.md}` — 纯正的 GitHub Spec Kit 任务清单 (`- [ ] T001`, `- [ ] T002 [P]`, `- [ ] T003 [P]`, `- [ ] T004`, `- [ ] T005`)。
 - `.specify/memory/constitution.md` 与 `.specify/feature.json` — 项目不可变的核心宪章与特征契约。
 - `src/demo_app/` — 6 个包含二类语义冲突隐患的遥测应用代码模块。
 
@@ -360,15 +360,15 @@ Add-Content -Path .worktrees\track-a\.specify\memory\constitution.md -Value "una
 
 #### 第 5 步：模拟并行轨道独立提交
 ```powershell
-# track-a 智能体完成任务 1-2：
+# track-a 智能体完成任务 T002：
 Set-Content -Path .worktrees\track-a\src\demo_app\normalizer.py -Value "def normalize_payload(raw): return {k.strip(): v.strip() for k, v in raw.items()}"
-(Get-Content .worktrees\track-a\specs\001-telemetry\tasks.md) -replace '\[ \] 1-2', '[x] 1-2' | Set-Content .worktrees\track-a\specs\001-telemetry\tasks.md
-git -C .worktrees\track-a commit -am "feat: complete task 1-2"
+(Get-Content .worktrees\track-a\specs\001-telemetry\tasks.md) -replace '\[ \] T002', '[x] T002' | Set-Content .worktrees\track-a\specs\001-telemetry\tasks.md
+git -C .worktrees\track-a commit -am "feat: complete task T002"
 
-# track-b 智能体完成任务 1-3：
+# track-b 智能体完成任务 T003：
 Set-Content -Path .worktrees\track-b\src\demo_app\exporter.py -Value "def export_events(events): return len(events)"
-(Get-Content .worktrees\track-b\specs\001-telemetry\tasks.md) -replace '\[ \] 1-3', '[x] 1-3' | Set-Content .worktrees\track-b\specs\001-telemetry\tasks.md
-git -C .worktrees\track-b commit -am "feat: complete task 1-3"
+(Get-Content .worktrees\track-b\specs\001-telemetry\tasks.md) -replace '\[ \] T003', '[x] T003' | Set-Content .worktrees\track-b\specs\001-telemetry\tasks.md
+git -C .worktrees\track-b commit -am "feat: complete task T003"
 ```
 
 #### 第 6 步：审计差异并执行屏障单调合并
@@ -380,7 +380,7 @@ uv run sdd-parallel verify-wave --wave 1
 # 2. 执行屏障合并与 3 路单调状态集成：
 uv run sdd-parallel merge --wave 1
 ```
-*结果核验：* `specs/001-telemetry/tasks.md` 中两个任务均被安全勾选为 `- [x] 1-2` 与 `- [x] 1-3`，且产生 **0 个 Git 冲突标记**。
+*结果核验：* `specs/001-telemetry/tasks.md` 中两个任务均被安全勾选为 `- [x] T002` 与 `- [x] T003`，且产生 **0 个 Git 冲突标记**。
 
 #### 第 7 步：事务性 LIFO 波次回滚
 ```powershell
@@ -442,4 +442,4 @@ uv run sdd-parallel rollback-wave --wave 1 --save-backup
 - 📐 **[架构白皮书 (`02_SYSTEM_CAPABILITIES_WHITE_PAPER.md`)](../../dossier/02_SYSTEM_CAPABILITIES_WHITE_PAPER.md)** — 衰减爆炸半径 $I(T)$ 理论推导、Kahn 算法无环验证、三层防御体系与状态半格代数。
 - 🔌 **[生态与集成规范 (`03_INTEGRATION_AND_ECOSYSTEM_SPEC.md`)](../../dossier/03_INTEGRATION_AND_ECOSYSTEM_SPEC.md)** — 面向 **BMAD**、**GitHub Spec Kit (`.specify/`)**、**GSD (`.planning/`)**、**OpenSpec** 和 **Beads** 的适配器规格说明与 MCP 协议。
 - 📊 **棕地验证与实战复盘 (Brownfield Verification)** — 在复杂多史诗生产仓库中落地 Two-Stage Assisted 模式的实战复盘与验证记录。
-- 🛡️ **[核心不变量总结 (`README.md`)](../../../README.md#-core-invariants)** — 架构安全保障总览。
+- 🛡️ **[核心不变量总结 (`README.md`)](ARCHITECTURE.md)** — 架构安全保障总览。
