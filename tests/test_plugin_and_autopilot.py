@@ -135,3 +135,39 @@ def test_autopilot_launcher_routes_models_across_harnesses(tmp_path: Path) -> No
     # CLI autopilot missing wave check
     rc_err = main(["autopilot", "--repo", str(tmp_path), "--wave", "99"])
     assert rc_err == 1
+
+
+def test_autopilot_polymorphic_worker_commands(tmp_path: Path) -> None:
+    """Verify AutopilotLauncher renders native kit worker commands instead of hardcoded BMAD."""
+    tasks = [
+        TaskNode(
+            id="T001",
+            title="Implement Spec Kit task",
+            effort=EffortTier.MEDIUM,
+            write_files=["src/demo/a.py"],
+        ),
+    ]
+    scheduler = BSPWaveScheduler(max_tracks=1)
+
+    # Spec Kit plan
+    plan_spec = scheduler.schedule(tasks, sdd_kit="spec-kit")
+    launcher = AutopilotLauncher(tmp_path, agentapi_path=Path("agentapi.bat"))
+    specs_spec = launcher.build_launch_specs(plan_spec, wave_number=1, harness="antigravity")
+    assert len(specs_spec) == 1
+    assert "/speckit.implement" in specs_spec[0]["prompt"]
+    assert "/bmad-build-auto" not in specs_spec[0]["prompt"]
+
+    # GSD plan
+    tasks_gsd = [
+        TaskNode(
+            id="01-01",
+            title="Execute GSD phase",
+            effort=EffortTier.MEDIUM,
+            write_files=["src/demo/b.py"],
+        ),
+    ]
+    plan_gsd = scheduler.schedule(tasks_gsd, sdd_kit="gsd")
+    specs_gsd = launcher.build_launch_specs(plan_gsd, wave_number=1, harness="antigravity")
+    assert len(specs_gsd) == 1
+    assert "/gsd-execute-phase" in specs_gsd[0]["prompt"]
+    assert "/bmad-build-auto" not in specs_gsd[0]["prompt"]

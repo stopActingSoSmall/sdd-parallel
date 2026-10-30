@@ -436,3 +436,24 @@ def test_core_engine_de_bmadization_and_invariant_seven() -> None:
                 f"Forbidden domain literal '{literal}' found in {mod_name}"
             )
 
+
+def test_worktree_invariant_four_zero_hardcoded_kit_paths() -> None:
+    """Verify worktree.py has zero hardcoded SDD kit paths or filenames (Invariant 4)."""
+    repo_root = Path(__file__).resolve().parent.parent
+    worktree_file = repo_root / "src" / "sdd_parallel" / "worktree.py"
+    content = worktree_file.read_text(encoding="utf-8")
+
+    forbidden_patterns = [
+        "_bmad-output",
+        ".specify",
+        "openspec",
+        ".beads",
+        "specs/",
+    ]
+    for pattern in forbidden_patterns:
+        assert pattern not in content, (
+            f"Forbidden SDD kit pattern '{pattern}' found in worktree.py. "
+            "All status paths must be resolved polymorphically via "
+            "SDDAdapterProtocol.get_status_files()."
+        )
+

@@ -359,7 +359,7 @@ git status
 git log -1 --oneline
 ```
 *Что создано:*
-- `specs/001-telemetry/{spec.md, plan.md, tasks.md}` — чек-лист задач по стандарту GitHub Spec Kit (`- [ ] 1-1`, `- [ ] 1-2`, `- [ ] 1-3`, `- [ ] 2-1`, `- [ ] 2-2`).
+- `specs/001-telemetry/{spec.md, plan.md, tasks.md}` — чек-лист задач по стандарту GitHub Spec Kit (`- [ ] T001`, `- [ ] T002 [P]`, `- [ ] T003 [P]`, `- [ ] T004`, `- [ ] T005`).
 - `.specify/memory/constitution.md` и `.specify/feature.json` — неизменяемые контракты проекта.
 - `src/demo_app/` — 6 модулей телеметрии с заложенной скрытой коллизией 2-го рода.
 
@@ -370,7 +370,7 @@ uv run sdd-parallel plan
 *Что происходит:*
 - Авто-детектор распознаёт GitHub Spec Kit по спецификациям `specs/**/tasks.md` и `.specify/`.
 - AST-анализатор присваивает роли (`schema.py` $\to$ `SPINE`, `cli.py` $\to$ `ADDITIVE_REGISTRY`), находит семантический импорт `api.py` из `normalizer.py`.
-- Задачи `1-2` и `1-3` объединяются в **Wave 1**, а задача `2-1` изолируется в **Wave 2** во избежание Merge-Bomb.
+- Задачи `T002` и `T003` объединяются в **Wave 1**, а задача `T004` изолируется в **Wave 2** во избежание Merge-Bomb.
 
 #### Шаг 3. Подготовка фиксированных слотов треков (`prepare`)
 ```powershell
@@ -398,15 +398,15 @@ Add-Content -Path .worktrees\track-a\.specify\memory\constitution.md -Value "hac
 
 #### Шаг 5. Параллельные коммиты в треках
 ```powershell
-# Агент в track-a реализует задачу 1-2:
+# Агент в track-a реализует задачу T002:
 Set-Content -Path .worktrees\track-a\src\demo_app\normalizer.py -Value "def normalize_payload(raw): return {k.strip(): v.strip() for k, v in raw.items()}"
-(Get-Content .worktrees\track-a\specs\001-telemetry\tasks.md) -replace '\[ \] 1-2', '[x] 1-2' | Set-Content .worktrees\track-a\specs\001-telemetry\tasks.md
-git -C .worktrees\track-a commit -am "feat: complete task 1-2"
+(Get-Content .worktrees\track-a\specs\001-telemetry\tasks.md) -replace '\[ \] T002', '[x] T002' | Set-Content .worktrees\track-a\specs\001-telemetry\tasks.md
+git -C .worktrees\track-a commit -am "feat: complete task T002"
 
-# Агент в track-b реализует задачу 1-3:
+# Агент в track-b реализует задачу T003:
 Set-Content -Path .worktrees\track-b\src\demo_app\exporter.py -Value "def export_events(events): return len(events)"
-(Get-Content .worktrees\track-b\specs\001-telemetry\tasks.md) -replace '\[ \] 1-3', '[x] 1-3' | Set-Content .worktrees\track-b\specs\001-telemetry\tasks.md
-git -C .worktrees\track-b commit -am "feat: complete task 1-3"
+(Get-Content .worktrees\track-b\specs\001-telemetry\tasks.md) -replace '\[ \] T003', '[x] T003' | Set-Content .worktrees\track-b\specs\001-telemetry\tasks.md
+git -C .worktrees\track-b commit -am "feat: complete task T003"
 ```
 
 #### Шаг 6. Проверка диффов и монотонное барьерное слияние
@@ -418,7 +418,7 @@ uv run sdd-parallel verify-wave --wave 1
 # 2. Барьерное слияние с 3-way merge чек-листа:
 uv run sdd-parallel merge --wave 1
 ```
-*Результат:* Обе задачи `- [x] 1-2` и `- [x] 1-3` монотонно закрыты в `specs/001-telemetry/tasks.md` с **0 маркеров конфликтов**.
+*Результат:* Обе задачи `- [x] T002` и `- [x] T003` монотонно закрыты в `specs/001-telemetry/tasks.md` с **0 маркеров конфликтов**.
 
 #### Шаг 7. Транзакционный LIFO-откат волны
 ```powershell
@@ -444,10 +444,10 @@ uv run sdd-parallel prepare --wave 1
 
 # 3. Имитация коммитов (обновляет sprint-status.yaml):
 (Get-Content .worktrees\track-a\_bmad-output\implementation-artifacts\sprint-status.yaml) -replace '1-2-normalize-telemetry-payload: ready-for-dev', '1-2-normalize-telemetry-payload: done' | Set-Content .worktrees\track-a\_bmad-output\implementation-artifacts\sprint-status.yaml
-git -C .worktrees\track-a commit -am "feat: finish story 1-2"
+git -C .worktrees\track-a commit -am "feat: complete task T002"
 
 (Get-Content .worktrees\track-b\_bmad-output\implementation-artifacts\sprint-status.yaml) -replace '1-3-cli-batch-export: ready-for-dev', '1-3-cli-batch-export: done' | Set-Content .worktrees\track-b\_bmad-output\implementation-artifacts\sprint-status.yaml
-git -C .worktrees\track-b commit -am "feat: finish story 1-3"
+git -C .worktrees\track-b commit -am "feat: complete task T003"
 
 # 4. Барьерная проверка и слияние:
 uv run sdd-parallel verify-wave --wave 1
@@ -479,4 +479,4 @@ uv run sdd-parallel rollback-wave --wave 1 --save-backup
 - 📐 **[Архитектурный White Paper (`02_SYSTEM_CAPABILITIES_WHITE_PAPER.md`)](dossier/02_SYSTEM_CAPABILITIES_WHITE_PAPER.md)** — формула взвешенного радиуса поражения $I(T)$ с затуханием по графу вызовов (`code-review-graph`), условия ацикличности Кана, трёхуровневый перехват шелл-команд (`Terminal Guard` против обхода через `>` / `sed -i` / `python -c`) и алгебра полурешёток статусов.
 - 🔌 **[Спецификация интеграций и 5 SDD-адаптеров (`03_INTEGRATION_AND_ECOSYSTEM_SPEC.md`)](dossier/03_INTEGRATION_AND_ECOSYSTEM_SPEC.md)** — как `sdd-parallel` подключается к **BMAD**, **GitHub Spec Kit (`.specify/`)**, **GSD (`.planning/`)**, **OpenSpec** и **Beads**, а также схема `.parallel-lock.json` и протоколы хуков Antigravity / Claude Code.
 - 📊 **Верификация на существующих проектах (Brownfield)** — Практический опыт применения двухфазной модели исполнения (`Two-Stage Assisted`) на сложных многомодульных репозиториях.
-- 🛡️ **[Сводка 9 фундаментальных инвариантов в `README.md`](README.md#-фундаментальные-инварианты)** — краткий чек-лист гарантий безопасности движка.
+- 🛡️ **[Сводка 9 фундаментальных инвариантов в `README.md`](ARCHITECTURE.md)** — краткий чек-лист гарантий безопасности движка.

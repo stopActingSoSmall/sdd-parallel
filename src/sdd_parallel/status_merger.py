@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -276,7 +277,26 @@ def merge_beads_issues_jsonl(
     return "\n".join(lines) + ("\n" if lines else "")
 
 
+StatusMergerFn = Callable[[str, str, str], str]
+
+
+def get_status_merger(rel_path: str) -> StatusMergerFn | None:
+    """Return appropriate 3-way status merger function for given relative path, or None."""
+    norm = rel_path.replace("\\", "/").strip().lstrip("/")
+    filename = Path(norm).name.lower()
+
+    if filename in {"sprint-status.yaml", "sprint-status.yml"}:
+        return merge_sprint_status_yaml
+    if filename.endswith("tasks.md"):
+        return merge_markdown_task_checklists
+    if (norm.startswith(".beads/") or "/.beads/" in norm) and filename.endswith(".jsonl"):
+        return merge_beads_issues_jsonl
+    return None
+
+
 __all__ = [
+    "StatusMergerFn",
+    "get_status_merger",
     "merge_beads_issues_jsonl",
     "merge_markdown_task_checklists",
     "merge_sprint_status_files",

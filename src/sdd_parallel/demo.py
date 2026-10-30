@@ -56,6 +56,52 @@ def _run_git(cwd: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+_DEMO_KIT_TASKS: dict[str, dict[str, str]] = {
+    "bmad": {
+        "s1_spine": "1-1",
+        "s2_norm": "1-2",
+        "s3_exp": "1-3",
+        "s4_api": "2-1",
+        "s5_audit": "2-2",
+    },
+    "spec-kit": {
+        "s1_spine": "T001",
+        "s2_norm": "T002",
+        "s3_exp": "T003",
+        "s4_api": "T004",
+        "s5_audit": "T005",
+    },
+    "speckit": {
+        "s1_spine": "T001",
+        "s2_norm": "T002",
+        "s3_exp": "T003",
+        "s4_api": "T004",
+        "s5_audit": "T005",
+    },
+    "gsd": {
+        "s1_spine": "01-01",
+        "s2_norm": "01-02",
+        "s3_exp": "01-03",
+        "s4_api": "02-01",
+        "s5_audit": "02-02",
+    },
+    "openspec": {
+        "s1_spine": "upgrade-schema-v2",
+        "s2_norm": "normalize-telemetry",
+        "s3_exp": "cli-batch-export",
+        "s4_api": "ingestion-api-endpoint",
+        "s5_audit": "audit-log-schema",
+    },
+    "beads": {
+        "s1_spine": "bd-101",
+        "s2_norm": "bd-102",
+        "s3_exp": "bd-103",
+        "s4_api": "bd-201",
+        "s5_audit": "bd-202",
+    },
+}
+
+
 def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
     """Populate `repo_root` with a realistic Python package and native SDD kit artifacts."""
     norm_kit = kit.strip().lower()
@@ -131,6 +177,12 @@ def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
         plan_dir = repo_root / "_bmad-output" / "planning-artifacts"
         impl_dir.mkdir(parents=True, exist_ok=True)
         plan_dir.mkdir(parents=True, exist_ok=True)
+
+        (plan_dir / "project-context.md").write_text(
+            "# Project Context: Demo Telemetry App\n\n"
+            "Canonical architecture definitions and tech stack constraints.\n",
+            encoding="utf-8",
+        )
 
         for ctx_dir in (impl_dir, plan_dir):
             (ctx_dir / "epic-1-context.md").write_text(
@@ -209,9 +261,11 @@ def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
 
     elif norm_kit in {"spec-kit", "speckit"}:
         mem_dir = repo_root / ".specify" / "memory"
+        templates_dir = repo_root / ".specify" / "templates"
         feat_dir = repo_root / "specs" / "001-telemetry"
         compat_feat_dir = repo_root / ".specify" / "specs" / "001-telemetry"
         mem_dir.mkdir(parents=True, exist_ok=True)
+        templates_dir.mkdir(parents=True, exist_ok=True)
         feat_dir.mkdir(parents=True, exist_ok=True)
         compat_feat_dir.mkdir(parents=True, exist_ok=True)
 
@@ -220,6 +274,12 @@ def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
             "1. Zero Worktree Pollution: clean git status required.\n"
             "2. Blast-Radius Enforcement: Prevent semantic collisions.\n"
             "3. Spine-Lock: schema migrations executed sequentially.\n",
+            encoding="utf-8",
+        )
+        (templates_dir / "tasks-template.md").write_text(
+            "# Tasks Template for GitHub Spec Kit\n"
+            "## User Story N: Feature Name\n"
+            "- [ ] T001 [P] [US1] Task description with `path/to/file.py`\n",
             encoding="utf-8",
         )
         (repo_root / ".specify" / "feature.json").write_text(
@@ -237,13 +297,13 @@ def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
         )
         tasks_content = (
             "# Tasks for 001-telemetry\n\n"
-            "## Phase 1: Core Telemetry\n"
-            "- [ ] 1-2 [P] [US1] Normalize `src/demo_app/normalizer.py`, `src/demo_app/cli.py`\n"
-            "- [ ] 1-3 [P] [US1] Export `src/demo_app/exporter.py`, `src/demo_app/cli.py`\n"
-            "- [ ] 1-1 [US1] Upgrade schema in `src/demo_app/schema.py` (depends on 1-2)\n\n"
-            "## Phase 2: Ingestion & Audit\n"
-            "- [ ] 2-1 [US2] Expose ingestion in `src/demo_app/api.py`\n"
-            "- [ ] 2-2 [US2] Add audit log in `src/demo_app/schema.py` (depends on 1-1)\n"
+            "## User Story 1: Core Telemetry\n"
+            "- [ ] T001 [US1] Upgrade schema in `src/demo_app/schema.py` (depends on T002)\n"
+            "- [ ] T002 [P] [US1] Normalize `src/demo_app/normalizer.py`, `src/demo_app/cli.py`\n"
+            "- [ ] T003 [P] [US1] Export `src/demo_app/exporter.py`, `src/demo_app/cli.py`\n\n"
+            "## User Story 2: Ingestion & Audit\n"
+            "- [ ] T004 [P] [US2] Expose ingestion in `src/demo_app/api.py`\n"
+            "- [ ] T005 [US2] Add audit log in `src/demo_app/schema.py` (depends on T001)\n"
         )
         for d in (feat_dir, compat_feat_dir):
             (d / "spec.md").write_text(spec_content, encoding="utf-8")
@@ -257,6 +317,17 @@ def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
         phases_1.mkdir(parents=True, exist_ok=True)
         phases_2.mkdir(parents=True, exist_ok=True)
 
+        (p_dir / "PROJECT.md").write_text(
+            "# Project Context\n"
+            "Telemetry processing pipeline with high-throughput ingestion and audit logging.\n",
+            encoding="utf-8",
+        )
+        (p_dir / "REQUIREMENTS.md").write_text(
+            "# Requirements\n"
+            "1. Zero regression on telemetry normalization.\n"
+            "2. Strict schema migration ordering.\n",
+            encoding="utf-8",
+        )
         (p_dir / "ROADMAP.md").write_text(
             "# Project Roadmap\n\n"
             "## Phase 1: Core Telemetry\n"
@@ -266,16 +337,16 @@ def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
         (p_dir / "STATE.md").write_text(
             "# Project State\n\n"
             "## Active Checklist\n"
-            "- [ ] 1-1 Upgrade schema to v2\n"
-            "- [ ] 1-2 Normalize telemetry payload\n"
-            "- [ ] 1-3 Add CLI batch export command\n"
-            "- [ ] 2-1 Expose ingestion API endpoint\n"
-            "- [ ] 2-2 Add audit log table to schema\n",
+            "- [ ] 01-01 Upgrade schema to v2\n"
+            "- [ ] 01-02 Normalize telemetry payload\n"
+            "- [ ] 01-03 Add CLI batch export command\n"
+            "- [ ] 02-01 Expose ingestion API endpoint\n"
+            "- [ ] 02-02 Add audit log table to schema\n",
             encoding="utf-8",
         )
 
         plans: dict[Path, str] = {
-            phases_1 / "1-2-PLAN.md": (
+            phases_1 / "01-02-PLAN.md": (
                 "---\n"
                 "title: Normalize telemetry payload\n"
                 "files_modified:\n"
@@ -283,13 +354,13 @@ def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
                 "  - src/demo_app/cli.py\n"
                 "depends_on: []\n"
                 "---\n"
-                "# Plan 1-2: Normalize telemetry payload\n\n"
+                "# Plan 01-02: Normalize telemetry payload\n\n"
                 '<task type="auto">\n'
                 "<name>Normalize telemetry payload</name>\n"
                 "<files>src/demo_app/normalizer.py, src/demo_app/cli.py</files>\n"
                 "</task>\n"
             ),
-            phases_1 / "1-3-PLAN.md": (
+            phases_1 / "01-03-PLAN.md": (
                 "---\n"
                 "title: Add CLI batch export command\n"
                 "files_modified:\n"
@@ -297,53 +368,53 @@ def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
                 "  - src/demo_app/cli.py\n"
                 "depends_on: []\n"
                 "---\n"
-                "# Plan 1-3: Add CLI batch export command\n\n"
+                "# Plan 01-03: Add CLI batch export command\n\n"
                 '<task type="auto">\n'
                 "<name>Add CLI batch export command</name>\n"
                 "<files>src/demo_app/exporter.py, src/demo_app/cli.py</files>\n"
                 "</task>\n"
             ),
-            phases_1 / "1-1-PLAN.md": (
+            phases_1 / "01-01-PLAN.md": (
                 "---\n"
                 "title: Upgrade schema to v2\n"
                 "files_modified:\n"
                 "  - src/demo_app/schema.py\n"
                 "depends_on:\n"
-                "  - 1-2\n"
+                "  - 01-02\n"
                 "---\n"
-                "# Plan 1-1: Upgrade schema to v2\n\n"
+                "# Plan 01-01: Upgrade schema to v2\n\n"
                 '<task type="auto">\n'
                 "<name>Upgrade schema to v2</name>\n"
                 "<files>src/demo_app/schema.py</files>\n"
-                "<depends_on>1-2</depends_on>\n"
+                "<depends_on>01-02</depends_on>\n"
                 "</task>\n"
             ),
-            phases_2 / "2-1-PLAN.md": (
+            phases_2 / "02-01-PLAN.md": (
                 "---\n"
                 "title: Expose ingestion API endpoint\n"
                 "files_modified:\n"
                 "  - src/demo_app/api.py\n"
                 "depends_on: []\n"
                 "---\n"
-                "# Plan 2-1: Expose ingestion API endpoint\n\n"
+                "# Plan 02-01: Expose ingestion API endpoint\n\n"
                 '<task type="auto">\n'
                 "<name>Expose ingestion API endpoint</name>\n"
                 "<files>src/demo_app/api.py</files>\n"
                 "</task>\n"
             ),
-            phases_2 / "2-2-PLAN.md": (
+            phases_2 / "02-02-PLAN.md": (
                 "---\n"
                 "title: Add audit log table to schema\n"
                 "files_modified:\n"
                 "  - src/demo_app/schema.py\n"
                 "depends_on:\n"
-                "  - 1-1\n"
+                "  - 01-01\n"
                 "---\n"
-                "# Plan 2-2: Add audit log table to schema\n\n"
+                "# Plan 02-02: Add audit log table to schema\n\n"
                 '<task type="auto">\n'
                 "<name>Add audit log table to schema</name>\n"
                 "<files>src/demo_app/schema.py</files>\n"
-                "<depends_on>1-1</depends_on>\n"
+                "<depends_on>01-01</depends_on>\n"
                 "</task>\n"
             ),
         }
@@ -353,32 +424,57 @@ def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
     elif norm_kit == "openspec":
         os_dir = repo_root / "openspec"
         changes_dir = os_dir / "changes"
+        specs_dir = os_dir / "specs" / "telemetry"
         os_dir.mkdir(parents=True, exist_ok=True)
         changes_dir.mkdir(parents=True, exist_ok=True)
+        specs_dir.mkdir(parents=True, exist_ok=True)
 
         (os_dir / "project.md").write_text(
-            "# Project: Telemetry Application\nCanonical project specs.\n",
+            "# Project: Telemetry Application\n\n"
+            "## Phase 1: Core Telemetry\n"
+            "- normalize-telemetry\n"
+            "- cli-batch-export\n"
+            "- upgrade-schema-v2\n\n"
+            "## Phase 2: Ingestion & Audit\n"
+            "- ingestion-api-endpoint\n"
+            "- audit-log-schema\n",
             encoding="utf-8",
         )
         (os_dir / "config.yaml").write_text(
             "version: 1\nspecs_dir: openspec/specs\nchanges_dir: openspec/changes\n",
             encoding="utf-8",
         )
+        (specs_dir / "spec.md").write_text(
+            "# Spec: Telemetry Pipeline\nBaseline canonical telemetry specification.\n",
+            encoding="utf-8",
+        )
 
         ch_map: dict[str, tuple[str, list[str], list[str]]] = {
-            "1-2": (
+            "upgrade-schema-v2": (
+                "Upgrade schema to v2",
+                ["src/demo_app/schema.py"],
+                ["normalize-telemetry"],
+            ),
+            "normalize-telemetry": (
                 "Normalize telemetry payload",
                 ["src/demo_app/normalizer.py", "src/demo_app/cli.py"],
                 [],
             ),
-            "1-3": (
+            "cli-batch-export": (
                 "Add CLI batch export command",
                 ["src/demo_app/exporter.py", "src/demo_app/cli.py"],
                 [],
             ),
-            "1-1": ("Upgrade schema to v2", ["src/demo_app/schema.py"], ["1-2"]),
-            "2-1": ("Expose ingestion API endpoint", ["src/demo_app/api.py"], []),
-            "2-2": ("Add audit log table to schema", ["src/demo_app/schema.py"], ["1-1"]),
+            "ingestion-api-endpoint": (
+                "Expose ingestion API endpoint",
+                ["src/demo_app/api.py"],
+                [],
+            ),
+            "audit-log-schema": (
+                "Add audit log table to schema",
+                ["src/demo_app/schema.py"],
+                ["upgrade-schema-v2"],
+            ),
         }
         for cid, (title, files, deps) in ch_map.items():
             c_dir = changes_dir / cid
@@ -394,7 +490,11 @@ def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
                 encoding="utf-8",
             )
             (c_dir / "tasks.md").write_text(
-                f"# Tasks\n- [ ] {title}\n",
+                f"# Tasks\n- [ ] [{cid}] {title}\n",
+                encoding="utf-8",
+            )
+            (c_dir / "design.md").write_text(
+                f"# Design: {title}\nArchitectural considerations and data flow.\n",
                 encoding="utf-8",
             )
 
@@ -404,44 +504,49 @@ def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
         (b_dir / "config.yaml").write_text("tracker: beads\nversion: 1\n", encoding="utf-8")
         issues = [
             {
-                "id": "1-1",
+                "id": "bd-101",
                 "title": "Upgrade schema to v2",
                 "status": "open",
                 "files": ["src/demo_app/schema.py"],
-                "dependencies": [{"id": "1-2", "type": "blocks"}],
+                "dependencies": [{"target": "bd-102", "type": "blocks"}],
                 "priority": 1,
+                "epic": "epic-1",
             },
             {
-                "id": "1-2",
+                "id": "bd-102",
                 "title": "Normalize telemetry payload",
                 "status": "open",
                 "files": ["src/demo_app/normalizer.py", "src/demo_app/cli.py"],
                 "dependencies": [],
                 "priority": 2,
+                "epic": "epic-1",
             },
             {
-                "id": "1-3",
+                "id": "bd-103",
                 "title": "Add CLI batch export command",
                 "status": "open",
                 "files": ["src/demo_app/exporter.py", "src/demo_app/cli.py"],
                 "dependencies": [],
                 "priority": 2,
+                "epic": "epic-1",
             },
             {
-                "id": "2-1",
+                "id": "bd-201",
                 "title": "Expose ingestion API endpoint",
                 "status": "open",
                 "files": ["src/demo_app/api.py"],
                 "dependencies": [],
                 "priority": 2,
+                "epic": "epic-2",
             },
             {
-                "id": "2-2",
+                "id": "bd-202",
                 "title": "Add audit log table to schema",
                 "status": "open",
                 "files": ["src/demo_app/schema.py"],
-                "dependencies": [{"id": "1-1", "type": "blocks"}],
+                "dependencies": [{"target": "bd-101", "type": "blocks"}],
                 "priority": 1,
+                "epic": "epic-2",
             },
         ]
         jsonl_text = "\n".join(json.dumps(iss, ensure_ascii=False) for iss in issues) + "\n"
@@ -522,11 +627,16 @@ def _execute_single_demo(
     scheduler = BSPWaveScheduler(max_tracks=3, file_roles=file_roles)
     plan = scheduler.schedule(tasks, sdd_kit=kit_name)
 
+    task_map = _DEMO_KIT_TASKS.get(kit, _DEMO_KIT_TASKS["bmad"])
+    t_norm = task_map["s2_norm"]
+    t_exp = task_map["s3_exp"]
+    t_api = task_map["s4_api"]
+
     sem_edges = [
         e
         for e in plan.edges
         if e.conflict_type == ConflictType.SEMANTIC_COLLISION
-        and {e.source, e.target} == {"1-2", "2-1"}
+        and {e.source, e.target} == {t_norm, t_api}
     ]
     semantic_detected = len(sem_edges) > 0
 
@@ -534,7 +644,7 @@ def _execute_single_demo(
     out.write("-" * 76 + "\n")
     out.write("  Collision Analysis:\n")
     out.write(
-        "    - Naive Scheduler : W(1-2)={normalizer.py, cli.py} vs W(2-1)={api.py}\n"
+        f"    - Naive Scheduler : W({t_norm})={{normalizer.py, cli.py}} vs W({t_api})={{api.py}}\n"
         "                        -> DISJOINT WRITES (False Safe!)\n"
     )
     if sem_edges:
@@ -542,11 +652,12 @@ def _execute_single_demo(
         out.write(
             f"    - BSPWaveScheduler: Detected {edge.conflict_type.value} between "
             f"'{edge.source}' and '{edge.target}'\n"
-            f"                        -> Overlap W(1-2) ^ I(2-1) on: "
+            f"                        -> Overlap W({t_norm}) ^ I({t_api}) on: "
             f"{', '.join(edge.shared_files)}\n"
         )
     out.write(
-        "    - Additive Registry: Tasks '1-2' and '1-3' both touch 'src/demo_app/cli.py'\n"
+        f"    - Additive Registry: Tasks '{t_norm}' and '{t_exp}' "
+        "both touch 'src/demo_app/cli.py'\n"
         "                        -> Role: ADDITIVE_REGISTRY (Parallel allowed in Wave 1)\n\n"
     )
     out.write("  Wave Schedule:\n")
@@ -611,7 +722,7 @@ def _execute_single_demo(
     # ------------------------------------------------------------------
     track_b_path = wm.worktree_path_for_track(1, "track-b")
 
-    # Simulate Worker A completing Task 1-2
+    # Simulate Worker A completing Task t_norm
     norm_file = track_a_path / "src" / "demo_app" / "normalizer.py"
     norm_file.write_text(
         norm_file.read_text(encoding="utf-8")
@@ -623,8 +734,8 @@ def _execute_single_demo(
         status_a = track_a_path / "_bmad-output" / "implementation-artifacts" / "sprint-status.yaml"
         status_a.write_text(
             status_a.read_text(encoding="utf-8").replace(
-                "1-2-normalize-telemetry-payload: ready-for-dev",
-                "1-2-normalize-telemetry-payload: done",
+                f"{t_norm}-normalize-telemetry-payload: ready-for-dev",
+                f"{t_norm}-normalize-telemetry-payload: done",
             ),
             encoding="utf-8",
         )
@@ -634,18 +745,18 @@ def _execute_single_demo(
         if not tasks_a.is_file():
             tasks_a = track_a_path / ".specify" / "specs" / "001-telemetry" / "tasks.md"
         tasks_a.write_text(
-            tasks_a.read_text(encoding="utf-8").replace("- [ ] 1-2", "- [x] 1-2"),
+            tasks_a.read_text(encoding="utf-8").replace(f"- [ ] {t_norm}", f"- [x] {t_norm}"),
             encoding="utf-8",
         )
         _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", tasks_a.as_posix()])
     elif kit == "gsd":
-        sum_a = track_a_path / ".planning" / "phases" / "01-core" / "1-2-SUMMARY.md"
-        sum_a.write_text("# Summary 1-2: Done\n", encoding="utf-8")
+        sum_a = track_a_path / ".planning" / "phases" / "01-core" / f"{t_norm}-SUMMARY.md"
+        sum_a.write_text(f"# Summary {t_norm}: Done\n", encoding="utf-8")
         _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", sum_a.as_posix()])
     elif kit == "openspec":
-        tasks_a = track_a_path / "openspec" / "changes" / "1-2" / "tasks.md"
+        tasks_a = track_a_path / "openspec" / "changes" / t_norm / "tasks.md"
         tasks_a.write_text(
-            tasks_a.read_text(encoding="utf-8").replace("- [ ] Normalize", "- [x] Normalize"),
+            tasks_a.read_text(encoding="utf-8").replace("- [ ]", "- [x]"),
             encoding="utf-8",
         )
         _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", tasks_a.as_posix()])
@@ -659,7 +770,7 @@ def _execute_single_demo(
                     if line.strip()
                 ]
                 for r in recs_a:
-                    if r.get("id") == "1-2":
+                    if r.get("id") == t_norm:
                         r["status"] = "closed"
                 iss_a.write_text(
                     "\n".join(json.dumps(r, ensure_ascii=False) for r in recs_a) + "\n",
@@ -668,9 +779,9 @@ def _execute_single_demo(
                 _run_git(track_a_path, ["add", iss_a.as_posix()])
         _run_git(track_a_path, ["add", "src/demo_app/normalizer.py"])
 
-    _run_git(track_a_path, ["commit", "-m", "feat(1-2): add normalize_key helper"])
+    _run_git(track_a_path, ["commit", "-m", f"feat({t_norm}): add normalize_key helper"])
 
-    # Simulate Worker B completing Task 1-3
+    # Simulate Worker B completing Task t_exp
     exp_file = track_b_path / "src" / "demo_app" / "exporter.py"
     exp_file.write_text(
         exp_file.read_text(encoding="utf-8")
@@ -682,8 +793,8 @@ def _execute_single_demo(
         status_b = track_b_path / "_bmad-output" / "implementation-artifacts" / "sprint-status.yaml"
         status_b.write_text(
             status_b.read_text(encoding="utf-8").replace(
-                "1-3-cli-batch-export: ready-for-dev",
-                "1-3-cli-batch-export: done",
+                f"{t_exp}-cli-batch-export: ready-for-dev",
+                f"{t_exp}-cli-batch-export: done",
             ),
             encoding="utf-8",
         )
@@ -693,18 +804,18 @@ def _execute_single_demo(
         if not tasks_b.is_file():
             tasks_b = track_b_path / ".specify" / "specs" / "001-telemetry" / "tasks.md"
         tasks_b.write_text(
-            tasks_b.read_text(encoding="utf-8").replace("- [ ] 1-3", "- [x] 1-3"),
+            tasks_b.read_text(encoding="utf-8").replace(f"- [ ] {t_exp}", f"- [x] {t_exp}"),
             encoding="utf-8",
         )
         _run_git(track_b_path, ["add", "src/demo_app/exporter.py", tasks_b.as_posix()])
     elif kit == "gsd":
-        sum_b = track_b_path / ".planning" / "phases" / "01-core" / "1-3-SUMMARY.md"
-        sum_b.write_text("# Summary 1-3: Done\n", encoding="utf-8")
+        sum_b = track_b_path / ".planning" / "phases" / "01-core" / f"{t_exp}-SUMMARY.md"
+        sum_b.write_text(f"# Summary {t_exp}: Done\n", encoding="utf-8")
         _run_git(track_b_path, ["add", "src/demo_app/exporter.py", sum_b.as_posix()])
     elif kit == "openspec":
-        tasks_b = track_b_path / "openspec" / "changes" / "1-3" / "tasks.md"
+        tasks_b = track_b_path / "openspec" / "changes" / t_exp / "tasks.md"
         tasks_b.write_text(
-            tasks_b.read_text(encoding="utf-8").replace("- [ ] Add CLI", "- [x] Add CLI"),
+            tasks_b.read_text(encoding="utf-8").replace("- [ ]", "- [x]"),
             encoding="utf-8",
         )
         _run_git(track_b_path, ["add", "src/demo_app/exporter.py", tasks_b.as_posix()])
@@ -718,7 +829,7 @@ def _execute_single_demo(
                     if line.strip()
                 ]
                 for r in recs_b:
-                    if r.get("id") == "1-3":
+                    if r.get("id") == t_exp:
                         r["status"] = "closed"
                 iss_b.write_text(
                     "\n".join(json.dumps(r, ensure_ascii=False) for r in recs_b) + "\n",
@@ -727,7 +838,7 @@ def _execute_single_demo(
                 _run_git(track_b_path, ["add", iss_b.as_posix()])
         _run_git(track_b_path, ["add", "src/demo_app/exporter.py"])
 
-    _run_git(track_b_path, ["commit", "-m", "feat(1-3): add export summary formatter"])
+    _run_git(track_b_path, ["commit", "-m", f"feat({t_exp}): add export summary formatter"])
 
     violations = wm.verify_wave(plan=plan, wave_number=1)
     if violations:
@@ -756,7 +867,7 @@ def _execute_single_demo(
         merged_status_text = st_file.read_text(encoding="utf-8") if st_file.is_file() else ""
         status_header_label = "STATE.md"
     elif kit == "openspec":
-        st_file = demo_dir / "openspec" / "changes" / "1-2" / "tasks.md"
+        st_file = demo_dir / "openspec" / "changes" / t_norm / "tasks.md"
         merged_status_text = st_file.read_text(encoding="utf-8") if st_file.is_file() else ""
         status_header_label = "tasks.md"
     elif kit == "beads":
@@ -776,7 +887,7 @@ def _execute_single_demo(
         out.write(f"    - {br}\n")
     out.write(f"\n  Resolved {status_header_label} (0 conflict markers):\n")
     for line in merged_status_text.splitlines():
-        if any(tok in line for tok in ("1-2", "1-3")):
+        if any(tok in line for tok in (t_norm, t_exp)):
             out.write(f"    - {line.strip()}\n")
     out.write("=" * 76 + "\n")
     out.write(f"ALL 5 CORE INVARIANTS VERIFIED IN {elapsed:.2f}s\n")

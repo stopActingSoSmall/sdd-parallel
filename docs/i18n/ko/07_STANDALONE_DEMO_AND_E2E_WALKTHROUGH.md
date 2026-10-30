@@ -323,7 +323,7 @@ git status
 git log -1 --oneline
 ```
 *생성된 저장소 구조:*
-- `specs/001-telemetry/{spec.md, plan.md, tasks.md}` — GitHub Spec Kit 표준 작업 체크리스트 (`- [ ] 1-1`, `- [ ] 1-2`, `- [ ] 1-3`, `- [ ] 2-1`, `- [ ] 2-2`).
+- `specs/001-telemetry/{spec.md, plan.md, tasks.md}` — GitHub Spec Kit 표준 작업 체크리스트 (`- [ ] T001`, `- [ ] T002 [P]`, `- [ ] T003 [P]`, `- [ ] T004`, `- [ ] T005`).
 - `.specify/memory/constitution.md`, `.specify/feature.json` — 프로젝트의 불변 헌장 및 명세 계약.
 - `src/demo_app/` — 숨겨진 제2종 시맨틱 충돌을 포함하는 6개의 텔레메트리 파이썬 모듈.
 
@@ -334,7 +334,7 @@ uv run sdd-parallel plan
 *실행 분석:*
 - `specs/**/tasks.md` 및 `.specify/`를 통해 GitHub Spec Kit 자동 인식.
 - AST 정적 분석기가 `schema.py`를 `SPINE`, `cli.py`를 `ADDITIVE_REGISTRY`로 분류하고, `api.py`와 `normalizer.py` 간의 호출 종속성을 탐지.
-- 작업 `1-2`와 `1-3`은 **Wave 1**로 묶이고, `2-1`은 **Wave 2**로 격리되어 머지 폭탄을 차단.
+- 작업 `T002`와 `T003`은 **Wave 1**로 묶이고, `T004`는 **Wave 2**로 격리되어 머지 폭탄을 차단.
 
 #### 단계 3. 고정 트랙 작업 트리 슬롯 준비 (`prepare`)
 ```powershell
@@ -362,15 +362,15 @@ Add-Content -Path .worktrees\track-a\.specify\memory\constitution.md -Value "una
 
 #### 단계 5. 각 트랙에서 병렬 커밋 시뮬레이션
 ```powershell
-# track-a 에이전트가 작업 1-2 완료:
+# track-a 에이전트가 작업 T002 완료:
 Set-Content -Path .worktrees\track-a\src\demo_app\normalizer.py -Value "def normalize_payload(raw): return {k.strip(): v.strip() for k, v in raw.items()}"
-(Get-Content .worktrees\track-a\specs\001-telemetry\tasks.md) -replace '\[ \] 1-2', '[x] 1-2' | Set-Content .worktrees\track-a\specs\001-telemetry\tasks.md
-git -C .worktrees\track-a commit -am "feat: complete task 1-2"
+(Get-Content .worktrees\track-a\specs\001-telemetry\tasks.md) -replace '\[ \] T002', '[x] T002' | Set-Content .worktrees\track-a\specs\001-telemetry\tasks.md
+git -C .worktrees\track-a commit -am "feat: complete task T002"
 
-# track-b 에이전트가 작업 1-3 완료:
+# track-b 에이전트가 작업 T003 완료:
 Set-Content -Path .worktrees\track-b\src\demo_app\exporter.py -Value "def export_events(events): return len(events)"
-(Get-Content .worktrees\track-b\specs\001-telemetry\tasks.md) -replace '\[ \] 1-3', '[x] 1-3' | Set-Content .worktrees\track-b\specs\001-telemetry\tasks.md
-git -C .worktrees\track-b commit -am "feat: complete task 1-3"
+(Get-Content .worktrees\track-b\specs\001-telemetry\tasks.md) -replace '\[ \] T003', '[x] T003' | Set-Content .worktrees\track-b\specs\001-telemetry\tasks.md
+git -C .worktrees\track-b commit -am "feat: complete task T003"
 ```
 
 #### 단계 6. diff 감사 및 장벽 단조 머지 수행
@@ -382,7 +382,7 @@ uv run sdd-parallel verify-wave --wave 1
 # 2. 장벽 머지 및 3-way 단조 상태 통합:
 uv run sdd-parallel merge --wave 1
 ```
-*검증:* `specs/001-telemetry/tasks.md`에서 두 작업 모두 `- [x] 1-2`와 `- [x] 1-3`으로 **Git 충돌 마커 없이 100% 깔끔하게 병합**됩니다.
+*검증:* `specs/001-telemetry/tasks.md`에서 두 작업 모두 `- [x] T002`와 `- [x] T003`으로 **Git 충돌 마커 없이 100% 깔끔하게 병합**됩니다.
 
 #### 단계 7. 트랜잭션 LIFO 웨이브 롤백
 ```powershell
@@ -411,10 +411,10 @@ uv run sdd-parallel prepare --wave 1
 
 # 3. 트랙별 작업 완료 시뮬레이션 (sprint-status.yaml 갱신):
 (Get-Content .worktrees\track-a\_bmad-output\implementation-artifacts\sprint-status.yaml) -replace '1-2-normalize-telemetry-payload: ready-for-dev', '1-2-normalize-telemetry-payload: done' | Set-Content .worktrees\track-a\_bmad-output\implementation-artifacts\sprint-status.yaml
-git -C .worktrees\track-a commit -am "feat: finish story 1-2"
+git -C .worktrees\track-a commit -am "feat: complete task T002"
 
 (Get-Content .worktrees\track-b\_bmad-output\implementation-artifacts\sprint-status.yaml) -replace '1-3-cli-batch-export: ready-for-dev', '1-3-cli-batch-export: done' | Set-Content .worktrees\track-b\_bmad-output\implementation-artifacts\sprint-status.yaml
-git -C .worktrees\track-b commit -am "feat: finish story 1-3"
+git -C .worktrees\track-b commit -am "feat: complete task T003"
 
 # 4. 장벽 검증 및 머지:
 uv run sdd-parallel verify-wave --wave 1
@@ -444,4 +444,4 @@ uv run sdd-parallel rollback-wave --wave 1 --save-backup
 - 📐 **[아키텍처 화이트페이퍼 (`02_SYSTEM_CAPABILITIES_WHITE_PAPER.md`)](../../dossier/02_SYSTEM_CAPABILITIES_WHITE_PAPER.md)** — 감쇠 영향 반경 $I(T)$ 수식 증명, Kahn 비순환성 검증, 3계층 방어 체계 및 상태 반격자 대수학.
 - 🔌 **[생태계 및 통합 명세서 (`03_INTEGRATION_AND_ECOSYSTEM_SPEC.md`)](../../dossier/03_INTEGRATION_AND_ECOSYSTEM_SPEC.md)** — **BMAD**, **GitHub Spec Kit (`.specify/`)**, **GSD (`.planning/`)**, **OpenSpec**, **Beads** 어댑터 명세 및 MCP 프로토콜.
 - 📊 **실제 프로젝트 환경 검증 (Brownfield Verification)** — 대규모 다중 에픽 프로덕션 저장소에서 Two-Stage Assisted 워크플로를 적용한 실전 검증 분석.
-- 🛡️ **[핵심 불변 조건 요약 (`README.md`)](../../../README.md#-core-invariants)** — 시스템 안전성 보증 총괄 체크리스트.
+- 🛡️ **[핵심 불변 조건 요약 (`README.md`)](ARCHITECTURE.md)** — 시스템 안전성 보증 총괄 체크리스트.

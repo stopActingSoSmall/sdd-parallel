@@ -1,17 +1,20 @@
-# ⚡ SDD-Parallel (`parallel-flow`)
-
-[![CI](https://github.com/stopActingSoSmall/sdd-parallel/actions/workflows/ci.yml/badge.svg)](https://github.com/stopActingSoSmall/sdd-parallel/actions/workflows/ci.yml)
-[![PyPI version](https://img.shields.io/pypi/v/sdd-parallel.svg)](https://pypi.org/project/sdd-parallel/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../../../LICENSE)
-[![Zero API Keys Demo](https://img.shields.io/badge/demo-offline%20%3C5s-green.svg)](#-5초-안에-직접-실행해-보기-api-키-불필요-클론-불필요)
-
 <p align="center">
-  <img src="../../assets/hero-banner.jpg" width="100%" alt="SDD-Parallel 개요">
+  <img src="../../assets/hero-banner.png" width="100%" alt="SDD-Parallel — 결정론적 병렬 AI 에이전트 오케스트레이터">
 </p>
 
 <p align="center">
-  <b>🌐 언어 / Language:</b>
+  <a href="https://github.com/stopActingSoSmall/sdd-parallel/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/stopActingSoSmall/sdd-parallel/ci.yml?branch=master&style=flat-square&label=CI" alt="CI"></a>
+  <a href="https://pypi.org/project/sdd-parallel/"><img src="https://img.shields.io/pypi/v/sdd-parallel?style=flat-square&color=0EA5E9" alt="PyPI version"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square" alt="Python 3.11+"></a>
+  <a href="../../../LICENSE"><img src="https://img.shields.io/badge/license-MIT-F59E0B?style=flat-square" alt="License: MIT"></a>
+  <a href="#-5초-만에-체험하기-api-키-불필요-주석이-포함된-안내"><img src="https://img.shields.io/badge/demo-offline%20%3C5s-10B981?style=flat-square" alt="5초 미만 오프라인 데모"></a>
+  <br>
+  <a href="#-기존-개발-스택에-즉시-통합-종속성-없음"><img src="https://img.shields.io/badge/works%20with-Claude%20Code%20%7C%20Codex%20%7C%20Antigravity%20%7C%20Cursor%20%7C%20OpenCode%20%7C%20Kimi-7C3AED?style=flat-square" alt="Claude Code, Codex, Antigravity, Cursor, OpenCode, Kimi와 연동 가능"></a>
+  <a href="#-실제-sdd-프로젝트-디렉토리-구조-도입-전후-비교"><img src="https://img.shields.io/badge/SDD%20kits-Spec%20Kit%20%7C%20BMAD%20%7C%20GSD%20%7C%20OpenSpec%20%7C%20Beads-0EA5E9?style=flat-square" alt="지원 SDD 키트: Spec Kit, BMAD, GSD, OpenSpec, Beads"></a>
+</p>
+
+<p align="center">
+  <b>🌐 언어:</b>
   <a href="../../../README.md">English</a> |
   <a href="../zh-CN/README.md">简体中文</a> |
   <a href="../es/README.md">Español</a> |
@@ -21,60 +24,61 @@
   <a href="../ru/README.md">Русский</a>
 </p>
 
-> **빌드나 Git 커밋 기록을 망가뜨리지 않고 3~4개의 AI 코딩 에이전트를 안전하게 병렬 실행.**  
-> **BMAD**, **GitHub Spec Kit**, **GSD**, **OpenSpec**, **Beads** 프로젝트에서 작업하는 **Claude Code**, **OpenAI Codex**, **Google Antigravity**를 위한 결정론적 항공 관제사, 워크트리 격리 엔진 및 영향 반경(Blast Radius) 보호망.
+<p align="center">
+  <a href="#-5초-만에-체험하기-api-키-불필요-주석이-포함된-안내">빠른 데모</a> ·
+  <a href="#-왜-이것이-필요한가-쉽게-풀어쓴-설명">도입 배경</a> ·
+  <a href="#%EF%B8%8F-동작-원리-및-일상적인-4단계-워크플로우">동작 원리</a> ·
+  <a href="#-실제-sdd-프로젝트-디렉토리-구조-도입-전후-비교">프로젝트 구조</a> ·
+  <a href="#-기존-개발-스택에-즉시-통합-종속성-없음">지원 하네스</a> ·
+  <a href="#%EF%B8%8F-전체-cli-명령어-레퍼런스">CLI 레퍼런스</a> ·
+  <a href="#-시스템-아키텍처-수학적-모델-및-상세-분석-문서">심층 분석</a>
+</p>
+
+> **여러 AI 코딩 에이전트를 안전하게 병렬 실행 — 최대 3배 빠른 개발, 머지 충돌 폭탄(Merge-Bomb) 제로.**  
+> `sdd-parallel`은 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 백로그와 이를 구현하는 코딩 에이전트(**Claude Code**, **Codex**, **Antigravity** 및 worktree를 지원하는 모든 CLI) 사이에서 동작하는 결정론적 트래픽 컨트롤러이자 워크트리 격리기 및 영향 반경(Blast-Radius) 보호 하네스입니다.
 
 ---
 
-## ⚡ 왜 이것이 필요한가요? (쉬운 설명)
+## ⚡ 왜 이것이 필요한가? (쉽게 풀어쓴 설명)
 
-백로그에 10~15개의 명세서나 스토리가 쌓여 있을 때, 개발자는 난처한 선택에 직면합니다:
-1. **단일 AI 에이전트 순차 실행:** 안전하지만 완료까지 **6~8시간** 동안 기다려야 합니다.
-2. **3~4개 AI 에이전트 단순 병렬 실행 (`git worktree`):** 코딩은 빠르지만, 병합하는 순간 치명적인 **머지 폭탄 (Merge-Bomb)** 에 직면합니다:
-   - **직접적인 Git 충돌:** 여러 에ージェント가 `sprint-status.yaml`, `STATE.md`, `cli.py`를 동시에 수정.
-   - **보이지 않는 시맨틱 파괴 (제2종 충돌):** 에이전트 A가 `normalizer.py`의 함수 시그니처를 변경하는 동안, 다른 워크트리의 에이전트 B가 `api.py`에서 이전 시그니처를 호출. **Git은 충돌 마커 없이 깔끔하게 병합하지만, `main` 브랜치는 런타임에 즉시 중단됩니다.**
-   - **범위 일탈 (Scope Creep):** 에이전트가 지나친 주도성을 발휘하여 할당된 범위를 벗어난 공유 데이터베이스 스키마(`schema.py`)를 임의로 수정.
+<p align="center">
+  <img src="../../assets/merge-bomb-anatomy.png" width="100%" alt="머지 폭탄(Merge-Bomb)의 해부: 순차 실행 vs 단순 병렬 worktree vs sdd-parallel">
+</p>
 
-**`sdd-parallel`은 사용자의 SDD 명세서와 AI 코딩 에이전트 사이에서 컴파일러 수준의 공중 교통 관제탑 역할을 수행합니다.** 단 하나의 LLM 토큰을 소비하기 전에 코드베이스 AST와 호출 그래프를 분석하여 충돌 없는 태스크를 병렬 **웨이브(Waves)** 로 편성하고, 각 에이전트를 깨끗한 고정 슬롯(`track-a`, `track-b`)에 격리하며, 범위 외 파일 접근을 물리적으로 차단하고, 웨이브 완료 후 충돌 없이 자동 병합합니다.
+10~15개의 명세(spec)나 스토리로 구성된 백로그를 개발할 때, 개발자는 보통 두 가지 불만족스러운 선택지 중 하나를 강요받습니다:
 
-### 📊 비교: `sdd-parallel` 도입 전 vs 도입 후
+1. **에이전트 1개로 순차 실행** — 안전하지만 작업 완료까지 **6~8시간**을 하염없이 기다려야 합니다.
+2. **단순 `git worktree` 폴더에서 에이전트 3~4개 동시 실행** — 코딩은 빠르지만, 병합(merge) 순간 대혼란이 발생합니다:
+   - **제1종 충돌(직접 충돌, Direct):** 두 에이전트가 동시에 `sprint-status.yaml`, `STATE.md`, `cli.py`를 수정 → 머지할 때마다 `<<<<<<<` 충돌 마커 발생.
+   - **제2종 충돌(시맨틱/무음 충돌, Semantic & Silent):** 에이전트 A가 `normalizer.py`의 함수 시그니처를 변경하고, 다른 워크트리의 에이전트 B는 `api.py`에서 기존 구형 시그니처를 호출. **Git은 충돌 마커 없이 깔끔하게 병합하지만, 병합 직후 `main` 브랜치가 깨집니다.**
+   - **스코프 무단 침범(Scope creep):** "지나치게 친절한" 에이전트가 본인의 할당 작업도 아닌 공유 `schema.py`를 마음대로 리팩터링합니다.
 
-| 평가 항목 | ❌ 순차 실행 SDD (에이전트 1개) | 💥 단순 병렬 실행 (`--worktree`) | ✅ `sdd-parallel` 도입 시 |
+**`sdd-parallel`은 단 1개의 LLM 토큰을 소비하기도 전에 이 문제를 해결합니다:** AST 및 호출 그래프를 스캔하여 안전성이 수학적으로 입증된 작업들을 병렬 **웨이브(Wave)**로 그룹화하고, 각 에이전트를 깨끗한 고정 슬롯(`track-a`, `track-b`, …)에 격리하며, 훅과 OS 레벨에서 스코프 외 수정을 원천 차단하고, 퀄리티 게이트 베리어 뒤에서 각 웨이브를 안전하게 병합합니다.
+
+| 발생 상황 | ❌ 순차 실행 (에이전트 1개) | 💥 단순 병렬 (`--worktree`) | ✅ `sdd-parallel` 적용 시 |
 | :--- | :--- | :--- | :--- |
-| **12개 스토리 스프린트 소요 시간** | 약 6~8시간 (하나씩 실행) | 약 2시간 코딩 + **2시간 머지 오류 수정** | **총 약 2.5시간 (2~3배 속도 향상)** |
-| **잠재적 타입/API 충돌** | 느리게 실행해야만 방지 가능 | **병합 후 `main` 브랜치 장애 발생** ($W_A \cap I_B$) | **사전 계산으로 원천 차단** (웨이브 1 → 웨이브 2로 분리) |
-| **공유 CLI 및 라우팅 파일** | 한 번에 하나의 에이전트만 작업 가능 | 병합할 때마다 Git 충돌 발생 | **안전한 병렬 개발 지원** (`ADDITIVE_REGISTRY` 자동 감지) |
-| **`sprint-status.yaml` / `tasks.md`** | 엄격히 순차적으로만 업데이트 | `<<<<<<<` 충돌 마커 빈번 | **완전 자동 병합** (단조 3-Way 병합기) |
-| **에이전트의 타 파일 무단 수정** | 프롬프트로 "수정하지 마세요" 호소 | 에이전트가 `bash` / `sed`로 규약 우회 | **OS 및 훅 수준에서 원천 차단** (`chmod a-w` + `PreToolUse`) |
-| **워크트리 폴더 난립** | 없음 | 방치된 `.worktrees/task-*` 폴더 15개 | **영구 재사용 고정 슬롯** (`track-a`, `track-b`, `track-c`) |
+| **12개 스토리 스프린트 소요 시간** | ~6–8시간 (하나씩 순차 처리) | ~2시간 코딩 + **~2시간 깨진 머지 복구** | **총 ~2.5시간 (2~3배 가속)** |
+| **숨겨진 타입 / API 충돌** | 작업을 극도로 느리게 진행해야만 회피 | **머지 후 `main` 브랜치 손상** (W_A ∩ I_B ≠ ∅) | **사전 원천 차단** (Wave 1 → Wave 2로 분할 격리) |
+| **공유 CLI / 라우터 파일 수정** | 한 번에 에이전트 1개만 접근 가능 | 머지할 때마다 Git 충돌 발생 | **병렬 안전 보장** (`ADDITIVE_REGISTRY` 자동 감지) |
+| **`sprint-status.yaml` / `tasks.md` / `STATE.md`** | 순차적으로만 업데이트 가능 | 지속적인 `<<<<<<<` 충돌 발생 | **자동 병합** (단조 3-way 병합 엔진) |
+| **에이전트가 엉뚱한 파일을 수정할 때** | 프롬프트로 "제발 수정하지 마세요" 당부 | `bash` / `sed` 등을 통해 쉽게 우회됨 | **원천 차단** (`PreToolUse` 훅 + 터미널 가드 + `chmod a-w`) |
+| **워크트리 폴더 난립** | 없음 | 방치된 15개의 `.worktrees/task-*` 폴더 잔재 | **고정된 재사용 슬롯** (`track-a`, `track-b`, `track-c`) |
 
 ---
 
-## 🚀 5초 안에 직접 실행해 보기 (API 키 불필요, 클론 불필요)
+## 🚀 5초 만에 체험하기 (API 키 불필요, 주석이 포함된 안내)
 
-API 키, LLM 구독, 기존 프로젝트가 없어도 `sdd-parallel`이 잠재적 시맨틱 충돌을 어떻게 감지하는지 즉시 확인할 수 있습니다. [`uv`](https://docs.astral.sh/uv/)（또는 `pipx run sdd-parallel demo`）를 통해 터미널에서 다음 명령어를 실행하세요:
+API 키도, LLM 구독도, 저장소 복제(clone)도 필요 없습니다. [`uv`](https://docs.astral.sh/uv/)를 통한 단 한 줄의 명령어로 실행할 수 있습니다(또는 `pipx run sdd-parallel demo`):
 
 ```bash
-uvx sdd-parallel demo
+uvx sdd-parallel demo          # 특정 키트 테스트 시: uvx sdd-parallel demo --kit spec-kit
 ```
 
-**터미널에서 단 3.2초 만에 일어나는 일:**
-1. 5개의 스토리와 6개의 Python 모듈(`schema.py`, `normalizer.py`, `api.py`, `exporter.py`, `cli.py`)로 구성된 임시 미니 저장소를 자동 생성.
-2. **숨겨진 함정 간파:** 스토리 `1-2`는 `normalizer.py`를 수정하고, 스토리 `2-1`은 이를 임포트하는 `api.py`를 수정. 단순 파일 락은 안전하다고 오판하지만, `sdd-parallel`은 호출 그래프의 영향 중첩을 감지하여 **웨이브 1**과 **웨이브 2**로 자동 분리.
-3. **공유 레지스트리의 안전한 병렬 실행 허용:** `cli.py`를 `ADDITIVE_REGISTRY`로 식별하여 스토리 `1-2`와 `1-3`이 **웨이브 1**(`track-a` 및 `track-b`)에서 병렬로 안전하게 실행되도록 허용.
-4. **스코프 가드 및 3-Way 병합 검증:** 허가되지 않은 `schema.py` 수정을 실시간 차단(`DENY: Locked by Spine Chain invariant`)하고, 두 병렬 브랜치를 `충돌 마커 0개`로 깔끔하게 병합.
+이 데모는 5개의 작업과 6개의 Python 모듈을 포함하는 임시 저장소를 자동으로 스캐폴딩하고, 실제 엔진을 실행하여 약 4초 만에 완료합니다. 아래는 `--kit spec-kit`을 실행했을 때의 4단계 과정입니다.
 
-<details>
-<summary><b>📺 클릭하여 <code>sdd-parallel demo</code>의 실제 터미널 출력 결과 확인</b></summary>
+#### `[Step 1/4]` AST 및 역할 분류 (AST & Role Classification)
 
 ```text
-============================================================================
-SDD-PARALLEL STANDALONE MERGE-BOMB DEMO (ZERO API KEYS / OFFLINE)
-============================================================================
-Workspace: /tmp/sdd-parallel-demo-xyz
-
-[Step 1/4] AST & Architectural Role Classification
-----------------------------------------------------------------------------
 File Path                              | Detected Role          | Importers
 ----------------------------------------------------------------------------
 src/demo_app/__init__.py               | additive_registry      | -
@@ -83,193 +87,485 @@ src/demo_app/cli.py                    | additive_registry      | -
 src/demo_app/exporter.py               | standard               | -
 src/demo_app/normalizer.py             | standard               | src/demo_app/api.py
 src/demo_app/schema.py                 | spine                  | -
+```
 
-[Step 2/4] Type-2 Semantic Merge-Bomb Detection & BSP Wave Schedule
-----------------------------------------------------------------------------
+어떠한 설정 파일이나 하드코딩된 경로도 없습니다: 스캐너가 `schema.py`를 **`spine`**(모든 모듈이 의존하므로 순차 직렬화 필요)으로, `cli.py`를 **`additive_registry`**(추가 전용 명령 등록 파일이므로 동시 공유 안전)로 식별하고, `api.py`가 `normalizer.py`를 임포트한다는 사실을 기록합니다.
+
+#### `[Step 2/4]` 숨겨진 제2종 시맨틱 머지 폭탄 감지 (Catching the Hidden Type-2 Merge-Bomb)
+
+```text
   Collision Analysis:
-    - Naive Scheduler : W(1-2)={normalizer.py, cli.py} vs W(2-1)={api.py}
+    - Naive Scheduler : W(T002)={normalizer.py, cli.py} vs W(T004)={api.py}
                         -> DISJOINT WRITES (False Safe!)
-    - BSPWaveScheduler: Detected semantic_collision between '1-2' and '2-1'
-                        -> Overlap W(1-2) ^ I(2-1) on: src/demo_app/api.py
-    - Additive Registry: Tasks '1-2' and '1-3' both touch 'src/demo_app/cli.py'
-                        -> Role: ADDITIVE_REGISTRY (Parallel allowed in Wave 1)
-
+    - BSPWaveScheduler: Detected semantic_collision between 'T002' and 'T004'
+                        -> Overlap W(T002) ^ I(T004) on: src/demo_app/api.py
   Wave Schedule:
-    * Wave 1
-        - track-a: Story 1-2 -> writes: src/demo_app/normalizer.py (+ shared: src/demo_app/cli.py)
-        - track-b: Story 1-3 -> writes: src/demo_app/exporter.py (+ shared: src/demo_app/cli.py)
-    * Wave 2
-        - track-a: Story 1-1 -> writes: src/demo_app/schema.py
-        - track-b: Story 2-1 -> writes: src/demo_app/api.py
-    * Wave 3
-        - track-a: Story 2-2 -> writes: src/demo_app/schema.py
+    * Wave 1  track-a: T002 (normalizer.py + shared cli.py) | track-b: T003 (exporter.py + shared cli.py)
+    * Wave 2  track-a: T001 (schema.py)                     | track-b: T004 (api.py)
+    * Wave 3  track-a: T005 (schema.py)
+```
 
-[Step 3/4] Fixed-Slot Worktree Provisioning & PreToolUse Scope Guard
-----------------------------------------------------------------------------
+`tasks.md`에서 `T002`와 `T004`는 모두 수동으로 `[P]`(병렬 가능) 태그가 지정되어 있었고, 수정 대상 파일 집합도 서로 겹치지 않습니다(`normalizer.py ≠ api.py`). 따라서 단순한 파일 잠금 방식 스케줄러라면 두 작업을 동시에 실행했을 것입니다. 하지만 `BSPWaveScheduler`는 `T002`의 쓰기 대상이 `T004`의 영향 집합(Impact set)에 포함된다는 것을 감지하고, `T004`를 이미 병합이 완료된 `normalizer.py`를 기반으로 빌드할 수 있는 **Wave 2**로 재배치합니다. 한편 `T002`와 `T003`은 둘 다 `cli.py`를 수정하지만, 이 파일이 추가 전용 레지스트리(Additive Registry)임을 인식하여 안전하게 병렬 실행을 허용합니다.
+
+#### `[Step 3/4]` 깨끗한 고정 슬롯 및 스코프 가드 차단 (Clean Fixed Slots & Scope Guard Interception)
+
+```text
   Provisioned Fixed Slots (100% Clean git status: True):
     - track-a (.worktrees/track-a)
     - track-b (.worktrees/track-b)
 
   PreToolUse Scope Guard Check (track-a -> 'src/demo_app/schema.py'):
     - Decision : DENY
-    - Violation: File 'src/demo_app/schema.py' cannot be modified by Wave 1 / track-a (stories ['1-2'])
+    - Violation: File 'src/demo_app/schema.py' cannot be modified by Wave 1 / track-a (stories ['T002'])
     - Reason   : Locked by Spine Chain invariant.
+```
 
-[Step 4/4] Barrier Checkpoint & Monotonic 3-Way YAML Merge
-----------------------------------------------------------------------------
+주입된 경계 컨텍스트 파일(`ACTIVE_TRACK.md`, `.parallel-lock.json`, `.tmp/track-context.md`)은 워크트리의 `info/exclude`를 통해 Git 추적에서 마스킹되므로 `git status --porcelain`은 100% 깨끗한 상태를 유지합니다. `track-a`의 에이전트가 스코프 외의 `schema.py`를 수정하려고 시도하면, 디스크에 쓰기가 실행되기 전에 사전 차단(DENY)됩니다.
+
+#### `[Step 4/4]` 배리어 체크포인트 및 충돌 없는 3-Way 병합 (Barrier Checkpoint & Zero-Conflict 3-Way Merge)
+
+```text
   Merged Branches:
     - parallel/track-a
     - parallel/track-b
+  Resolved tasks.md (0 conflict markers):
+    - - [ ] T001 [US1] Upgrade schema in `src/demo_app/schema.py` (depends on T002)
+    - - [x] T002 [P] [US1] Normalize `src/demo_app/normalizer.py`, `src/demo_app/cli.py`
+    - - [x] T003 [P] [US1] Export `src/demo_app/exporter.py`, `src/demo_app/cli.py`
+```
 
-  Resolved sprint-status.yaml (0 conflict markers):
-    - 1-2-normalize-telemetry-payload: done
-    - 1-3-cli-batch-export: done
+두 브랜치가 동일한 `tasks.md` 파일을 동시에 수정했습니다. 상태 병합 엔진은 각 줄을 단조 반격자 규칙(`[ ] < [x]`, `backlog < … < done`)에 따라 자동으로 병합하므로 `<<<<<<<` 충돌 마커가 전혀 발생하지 않습니다. 동일한 논리가 `sprint-status.yaml`, `STATE.md`, `.beads/*.jsonl`에도 적용됩니다.
+
+<details>
+<summary><b>🧪 5개 SDD 키트 검증 매트릭스(<code>uvx sdd-parallel demo --kit all</code>) 및 샌드박스 모드 보기 (클릭하여 펼치기)</b></summary>
+
+```text
 ============================================================================
-ALL 5 CORE INVARIANTS VERIFIED IN 3.21s
+5/5 SDD KITS VERIFIED (BMAD, SPEC KIT, GSD, OPENSPEC, BEADS)
+============================================================================
+Kit          | Merge-Bomb   | Worktrees    | Scope Guard  | 3-Way Merge
+----------------------------------------------------------------------------
+bmad         | PASSED       | PASSED       | PASSED       | PASSED
+spec-kit     | PASSED       | PASSED       | PASSED       | PASSED
+gsd          | PASSED       | PASSED       | PASSED       | PASSED
+openspec     | PASSED       | PASSED       | PASSED       | PASSED
+beads        | PASSED       | PASSED       | PASSED       | PASSED
 ============================================================================
 ```
+
+직접 워크플로우를 수동으로 제어해보고 싶으신가요? 영구 샌드박스를 스캐폴딩하여 내부에서 실제 명령어를 실행해볼 수 있습니다:
+
+```bash
+uvx sdd-parallel demo --kit gsd --scaffold-only --output-dir ./sdd-sandbox
+cd sdd-sandbox
+sdd-parallel plan
+sdd-parallel prepare --wave 1
+```
+
 </details>
 
 ---
 
-## 🗺️ 시각화로 이해하는 동작 방식 (백로그부터 클린 머지까지)
+## 🗺️ 동작 원리 및 일상적인 4단계 워크플로우
 
-5개의 에이전트를 무작정 리포지토리에 투입하여 충돌이 나지 않기를 바라는 대신, `sdd-parallel`은 스프린트를 결정론적인 **웨이브(Waves)** 로 구조화합니다:
+<p align="center">
+  <img src="../../assets/how-it-works-pipeline.png" width="100%" alt="sdd-parallel 파이프라인: plan, prepare, 에이전트 실행, verify 및 merge">
+</p>
 
-```mermaid
-flowchart LR
-    subgraph Backlog["📋 1. SDD 백로그"]
-        direction TB
-        T12["Story 1-2\n(normalizer.py + cli.py)"]
-        T13["Story 1-3\n(exporter.py + cli.py)"]
-        T21["Story 2-1\n(api.py -> normalizer 호출)"]
-        T11["Story 1-1\n(schema.py - 스파인 잠금)"]
-    end
+**1. 최초 1회 설치** (`Python >= 3.11`, `Git >= 2.30` 필요):
 
-    subgraph Planner["🧠 2. sdd-parallel plan"]
-        direction TB
-        Scan["AST 및 호출 그래프 분석\n• cli.py = Additive (안전!)\n• 1-2 ↔ 2-1 = 영향 충돌!\n• schema.py = 스파인 잠금!"]
-    end
-
-    subgraph Wave1["🟢 3. 웨이브 1 (병렬 워크트리)"]
-        direction TB
-        SlotA["📁 .worktrees/track-a\n에이전트 1이 Story 1-2 구현\n🔒 schema.py 및 api.py 잠김"]
-        SlotB["📁 .worktrees/track-b\n에이전트 2가 Story 1-3 구현\n🔒 schema.py 및 normalizer.py 잠김"]
-    end
-
-    subgraph Gate["🛡️ 4. sdd-parallel merge --wave 1"]
-        direction TB
-        M1["✅ 스코프 Diff 검증 통과\n✅ pytest / mypy / ruff 통과\n✅ 3-Way 상태 자동 병합"]
-    end
-
-    subgraph Wave2["🔵 5. 웨이브 2 (동일 슬롯 재사용)"]
-        direction TB
-        SlotA2["📁 .worktrees/track-a\n에이전트 1이 Story 1-1 구현"]
-        SlotB2["📁 .worktrees/track-b\n에이전트 2가 Story 2-1 구현\n(수정된 normalizer.py 즉시 반영!)"]
-    end
-
-    Backlog --> Planner --> Wave1 --> Gate --> Wave2
-```
-
----
-
-## 🔌 기존 개발 환경에 완벽한 통합 (종속성 제로)
-
-기존 명세서를 다시 작성하거나 프롬프트를 바꿀 **필요가 전혀 없습니다**. `sdd-parallel`은 기존 프레임워크 파일을 읽기 전용으로 직접 활용합니다:
-
-| 사용 중인 도구 | `sdd-parallel`이 제공하는 기능 |
-| :--- | :--- |
-| **Claude Code** (`claude`) | `--worktree` / `Agent Teams` 호출 전 결정론적 웨이브 계획 수립, `PreToolUse`를 통한 범위 외 파일 및 셸 조작 차단, 작업 복잡도(`High`/`Medium`/`Low`) 라우팅. |
-| **OpenAI Codex CLI** (`codex`) | 충돌 태스크를 사전 정렬하고 각 슬롯 내부의 공유 스키마(`chmod a-w`)를 잠가 병렬 워크트리 경쟁 상태 방지. |
-| **Google Antigravity** | 영구 재사용 슬롯(`track-a`, `track-b`, `track-c`)을 제공하여 IDE 폴더 유실 버그를 제거하고 `.git/worktrees/*/info/exclude`를 통해 `git status --porcelain`을 100% 클린 상태로 유지. |
-| **BMAD Method (`v6.3+` / `v7`)** | 선형 `sprint-status.yaml` 큐를 멀티 에픽 병렬 웨이브로 전환하고 스토리 상태(`backlog -> done`)를 YAML 충돌 없이 병합. |
-| **GitHub Spec Kit (`.specify/`)** | `tasks.md`의 수동 `[P]` 태그를 실제 AST 의존성과 대조하여 허위 병렬 처리로 인한 빌드 파괴 방지. |
-| **GSD / OpenSpec / Beads** | 격리된 워크트리에서 `.planning/STATE.md` (Artifact Hijack 모드), `openspec/changes/`, `.beads/issues.jsonl`을 안전하게 독립 운영. |
-
----
-
-## 🛠️ 단 4개 명령어로 끝나는 일상 워크플로우
-
-### 1. 전역 설치 (1회)
 ```bash
-# uv 사용 권장 (또는: pipx install sdd-parallel)
-uv tool install sdd-parallel
+uv tool install sdd-parallel     # 또는: pipx install sdd-parallel
 ```
 *(시스템 전역에서 `sdd-parallel` 및 빠른 별칭 `parallel-flow` 사용 가능).*
 
-### 2. 모든 프로젝트에서 병렬 웨이브 실행
+설치 즉시 `sdd-parallel` CLI 및 단축 별칭인 `parallel-flow`를 전역 환경에서 사용할 수 있습니다.
+
+**2. 모든 SDD 프로젝트에서 웨이브 실행:**
+
 ```bash
-# 1단계: SDD 명세와 AST 의존성 그래프를 스캔하여 안전한 웨이브 계산
+# 1. 명세 및 코드베이스 AST를 스캔하여 안전한 웨이브 계획 수립
 sdd-parallel plan
 
-# 2단계: 고정 슬롯(.worktrees/track-a, track-b)에 웨이브 1을 준비하고
-#        코딩 에이전트를 위한 실행 가이드 출력
+# 2. Wave 1을 고정 슬롯에 프로비저닝하고 각 트랙별 실행 가이드 출력
 sdd-parallel prepare --wave 1
 sdd-parallel run-guide --wave 1
 
-# 👉 3단계: AI 에이전트(Claude Code / Codex / Antigravity)가
-#          track-a와 track-b 내부에서 스토리를 동시 구현.
+# 3. .worktrees/track-a, track-b, ... 내부에서 에이전트 시작 (슬롯당 1개 에이전트)
 
-# 4단계: 범위 일탈 검증 후 웨이브 1을 main 브랜치로 자동 병합
+# 4. 스코프 준수 여부 감사, 퀄리티 게이트 실행, Wave 1을 main 브랜치로 병합
 sdd-parallel verify-wave --wave 1
 sdd-parallel merge --wave 1
 ```
-웨이브를 취소해야 하나요? 병합 전에는 `sdd-parallel abort-wave --wave 1`, 병합 후에는 `sdd-parallel rollback-wave --wave 1`을 실행(안전 백업 브랜치 자동 생성 및 SDD 상태 자동 롤백).
+
+실행 취소: `sdd-parallel abort-wave --wave 1` (병합 전) 또는 `sdd-parallel rollback-wave --wave 1` (병합 후; 엄격한 LIFO 순서 적용, 자동 `backup/wave-<K>-before-rollback-*` 안전 브랜치 생성, SDD 작업 상태 원복).
 
 ---
 
-## 🧩 지원되는 SDD 프레임워크 매트릭스
+## 📂 실제 SDD 프로젝트 디렉토리 구조 (도입 전/후 비교)
 
-| SDD 프레임워크 | 지원 상태 | 감지되는 읽기 전용 아티팩트 | 태스크 상태 동기화 방식 |
-| :--- | :---: | :--- | :--- |
-| **BMAD Method (`v6.3+` / `v7`)** | ✅ 정식 출시 | `sprint-status.yaml`, `epics.md`, `epic-*-context.md`, `spec-*.md` | 단조 3-Way YAML 병합 |
-| **GitHub Spec Kit (`.specify/`)** | ✅ 정식 출시 | `.specify/specs/*/tasks.md`, `constitution.md` | Markdown 체크박스 상태 동기화 |
-| **GSD (Get Shit Done)** | ✅ 정식 출시 | `.planning/phases/*-PLAN.md`, `ROADMAP.md` | Artifact Hijack (`STATE.md` 중앙 집중식 업데이트) |
-| **OpenSpec (`openspec/`)** | ✅ 정식 출시 | `openspec/changes/<id>/tasks.md` | 명세 기반 태스크 상태 추적 |
-| **Beads (`.beads/`)** | ✅ 정식 출시 | `.beads/issues.jsonl` | 위상학적 이슈 상태 원자적 업데이트 |
+<p align="center">
+  <img src="../../assets/whats-inside-worktrees.png" width="100%" alt="sdd-parallel이 저장소 내부에 생성하는 구조: .parallel/ 상태 및 .worktrees/ 트랙 슬롯">
+</p>
 
----
+`sdd-parallel`은 기존 프레임워크 파일을 그대로 읽습니다 — 마이그레이션이나 새로운 명세 포맷 작성이 일절 불필요합니다.
 
-## 🔍 심층 기술 문서 (아키텍처, 핵심 불변 원칙 및 전체 CLI 레퍼런스)
+| SDD 프레임워크 | 읽기 전용 아티팩트 (슬롯 내 잠금) | 작업 탐색 대상 | 상태 동기화 방식 |
+| :--- | :--- | :--- | :--- |
+| **GitHub Spec Kit** (`.specify/`) | `constitution.md`, `feature.json`, `spec.md`, `plan.md` | `specs/*/tasks.md` (`T001 [P]`) | 3-way 마크다운 체크박스 병합 |
+| **BMAD Method** (`v6.3+` / `v7`) | `epic-*-context.md` (Zero Cache Invalidation) | `sprint-status.yaml`, `epics.md`, `spec-*.md` | 단조 3-way YAML 병합 |
+| **GSD** (`.planning/`) | `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md` | `phases/*/NN-NN-PLAN.md` | 아티팩트 하이재킹 (`STATE.md`는 병합 시 중앙에서 업데이트) |
+| **OpenSpec** (`openspec/`) | `openspec/specs/**`, `project.md`, `config.yaml`, 형제 변경 폴더 | `openspec/changes/<slug>/tasks.md` | 3-way 마크다운 체크박스 병합 |
+| **Beads** (`.beads/`) | `.beads/config.yaml` | `.beads/*.jsonl` (`bd-101` + `blocks` 엣지) | 라인 단위 3-way 반격자 JSONL 병합 |
 
-수학적 모델, 내부 모듈 아키텍처, 모든 CLI 옵션에 대한 상세 정보는 아래 접기 섹션을 펼치거나 **[아키텍처 및 전략 도시에 (docs/dossier/)](../../dossier/README.md)** 문서를 참조하세요:
-
-- 📖 **[01 — 핵심 제품 개요 및 투자 대비 수익(ROI) 모델](../../dossier/01_CORE_PRODUCT_BRIEF.md)** *(경영진 요약, 토큰 FinOps 및 모델 에포트 라우팅)*
-- 🏛️ **[02 — 시스템 핵심 역량 및 기술 백서](../../dossier/02_SYSTEM_CAPABILITIES_WHITE_PAPER.md)** *(제1종 vs 제2종 충돌, 3D 파일 분류 체계, CRG 감쇠 공식)*
-- 🔌 **[03 — 통합 및 에코시스템 명세서](../../dossier/03_INTEGRATION_AND_ECOSYSTEM_SPEC.md)** *(중간 표현 `CanonicalTask`, `.tmp/track-context.md`, `.parallel-lock.json`)*
-- 🧪 **[07 — 독립 검증 데모 및 대화형 E2E 가이드](../../dossier/07_STANDALONE_DEMO_AND_E2E_WALKTHROUGH.md)** *(파일 시스템 스냅샷 및 `--keep-temp` 샌드박스)*
-- 📐 **[시스템 아키텍처 단일 진실 공급원 (`ARCHITECTURE.md`)](ARCHITECTURE.md)** | **[러시아어 도시에](../../i18n/ru/dossier/)**
+아래의 모든 디렉토리 구조 스냅샷은 `plan` + `prepare --wave 1` 실행 후 실제 `sdd-parallel demo --scaffold-only` 픽스처에서 캡처한 것입니다. 소스 트리는 가독성을 위해 `src/…`로 축약되어 있습니다.
 
 <details>
-<summary><b>🏛️ 클릭하여 펼치기: 내부 엔진 구조 및 9대 핵심 엔지니어링 불변 원칙</b></summary>
+<summary><b>🌱 GitHub Spec Kit (<code>.specify/</code> 및 <code>specs/*/tasks.md</code>) — 도입 전/후 트리 보기 (클릭하여 펼치기)</b></summary>
 
-### 내부 컴포넌트 데이터 플로우
+**도입 전** — 기존 프로젝트 상태 그대로:
+
+```text
+my-project/
+├── .specify/
+│   ├── memory/
+│   │   └── constitution.md
+│   ├── templates/
+│   │   └── tasks-template.md
+│   └── feature.json
+├── specs/
+│   └── 001-telemetry/
+│       ├── plan.md
+│       ├── spec.md
+│       └── tasks.md
+└── src/…
+```
+
+`specs/001-telemetry/tasks.md` — 수동으로 작성된 `T004`의 `[P]` 태그에 주목하세요. `T002`와 함께 실행하면 충돌을 유발하므로 안전하지 않습니다:
+
+```markdown
+- [ ] T001 [US1] Upgrade schema in `src/demo_app/schema.py` (depends on T002)
+- [ ] T002 [P] [US1] Normalize `src/demo_app/normalizer.py`, `src/demo_app/cli.py`
+- [ ] T003 [P] [US1] Export `src/demo_app/exporter.py`, `src/demo_app/cli.py`
+- [ ] T004 [P] [US2] Expose ingestion in `src/demo_app/api.py`
+- [ ] T005 [US2] Add audit log in `src/demo_app/schema.py` (depends on T001)
+```
+
+`sdd-parallel plan` + `prepare --wave 1` 실행 **후**:
+
+```text
+my-project/
+├── .parallel/                        # 플래너 상태 (신규 생성)
+│   ├── artifacts/
+│   │   ├── execution-plan-parallel.md
+│   │   └── wave-plan.json
+│   ├── history/run-001-<timestamp>/wave-plan.json
+│   └── state.json
+├── .specify/…                        # 변경 없음 (원본 유지)
+├── .worktrees/
+│   ├── track-a/                      # Wave 1 → T002
+│   │   ├── .specify/memory/constitution.md   # 🔒 읽기 전용
+│   │   ├── specs/001-telemetry/
+│   │   │   ├── plan.md               # 🔒 읽기 전용
+│   │   │   ├── spec.md               # 🔒 읽기 전용
+│   │   │   └── tasks.md
+│   │   ├── src/…
+│   │   ├── .tmp/track-context.md     # 👻 info/exclude를 통해 숨김 처리
+│   │   ├── .parallel-lock.json       # 👻 info/exclude를 통해 숨김 처리
+│   │   └── ACTIVE_TRACK.md           # 👻 → /speckit.implement T002
+│   └── track-b/                      # Wave 1 → T003 (동일한 레이아웃)
+├── specs/…                           # 원본 유지
+└── src/…
+```
+
+</details>
+
+<details>
+<summary><b>📐 BMAD Method (<code>v6.3+ / v7</code> — <code>_bmad-output/</code>) — 도입 전/후 트리 보기 (클릭하여 펼치기)</b></summary>
+
+**도입 전:**
+
+```text
+my-project/
+├── _bmad-output/
+│   ├── implementation-artifacts/
+│   │   ├── epic-1-context.md
+│   │   ├── epic-2-context.md
+│   │   ├── epics.md
+│   │   ├── spec-1-1-upgrade-schema-v2.md
+│   │   ├── spec-1-2-normalize-telemetry-payload.md
+│   │   ├── spec-1-3-cli-batch-export.md
+│   │   ├── spec-2-1-expose-ingestion-api.md
+│   │   ├── spec-2-2-add-audit-log-schema.md
+│   │   └── sprint-status.yaml
+│   └── planning-artifacts/
+│       ├── epic-1-context.md
+│       ├── epic-2-context.md
+│       ├── epics.md
+│       └── project-context.md
+└── src/…
+```
+
+`sdd-parallel plan` + `prepare --wave 1` 실행 **후**:
+
+```text
+my-project/
+├── .parallel/
+│   ├── history/run-001-<timestamp>/wave-plan.json
+│   └── state.json
+├── .worktrees/
+│   ├── track-a/                      # Wave 1 → story 1-2
+│   │   ├── _bmad/custom/             # 👻 슬롯별 BMAD 오버레이 (숨김 처리)
+│   │   │   ├── bmad-build.toml
+│   │   │   ├── bmad-build.user.toml
+│   │   │   ├── bmad-build-auto.toml
+│   │   │   └── bmad-build-auto.user.toml
+│   │   ├── _bmad-output/
+│   │   │   ├── implementation-artifacts/   # sprint-status.yaml은 3-way 병합됨
+│   │   │   └── planning-artifacts/
+│   │   │       ├── epic-1-context.md # 🔒 Zero Cache Invalidation 잠금
+│   │   │       ├── epic-2-context.md # 🔒
+│   │   │       └── project-context.md
+│   │   ├── src/…
+│   │   ├── .tmp/track-context.md     # 👻
+│   │   ├── .parallel-lock.json       # 👻
+│   │   └── ACTIVE_TRACK.md           # 👻 → /bmad-build 1-2
+│   └── track-b/                      # Wave 1 → story 1-3
+├── _bmad-output/
+│   ├── implementation-artifacts/…
+│   ├── parallel-artifacts/           # 플래너 출력물 (BMAD는 _bmad-output 하위에 유지)
+│   │   ├── execution-plan-parallel.md
+│   │   └── wave-plan.json
+│   └── planning-artifacts/…
+└── src/…
+```
+
+</details>
+
+<details>
+<summary><b>⚡ GSD — Get Shit Done (<code>.planning/phases/</code> 아티팩트 하이재킹) — 도입 전/후 트리 보기 (클릭하여 펼치기)</b></summary>
+
+**도입 전:**
+
+```text
+my-project/
+├── .planning/
+│   ├── phases/
+│   │   ├── 01-core/
+│   │   │   ├── 01-01-PLAN.md
+│   │   │   ├── 01-02-PLAN.md
+│   │   │   └── 01-03-PLAN.md
+│   │   └── 02-api/
+│   │       ├── 02-01-PLAN.md
+│   │       └── 02-02-PLAN.md
+│   ├── PROJECT.md
+│   ├── REQUIREMENTS.md
+│   ├── ROADMAP.md
+│   └── STATE.md
+└── src/…
+```
+
+`01-02-PLAN.md`(정규화 모듈)와 `02-01-PLAN.md`(API)는 서로 다른 페이즈에 속해 있으며 공유 파일이 없지만, `02-01`이 `01-02`의 코드를 호출합니다. 플래너는 이를 감지하고 서로 다른 웨이브로 스케줄링합니다.
+
+`sdd-parallel plan` + `prepare --wave 1` 실행 **후**:
+
+```text
+my-project/
+├── .parallel/
+│   ├── artifacts/
+│   │   ├── execution-plan-parallel.md
+│   │   └── wave-plan.json
+│   ├── history/run-001-<timestamp>/wave-plan.json
+│   └── state.json
+├── .planning/…                       # main 브랜치 원본 유지
+├── .worktrees/
+│   ├── track-a/                      # Wave 1 → 01-02
+│   │   ├── .planning/
+│   │   │   ├── phases/01-core/ · 02-api/
+│   │   │   ├── PROJECT.md            # 🔒 읽기 전용
+│   │   │   ├── REQUIREMENTS.md       # 🔒 읽기 전용
+│   │   │   ├── ROADMAP.md            # 🔒 읽기 전용
+│   │   │   └── STATE.md              # 🔒 슬롯 내 잠금, 머지 시 중앙에서 업데이트
+│   │   ├── src/…
+│   │   ├── .tmp/track-context.md     # 👻
+│   │   ├── .parallel-lock.json       # 👻
+│   │   └── ACTIVE_TRACK.md           # 👻 → /gsd-execute-phase 01-02
+│   └── track-b/                      # Wave 1 → 01-03
+└── src/…
+```
+
+</details>
+
+<details>
+<summary><b>📑 OpenSpec (<code>openspec/changes/</code>) — 도입 전/후 트리 보기 (클릭하여 펼치기)</b></summary>
+
+**도입 전:**
+
+```text
+my-project/
+├── openspec/
+│   ├── changes/
+│   │   ├── audit-log-schema/
+│   │   ├── cli-batch-export/
+│   │   ├── ingestion-api-endpoint/
+│   │   ├── normalize-telemetry/
+│   │   │   ├── design.md
+│   │   │   ├── proposal.md
+│   │   │   └── tasks.md
+│   │   └── upgrade-schema-v2/
+│   ├── specs/
+│   │   └── telemetry/
+│   │       └── spec.md
+│   ├── config.yaml
+│   └── project.md
+└── src/…
+```
+
+`sdd-parallel plan` + `prepare --wave 1` 실행 **후**:
+
+```text
+my-project/
+├── .parallel/
+│   ├── artifacts/
+│   │   ├── execution-plan-parallel.md
+│   │   └── wave-plan.json
+│   ├── history/run-001-<timestamp>/wave-plan.json
+│   └── state.json
+├── .worktrees/
+│   ├── track-a/                      # Wave 1 → normalize-telemetry
+│   │   ├── openspec/
+│   │   │   ├── changes/
+│   │   │   │   ├── normalize-telemetry/   # ✍️ 해당 트랙 전용 쓰기 허용 폴더
+│   │   │   │   ├── cli-batch-export/      # 🔒 형제 트랙인 track-b에 의해 잠김
+│   │   │   │   └── …
+│   │   │   ├── specs/                # 🔒 표준 명세 (openspec archive 명령어로만 변경 가능)
+│   │   │   ├── config.yaml           # 🔒
+│   │   │   └── project.md            # 🔒
+│   │   ├── src/…
+│   │   ├── .tmp/track-context.md     # 👻
+│   │   ├── .parallel-lock.json       # 👻
+│   │   └── ACTIVE_TRACK.md           # 👻 → /openspec-apply normalize-telemetry
+│   └── track-b/                      # Wave 1 → cli-batch-export (대칭 잠금 적용)
+├── openspec/…                        # 원본 유지
+└── src/…
+```
+
+</details>
+
+<details>
+<summary><b>🔗 Beads (<code>.beads/beads.jsonl</code>) — 도입 전/후 트리 보기 (클릭하여 펼치기)</b></summary>
+
+**도입 전:**
+
+```text
+my-project/
+├── .beads/
+│   ├── beads.jsonl
+│   ├── config.yaml
+│   └── issues.jsonl
+└── src/…
+```
+
+`bd-101`, `bd-102`, `bd-103`, `bd-201`, `bd-202` 작업과 이들 사이의 `blocks` 종속성 그래프:
+
+```json
+{"id": "bd-101", "title": "Upgrade schema to v2", "status": "open", "files": ["src/demo_app/schema.py"], "dependencies": [{"target": "bd-102", "type": "blocks"}], "priority": 1, "epic": "epic-1"}
+{"id": "bd-102", "title": "Normalize telemetry payload", "status": "open", "files": ["src/demo_app/normalizer.py", "src/demo_app/cli.py"], "dependencies": [], "priority": 2, "epic": "epic-1"}
+```
+
+`sdd-parallel plan` + `prepare --wave 1` 실행 **후**:
+
+```text
+my-project/
+├── .beads/…                          # 메인 사본, `merge --wave 1` 실행 시 라인 단위로 자동 병합
+├── .parallel/
+│   ├── artifacts/
+│   │   ├── execution-plan-parallel.md
+│   │   └── wave-plan.json
+│   ├── history/run-001-<timestamp>/wave-plan.json
+│   └── state.json
+├── .worktrees/
+│   ├── track-a/                      # Wave 1 → bd-102
+│   │   ├── .beads/
+│   │   │   ├── beads.jsonl           # 상태 수정 내역은 라인 단위 3-way 병합 (open < closed)
+│   │   │   ├── config.yaml           # 🔒 읽기 전용
+│   │   │   └── issues.jsonl
+│   │   ├── src/…
+│   │   ├── .tmp/track-context.md     # 👻
+│   │   ├── .parallel-lock.json       # 👻
+│   │   └── ACTIVE_TRACK.md           # 👻 → bd update bd-102 --status in-progress
+│   └── track-b/                      # Wave 1 → bd-103
+└── src/…
+```
+
+`merge --wave 1` 실행 후, `.beads/beads.jsonl` 내의 `bd-102`와 `bd-103`은 충돌 마커 없이 0개의 컨플릭트로 모두 `closed` 상태로 갱신됩니다.
+
+</details>
+
+범례: 🔒 읽기 전용 (`chmod a-w` + `PreToolUse` 거부) · 👻 주입된 컨텍스트 파일로, `.git/worktrees/<slot>/info/exclude`를 통해 Git 추적에서 마스킹됨 · ✍️ 해당 트랙의 쓰기 허용 스코프.
+
+---
+
+## 🔌 기존 개발 스택에 즉시 통합 (종속성 없음)
+
+사용 중인 에이전트와 프롬프트를 그대로 유지할 수 있습니다. `sdd-parallel prepare --wave 1` 실행 후, `sdd-parallel run-guide --wave 1`은 각 슬롯별 네이티브 실행 명령어를 출력하며, 동일한 명령어가 `.worktrees/track-<id>/ACTIVE_TRACK.md` 파일에도 기록됩니다. 컨텍스트 경로를 수동으로 입력할 필요가 없습니다:
+
+| SDD 키트 | 트랙별 출력되는 네이티브 실행 명령어 |
+| :--- | :--- |
+| GitHub Spec Kit | `/speckit.implement T002` |
+| BMAD Method | `/bmad-build 1-2` |
+| GSD | `/gsd-execute-phase 01-02` |
+| OpenSpec | `/openspec-apply normalize-telemetry` |
+| Beads | `bd update bd-102 --status in-progress` |
+
+| 에이전트 하네스 | 연동 및 동작 방식 |
+| :--- | :--- |
+| **Claude Code** (`claude`) | `.worktrees/track-a` 디렉토리 내부에서 `claude`를 실행합니다. 스코프 외 쓰기 및 셸을 통한 우회 시도는 `PreToolUse` 훅 및 OS `chmod a-w`에 의해 차단됩니다. 또는 `sdd-parallel autopilot --wave 1 --harness claude-code`를 통해 모든 트랙을 동시에 구동할 수 있습니다. |
+| **OpenAI Codex CLI** (`codex`) | `codex --cd .worktrees/track-b`로 실행합니다. 읽기 전용 파일은 `chmod a-w`로 보호되며, `sdd-parallel verify-wave`가 병합 전 diff를 감사(audit)합니다. 오토파일럿: `--harness codex`. |
+| **Google Antigravity** | `sdd-parallel prepare --wave 1 --antigravity-layout` 실행 시 슬롯이 `~/.gemini/antigravity/worktrees/<Project>/track-a` 위치에 배치됩니다. `ACTIVE_TRACK.md`가 슬롯 루트에 생성되며, `sdd-parallel install-plugin` 명령어로 스코프 가드 훅을 갖춘 이식형 플러그인을 설치할 수 있습니다. |
+| **워크트리를 지원하는 모든 CLI 및 IDE** — Cursor, Windsurf, OpenCode, Kimi CLI, MiniMax Code, Aider, Cline, Trae | 추가 설정 없이 즉시 동작합니다: 표준 `git worktree` 슬롯(`--max-tracks N`을 통한 `track-a`, `track-b`, `track-c`, …), OS 레벨 `chmod a-w` 파일 잠금, `ACTIVE_TRACK.md` 가이드, 그리고 `sdd-parallel verify-wave`를 통한 사후 diff 검증을 완벽히 지원합니다. |
+
+---
+
+## 🔍 시스템 아키텍처, 수학적 모델 및 상세 분석 문서
+
+- 📖 **[01 — 핵심 제품 브리프 및 ROI 모델](../../dossier/01_CORE_PRODUCT_BRIEF.md)**: 경영진 요약(Executive Summary), 토큰 FinOps, 모델 노력도 라우팅(Model Effort Routing)
+- 🏛️ **[02 — 시스템 기능 명세서 백서](../../dossier/02_SYSTEM_CAPABILITIES_WHITE_PAPER.md)**: 제1종 vs 제2종 충돌, 3D 파일 분류 체계, CRG 감쇠 공식
+- 🔌 **[03 — 통합 및 에코시스템 명세서](../../dossier/03_INTEGRATION_AND_ECOSYSTEM_SPEC.md)**: `CanonicalTask` 중간 표현(IR), `.tmp/track-context.md` 및 `.parallel-lock.json` 규약
+- 📊 **[04 — 경쟁 제품 및 벤치마크 분류 체계](../../dossier/04_COMPETITIVE_AND_BENCHMARK_TAXONOMY.md)**: 인접 오케스트레이션 도구 대비 차별점 및 포지셔닝
+- 🧪 **[07 — 단독 실행 데모 및 E2E 상세 안내](../../dossier/07_STANDALONE_DEMO_AND_E2E_WALKTHROUGH.md)**: 프레임 단위 디스크 스냅샷 분석, `--keep-temp` 샌드박스 가이드
+- 📐 **[시스템 아키텍처 단일 진실 공급원(SSOT) (`ARCHITECTURE.md`)](../../../ARCHITECTURE.md)** · **[도сье 목차](../../dossier/README.md)** · **[러시아어 상세 문서](../ru/dossier/)**
+
+<details>
+<summary><b>🏛️ 엔진 내부 아키텍처 및 9대 핵심 불변성 원칙 (클릭하여 펼치기)</b></summary>
+
+### 내부 컴포넌트 흐름도
 
 ```mermaid
 flowchart TD
-    subgraph Inputs["1. 멀티 SDD 로드맵 어댑터"]
+    subgraph Inputs["1. Multi-SDD Roadmap Adapters"]
         BMAD["BMAD Method (v6/v7)"]
         SpecKit["GitHub Spec Kit (.specify/)"]
         GSD["GSD Artifact Hijack (.planning/)"]
         OpenSpec["OpenSpec (openspec/changes/)"]
-        Beads["Beads (.beads/issues.jsonl)"]
+        Beads["Beads (.beads/*.jsonl)"]
     end
 
-    subgraph Engine["2. 하이브리드 DAG 및 Blast Radius 분석 엔진"]
-        AST["범용 AST 분류기\n(SPINE, ADDITIVE_REGISTRY, STANDARD)"]
+    subgraph Engine["2. Hybrid DAG & Blast-Radius Engine"]
+        AST["Universal AST Classifier\n(SPINE, ADDITIVE_REGISTRY, STANDARD)"]
         CRG["CRGSidecarAdapter\n(code-review-graph v2.3.9 WAL)"]
-        BSP["결정론적 BSPWaveScheduler\n(K-트랙 웨이브, Kahn 비순환성 검증)"]
+        BSP["Deterministic BSPWaveScheduler\n(K-Track Waves, Kahn Acyclicity)"]
     end
 
-    subgraph Actuation["3. 실행 구동 및 스코프 가드"]
-        Slots["고정 트랙 슬롯 (track-a/b/c)\n(In-Place 재설정, core.fileMode false)"]
-        Guard["3단계 심층 방어 Scope Guard\n(PreToolUse + 터미널 차단 + chmod a-w)"]
-        Verify["verify-wave 품질 게이트\n(git diff merge-base...HEAD 감사)"]
+    subgraph Actuation["3. Actuation & Scope Guard"]
+        Slots["Fixed Track Slots (track-a/b/c)\n(In-Place Reset, core.fileMode false)"]
+        Guard["Three-Tier Scope Guard\n(PreToolUse + Terminal Guard + chmod a-w)"]
+        Verify["verify-wave Gate\n(git diff merge-base...HEAD audit)"]
     end
 
-    subgraph Barrier["4. 동기화 배리어 및 롤백"]
-        Merge["merge-wave 체크포인트\n(단조 3-Way YAML 병합)"]
-        Rollback["LIFO 트랜잭션 롤백 엔진\n(abort-wave / rollback-wave --save-backup)"]
+    subgraph Barrier["4. Barrier Checkpoint & Rollback"]
+        Merge["merge-wave Checkpoint\n(3-Way Monotonic Status Merger)"]
+        Rollback["LIFO Rollback Engine\n(abort-wave / rollback-wave --save-backup)"]
     end
 
     Inputs --> AST & CRG
@@ -280,99 +576,86 @@ flowchart TD
     Merge -. 오류 / 취소 .-> Rollback
 ```
 
-### 9대 핵심 엔지니어링 불변 원칙
+### 9대 핵심 엔지니어링 불변성 원칙 (The 9 Core Engineering Invariants)
 
-1. **워크트리 무공해 원칙 (Zero Worktree Pollution):** 주입된 컨텍스트 파일(`.tmp/track-context.md`, `.parallel-lock.json`, `ACTIVE_TRACK.md`)은 `info/exclude`로 필터링되어 `git status --porcelain`은 항상 100% 클린 유지.
-2. **캐시 무손상 원칙 (Zero Cache Invalidation):** `_bmad-output/planning-artifacts/` 내부 컨텍스트는 읽기 전용. 플래너 상태는 독립된 `_bmad-output/parallel-artifacts/`에만 기록.
-3. **100% 태스크 망라성 및 비순환성 보장:** Kahn/Tarjan 위상 정렬 알고리즘을 통해 스토리 누락과 순환 참조를 수학적으로 배제.
-4. **영향 반경의 엄격한 격리 (제1종 및 제2종):** 쓰기 영역의 상호 배제($W_A \cap W_B = \emptyset$) 및 시맨틱 영향의 상호 배제($W_A \cap I_B = \emptyset$) 동시 보장.
-5. **도메인 독립성 (Invariant 7):** 코어 엔진 내부에 도메인 경로를 하드코딩하지 않으며, 오직 AST 휴리스틱과 그래프 중심성에 기반하여 분류.
-6. **고정 슬롯 운용 ($O(1)$ 디스크 풋프린트):** `git checkout -B` 및 `git clean -fd`를 통해 `track-a`, `track-b`, `track-c`를 제자리에서 재사용.
-7. **3단계 종심 방어 체계:** `PreToolUse` 훅 차단 + 터미널 명령어 감시(`Bash`, `run_command`) + OS 파일 잠금 `chmod a-w`.
-8. **단조 상태 반격자 이론:** 태스크 상태는 반격자 위상에서 단조 수렴($\texttt{backlog} (0) < \dots < \texttt{done} (4)$)하여 병합 충돌 제거.
-9. **후입선출 (LIFO) 트랜잭션 롤백:** 병합된 웨이브를 엄격한 역순으로 되돌리며 안전 백업 브랜치(`backup/wave-<K>-before-rollback-*`)를 자동 생성.
+1. **워크트리 오염 제로(Zero Worktree Pollution):** 주입된 경계 파일(`.tmp/track-context.md`, `.parallel-lock.json`, `ACTIVE_TRACK.md`)은 git `info/exclude`로 마스킹되어 `git status --porcelain`이 항상 비어 있는 상태를 유지합니다.
+2. **캐시 무효화 제로(Zero Cache Invalidation):** 사전 컴파일된 컨텍스트 파일(예: BMAD의 `epic-*-context.md`)은 웨이브 진행 중 읽기 전용으로 보호되며, 플래너 상태는 `.parallel/`(BMAD의 경우 `_bmad-output/parallel-artifacts/`)에 격리 저장됩니다.
+3. **100% 작업 커버리지 및 비순환성 보장(100% Task Coverage & Acyclicity):** 칸(Kahn) 위상 정렬 검증을 통해 누락되는 작업이나 순환 의존성(Cycle)이 발생하지 않음을 보장합니다.
+4. **영향 반경 엄격 격리(Blast-Radius Enforcement - Type-1 & Type-2):** 상호 배타적 쓰기($W_A \cap W_B = \emptyset$)뿐만 아니라 의미론적 영향 집합의 상호 배타성($W_A \cap I_B = \emptyset$)을 수학적으로 강제합니다.
+5. **범용 과적합 방지(Universal Anti-Overfitting):** 코어 엔진에는 도메인 종속적 경로가 일절 하드코딩되지 않으며, `SPINE`, `ADDITIVE_REGISTRY`, `STANDARD` 분류는 오직 AST 휴리스틱과 그래프 중심성에 의해서만 결정됩니다.
+6. **고정 트랙 슬롯(Fixed Track Slots):** `track-a`, `track-b`, `track-c` 슬롯은 `git checkout -B` + `git clean -fd`를 통해 제자리에서 재사용되므로 디스크 폴더가 난립하지 않습니다.
+7. **3계층 심층 방어 스코프 가드(Three-Tier Defense-in-Depth Guard):** `PreToolUse` 훅 + 터미널 명령어 가로채기(`Bash`, `run_command`) + OS 레벨 `chmod a-w`를 통한 철저한 다층 방어를 제공합니다.
+8. **단조 상태 반격자(Monotonic Status Semi-Lattice):** 작업 상태는 $\texttt{backlog}(0) < \dots < \texttt{done}(4)$의 단조 증가 반격자 순서에 따라 병합되어 마커 없는 무결점 병합을 달성합니다.
+9. **LIFO 트랜잭션 롤백(LIFO Transactional Rollbacks):** 병합된 웨이브는 엄격한 후입선출(LIFO) 역순으로 롤백되며, 자동 안전 브랜치(`backup/wave-<K>-before-rollback-*`)를 생성하여 데이터 유실을 방지합니다.
 
 </details>
 
 <details>
 <summary><b>🛠️ 클릭하여 펼치기: 전체 CLI 명령어 레퍼런스 (13개 서브 커맨드 및 옵션)</b></summary>
 
-| 명령어 | 목적 |
+## 🛠️ 전체 CLI 명령어 레퍼런스
+
+<details>
+<summary><b>전체 13개 서브커맨드 및 플래그 상세 보기 (클릭하여 펼치기)</b></summary>
+
+| 명령어 | 설명 |
 | :--- | :--- |
-| `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp] [--scaffold-only] [--output-dir DIR]` | 오프라인 머지 폭탄 방지 데모 실행 또는 5개 SDD 프레임워크 샌드박스 생성. |
-| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit auto] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR]` | 로드맵과 의존성 그래프를 분석하여 `execution-plan-parallel.md` 및 `wave-plan.json` 생성. |
-| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run]` | 워크트리 슬롯(`track-a`, `track-b`) 준비, OS 파일 잠금 설정 및 경계 주입. |
-| `sdd-parallel claim-track --wave K --track <id> --worktree <path> [--repo REPO] [--max-tracks N] [--kit KIT] [--headless]` | 기존 외부 워크트리 슬롯에 경계 잠금 및 컨텍스트 연결. |
-| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout]` | 각 활성 트랙 터미널을 위한 전용 실행 명령어 매트릭스 표시. |
-| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | `.parallel-lock.json` 및 `merge-base` 대비 커밋 diff 감사. |
-| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | 체크포인트 병합: 3-Way 상태 병합, Git 병합, 품질 게이트 검증 및 트랜잭션 자동 롤백. |
-| `sdd-parallel abort-wave --wave K [--repo REPO] [--dynamic-worktrees]` | 미병합 웨이브 중단: 슬롯 재설정 및 임시 병렬 브랜치 삭제. |
-| `sdd-parallel rollback-wave --wave K [--repo REPO] [--dynamic-worktrees] [--to-commit COMMIT] [--save-backup] [--no-backup] [--kit KIT]` | 병합된 웨이브를 LIFO 순서로 롤백하고 백업 브랜치 보존 및 SDD 태스크 상태 복구. |
-| `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | `sprint-status.yaml`을 위한 저수준 결정론적 3-Way 병합 도구. |
-| `sdd-parallel check-lock --file PATH [--tool TOOL]` | 현재 활성 잠금 매니페스트를 기준으로 파일 쓰기 권한 검증. |
-| `sdd-parallel install-plugin [--target-dir DIR]` | Google Antigravity 전용 네이티브 플러그인 패키징 및 설치. |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness <tool>] [--antigravity-layout] [--execute]` | 모델 에포트 라우팅을 지원하는 다중 대화 자동 조종 명령 생성 또는 실행. |
+| `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp] [--scaffold-only] [--output-dir DIR]` | 5개 SDD 키트 중 하나를 대상으로 오프라인 머지 폭탄 데모를 실행하거나 대화형 샌드박스를 스캐폴딩합니다. |
+| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR]` | 로드맵과 코드 의존성 그래프를 분석하여 `execution-plan-parallel.md` 및 `wave-plan.json`을 생성합니다. |
+| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run]` | 슬롯(`track-a`, `track-b`, …)을 프로비저닝하고, OS 파일 잠금을 적용하며, 경계 컨텍스트를 주입합니다. |
+| `sdd-parallel claim-track --wave K --track <id> --worktree <path> [--repo REPO] [--max-tracks N] [--kit KIT] [--headless]` | 이미 존재하는 외부 worktree에 경계 잠금 매니페스트를 연결합니다. |
+| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout]` | 각 트랙별 네이티브 실행 명령어가 포함된 오퍼레이터 실행 가이드를 출력합니다. |
+| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | 슬롯의 수정 사항을 `.parallel-lock.json` 및 `merge-base` 대비 멀티 커밋 diff 기준으로 감사(audit)합니다. |
+| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | 배리어 병합: 3-way 상태 병합, git merge, 퀄리티 게이트 검증 및 트랜잭션 자동 롤백을 수행합니다. |
+| `sdd-parallel abort-wave --wave K [--repo REPO] [--dynamic-worktrees]` | 병합되지 않은 웨이브를 중단합니다: 슬롯을 초기화하고 임시 parallel 브랜치를 삭제합니다. |
+| `sdd-parallel rollback-wave --wave K [--repo REPO] [--dynamic-worktrees] [--to-commit COMMIT] [--save-backup] [--no-backup] [--kit KIT]` | 병합된 웨이브를 안전 백업 브랜치 생성 및 SDD 작업 상태 원복과 함께 LIFO 순서로 되돌립니다. |
+| `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | `sprint-status.yaml`을 위한 저수준 결정론적 3-way 상태 병합을 수행합니다. |
+| `sdd-parallel check-lock --file PATH [--tool TOOL]` | 특정 파일의 쓰기 시도가 활성 worktree 잠금 매니페스트에 위배되는지 확인합니다. |
+| `sdd-parallel install-plugin [--target-dir DIR]` | 이식형 Antigravity 플러그인을 패키징하고 설치합니다. |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute]` | 모델 노력도 라우팅(Model Effort Routing)이 적용된 멀티 윈도우 오토파일럿 실행 명령을 생성하거나 실행합니다. |
 
 </details>
 
-<details>
-<summary><b>🧪 클릭하여 펼치기: 로컬 개발 환경 및 품질 게이트</b></summary>
+</details>
 
-### 필수 요구사항
-- **Python:** `>= 3.11` (Python 3.11, 3.12, 3.13)
-- **Git:** `>= 2.30` (최신 `git worktree` 격리 및 `info/exclude` 필터링 지원 필요)
-- **패키지 관리자:** [`uv`](https://docs.astral.sh/uv/) (권장) 또는 `pipx`
+## 🚢 릴리스 매트릭스: 완료 항목 (v0.1.0) vs 로드맵 (v0.2+)
+
+### ✅ `v0.1.0` 구현 완료 항목
+
+- [x] 칸(Kahn) 비순환성 검증이 포함된 결정론적 벌크 동기식 병렬(BSP) 웨이브 스케줄러.
+- [x] AST 핫스팟 스캐너 및 `code-review-graph v2.3.9` 사이드카 연동.
+- [x] 제자리 재설정(in-place reset) 및 `info/exclude` 마스킹을 지원하는 고정 트랙 슬롯(`track-a`, `track-b`, `track-c`).
+- [x] 3계층 스코프 가드(`PreToolUse` + 터미널 가드 + OS `chmod a-w`).
+- [x] YAML, 마크다운 체크리스트, `STATE.md`, JSONL을 지원하는 단조 3-way 상태 병합 엔진.
+- [x] 자동 안전 백업 브랜치를 지원하는 LIFO 트랜잭션 웨이브 롤백.
+- [x] 5대 SDD 어댑터: Spec Kit, BMAD, GSD(아티팩트 하이재킹), OpenSpec, Beads 지원 (각각 트랙별 네이티브 워커 명령어 제공).
+- [x] 오프라인 머지 폭탄 데모(`sdd-parallel demo --kit all`) 및 샌드박스 스캐폴딩(`--scaffold-only`).
+- [x] Antigravity, Claude Code, Codex를 위한 멀티 윈도우 오토파일럿 지원.
+- [x] Ubuntu / macOS / Windows, Python 3.11~3.13 환경에서의 클린 클론 CI 및 PyPI 신뢰 배포(Trusted Publishing).
+
+### 🚧 `v0.2.0+` 로드맵 예정 항목
+
+- [ ] **커뮤니티 어댑터 확충:** `mattpocock/skills` (`/implement-spec`) 및 `bmad-loop` 프런트매터 상태 어댑터.
+- [ ] **환경 오염 제로 동기화:** 고정 슬롯 내 `.venv` / `node_modules` 심볼릭 링크 지원.
+- [ ] **웨이브 사전 정적 심볼 링커 및 스코프 에스컬레이션:** 동적 재스케줄링을 통한 AST 심볼 기반 쓰기 집합 자동 확장.
+- [ ] **FinOps 및 가시성 익스포터:** OpenTelemetry 스팬 및 Langfuse 토큰 절감 텔레메트리 연동.
+- [ ] **헤드리스 오토파일럿 데몬:** 로컬 RPC / 서브에이전트 디스패치를 통한 에이전트 자율 실행.
+
+---
+
+## 🤝 기여 안내, 로컬 개발 및 보안 정책
 
 ```bash
 git clone https://github.com/stopActingSoSmall/sdd-parallel.git
 cd sdd-parallel
 uv sync
 
-# 99개 이상의 단위 및 통합 자동화 테스트 실행
-uv run pytest
-
-# 엄격한 정적 타입 검사 실행
-uv run mypy --strict src/sdd_parallel
-
-# 린터 및 코드 스타일 감사 실행
-uv run ruff check src/ tests/ scripts/
-
-# 오프라인 단독 검증 데모 실행
-uv run sdd-parallel demo
+uv run pytest                          # 단위 및 통합 테스트 스위트
+uv run mypy --strict src/sdd_parallel  # 엄격한 타입 검사
+uv run ruff check src/ tests/ scripts/ # 린트 검사
+uv run sdd-parallel demo --kit all     # 오프라인 5개 키트 데모 실행
 ```
 
-</details>
-
----
-
-## 🚢 릴리스 매트릭스: 출시 완료 (v0.1.0) vs 로드맵 (v0.2+)
-
-### ✅ `v0.1.0` 정식 구현 완료 기능 (프로덕션 검증 완료)
-- Kahn 비순환성 검증을 포함한 결정론적 Bulk-Synchronous Parallel (BSP) 웨이브 스케줄러.
-- AST 핫스팟 스캐너 및 `code-review-graph v2.3.9` 사이드카 통합.
-- 제자리 재설정(In-Place Reset)이 가능한 고정 슬롯 아키텍처(`track-a`, `track-b`, `track-c`).
-- 3단계 심층 방어 체계(`PreToolUse` + 터미널 가드 + OS `chmod a-w`).
-- 주석 및 서식을 완벽 보존하는 단조 3-Way YAML 병합기.
-- 안전 백업 브랜치를 자동 생성하는 LIFO 트랜잭션 웨이브 롤백 엔진.
-- 2단계 협업 표준(Two-Stage Assisted, Interactive IDE Slots, `Depth 0`).
-- 5대 멀티 SDD 어댑터(BMAD, Spec Kit, GSD Artifact Hijack, OpenSpec, Beads).
-- API 키가 필요 없는 오프라인 데모(`sdd-parallel demo`) 및 GitHub Actions CI 파이프라인.
-- 99개 테스트 100% 통과, `mypy --strict` 및 `ruff` 품질 게이트 완비.
-
-### 🚧 `v0.2.0+` 개발 예정 로드맵
-- **커뮤니티 어댑터 생태계 확장:** `mattpocock/skills` (`/implement-spec`) 및 `bmad-loop` v0.8+ frontmatter 어댑터 지원.
-- **무공해 환경 동기화:** 심볼릭 링크를 통해 `.venv`와 `node_modules`를 고정 슬롯에 연결하는 `workz` 패턴.
-- **웨이브 전 정적 심볼 링커 및 동적 스코프 확장:** AST 심볼 분석 기반 쓰기 세트 자동 확장 및 실시간 태스크 재스케줄링.
-- **FinOps 비용 및 옵저버빌리티 익스포터:** OpenTelemetry 트레이싱 및 Langfuse 토큰 절감 텔레메트리 연동.
-- **백그라운드 자동 조종 데몬:** 로컬 RPC / 서브에이전트 디스패치를 통한 완전한 헤드리스 실행.
-
----
-
-## 🤝 기여 안내 및 보안 정책
-
-- **기여 가이드:** 로컬 개발 환경 구성 및 Pull Request 기준은 **[기여 가이드](../../../CONTRIBUTING.md)** 문서를 참조하세요.
-- **보안 취약점 신고:** 취약점 보고 및 책임 있는 공개 절차는 **[보안 정책](../../../SECURITY.md)** 에 안내되어 있습니다.
-
-## 📜 라이선스
-
-본 프로젝트는 MIT 라이선스에 따라 배포됩니다. 자세한 내용은 [LICENSE](../../../LICENSE) 파일을 참조하세요.
+- **기여 가이드:** 환경 설정 및 풀 리퀘스트 게이트는 **[기여 가이드 (Contributing Guide)](../../../CONTRIBUTING.md)**를 참조하세요.
+- **보안 정책:** 취약점 발견 시 **[보안 정책 (Security Policy)](../../../SECURITY.md)**에 따라 제보해 주시기 바랍니다.
+- **라이선스:** MIT — **[LICENSE](../../../LICENSE)**를 확인하세요.

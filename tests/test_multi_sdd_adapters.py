@@ -11,6 +11,7 @@ import pytest
 
 from sdd_parallel.adapters import (
     BeadsAdapter,
+    BMADAdapter,
     GSDHijackAdapter,
     OpenSpecAdapter,
     SpecKitAdapter,
@@ -20,10 +21,16 @@ from sdd_parallel.adapters import (
 )
 from sdd_parallel.ast_scanner import ASTHotspotScanner
 from sdd_parallel.crg_sidecar import CRGSidecarAdapter
-from sdd_parallel.demo import create_demo_repository
+from sdd_parallel.demo import _DEMO_KIT_TASKS, create_demo_repository
 from sdd_parallel.hooks.blast_radius_guard import evaluate_tool_access
 from sdd_parallel.models import EffortTier, FileRole, TaskStatus
 from sdd_parallel.scheduler import BSPWaveScheduler
+from sdd_parallel.status_merger import (
+    get_status_merger,
+    merge_beads_issues_jsonl,
+    merge_markdown_task_checklists,
+    merge_sprint_status_yaml,
+)
 from sdd_parallel.worktree import WorktreeManager, WorktreeRollbackManager
 
 
@@ -559,7 +566,11 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
     scheduler = BSPWaveScheduler(max_tracks=3, file_roles=file_roles)
     plan = scheduler.schedule(tasks, sdd_kit=kit_name)
     assert len(plan.waves) >= 2
-    assert set(plan.waves[0].all_task_ids) == {"1-2", "1-3"}
+
+    task_map = _DEMO_KIT_TASKS.get(kit, _DEMO_KIT_TASKS["bmad"])
+    t_norm = task_map["s2_norm"]
+    t_exp = task_map["s3_exp"]
+    assert set(plan.waves[0].all_task_ids) == {t_norm, t_exp}
 
     wm = WorktreeManager(repo_dir, fixed_slots=True)
     wt_paths = wm.prepare_wave(plan=plan, wave_number=1)
@@ -591,7 +602,7 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
     )
     assert kit_dec.decision == "deny"
 
-    # Simulate Worker A committing Task 1-2
+    # Simulate Worker A committing Task t_norm
     norm_file = track_a_path / "src/demo_app/normalizer.py"
     norm_file.write_text(norm_file.read_text(encoding="utf-8") + "\n# worker a\n", encoding="utf-8")
 
@@ -599,8 +610,8 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
         st_a = track_a_path / "_bmad-output/implementation-artifacts/sprint-status.yaml"
         st_a.write_text(
             st_a.read_text(encoding="utf-8").replace(
-                "1-2-normalize-telemetry-payload: ready-for-dev",
-                "1-2-normalize-telemetry-payload: done",
+                f"{t_norm}-normalize-telemetry-payload: ready-for-dev",
+                f"{t_norm}-normalize-telemetry-payload: done",
             ),
             encoding="utf-8",
         )
@@ -612,7 +623,8 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
     elif kit in {"spec-kit", "speckit"}:
         tasks_a = track_a_path / ".specify/specs/001-telemetry/tasks.md"
         tasks_a.write_text(
-            tasks_a.read_text(encoding="utf-8").replace("- [ ] 1-2", "- [x] 1-2"), encoding="utf-8"
+            tasks_a.read_text(encoding="utf-8").replace(f"- [ ] {t_norm}", f"- [x] {t_norm}"),
+            encoding="utf-8",
         )
         subprocess.run(
             ["git", "add", "src/demo_app/normalizer.py", tasks_a.as_posix()],
@@ -620,17 +632,17 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
             check=True,
         )
     elif kit == "gsd":
-        sum_a = track_a_path / ".planning/phases/01-core/1-2-SUMMARY.md"
-        sum_a.write_text("# Summary 1-2\nDone\n", encoding="utf-8")
+        sum_a = track_a_path / f".planning/phases/01-core/{t_norm}-SUMMARY.md"
+        sum_a.write_text(f"# Summary {t_norm}\nDone\n", encoding="utf-8")
         subprocess.run(
             ["git", "add", "src/demo_app/normalizer.py", sum_a.as_posix()],
             cwd=track_a_path,
             check=True,
         )
     elif kit == "openspec":
-        tasks_a = track_a_path / "openspec/changes/1-2/tasks.md"
+        tasks_a = track_a_path / f"openspec/changes/{t_norm}/tasks.md"
         tasks_a.write_text(
-            tasks_a.read_text(encoding="utf-8").replace("- [ ] Normalize", "- [x] Normalize"),
+            tasks_a.read_text(encoding="utf-8").replace("- [ ]", "- [x]"),
             encoding="utf-8",
         )
         subprocess.run(
@@ -646,7 +658,7 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
             if line.strip()
         ]
         for r in recs:
-            if r.get("id") == "1-2":
+            if r.get("id") == t_norm:
                 r["status"] = "closed"
         iss_a.write_text(
             "\n".join(json.dumps(r, ensure_ascii=False) for r in recs) + "\n", encoding="utf-8"
@@ -657,9 +669,11 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
             check=True,
         )
 
-    subprocess.run(["git", "commit", "-m", "feat(1-2): worker a"], cwd=track_a_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", f"feat({t_norm}): worker a"], cwd=track_a_path, check=True
+    )
 
-    # Simulate Worker B committing Task 1-3
+    # Simulate Worker B committing Task t_exp
     exp_file = track_b_path / "src/demo_app/exporter.py"
     exp_file.write_text(exp_file.read_text(encoding="utf-8") + "\n# worker b\n", encoding="utf-8")
 
@@ -667,7 +681,7 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
         st_b = track_b_path / "_bmad-output/implementation-artifacts/sprint-status.yaml"
         st_b.write_text(
             st_b.read_text(encoding="utf-8").replace(
-                "1-3-cli-batch-export: ready-for-dev", "1-3-cli-batch-export: done"
+                f"{t_exp}-cli-batch-export: ready-for-dev", f"{t_exp}-cli-batch-export: done"
             ),
             encoding="utf-8",
         )
@@ -679,7 +693,8 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
     elif kit in {"spec-kit", "speckit"}:
         tasks_b = track_b_path / ".specify/specs/001-telemetry/tasks.md"
         tasks_b.write_text(
-            tasks_b.read_text(encoding="utf-8").replace("- [ ] 1-3", "- [x] 1-3"), encoding="utf-8"
+            tasks_b.read_text(encoding="utf-8").replace(f"- [ ] {t_exp}", f"- [x] {t_exp}"),
+            encoding="utf-8",
         )
         subprocess.run(
             ["git", "add", "src/demo_app/exporter.py", tasks_b.as_posix()],
@@ -687,17 +702,17 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
             check=True,
         )
     elif kit == "gsd":
-        sum_b = track_b_path / ".planning/phases/01-core/1-3-SUMMARY.md"
-        sum_b.write_text("# Summary 1-3\nDone\n", encoding="utf-8")
+        sum_b = track_b_path / f".planning/phases/01-core/{t_exp}-SUMMARY.md"
+        sum_b.write_text(f"# Summary {t_exp}\nDone\n", encoding="utf-8")
         subprocess.run(
             ["git", "add", "src/demo_app/exporter.py", sum_b.as_posix()],
             cwd=track_b_path,
             check=True,
         )
     elif kit == "openspec":
-        tasks_b = track_b_path / "openspec/changes/1-3/tasks.md"
+        tasks_b = track_b_path / f"openspec/changes/{t_exp}/tasks.md"
         tasks_b.write_text(
-            tasks_b.read_text(encoding="utf-8").replace("- [ ] Add CLI", "- [x] Add CLI"),
+            tasks_b.read_text(encoding="utf-8").replace("- [ ]", "- [x]"),
             encoding="utf-8",
         )
         subprocess.run(
@@ -713,7 +728,7 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
             if line.strip()
         ]
         for r in recs:
-            if r.get("id") == "1-3":
+            if r.get("id") == t_exp:
                 r["status"] = "closed"
         iss_b.write_text(
             "\n".join(json.dumps(r, ensure_ascii=False) for r in recs) + "\n", encoding="utf-8"
@@ -724,7 +739,9 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
             check=True,
         )
 
-    subprocess.run(["git", "commit", "-m", "feat(1-3): worker b"], cwd=track_b_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", f"feat({t_exp}): worker b"], cwd=track_b_path, check=True
+    )
 
     # Verify wave: 0 violations
     violations = wm.verify_wave(plan=plan, wave_number=1)
@@ -739,24 +756,24 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
         st_content = (
             repo_dir / "_bmad-output/implementation-artifacts/sprint-status.yaml"
         ).read_text(encoding="utf-8")
-        assert "1-2-normalize-telemetry-payload: done" in st_content
-        assert "1-3-cli-batch-export: done" in st_content
+        assert f"{t_norm}-normalize-telemetry-payload: done" in st_content
+        assert f"{t_exp}-cli-batch-export: done" in st_content
         assert "<<<<<<<" not in st_content
     elif kit in {"spec-kit", "speckit"}:
         t_content = (repo_dir / ".specify/specs/001-telemetry/tasks.md").read_text(encoding="utf-8")
-        assert "- [x] 1-2" in t_content
-        assert "- [x] 1-3" in t_content
+        assert f"- [x] {t_norm}" in t_content
+        assert f"- [x] {t_exp}" in t_content
         assert "<<<<<<<" not in t_content
     elif kit == "gsd":
         s_content = (repo_dir / ".planning/STATE.md").read_text(encoding="utf-8")
-        assert "- [x] 1-2" in s_content
-        assert "- [x] 1-3" in s_content
+        assert f"- [x] {t_norm}" in s_content
+        assert f"- [x] {t_exp}" in s_content
         assert "<<<<<<<" not in s_content
     elif kit == "openspec":
-        t12 = (repo_dir / "openspec/changes/1-2/tasks.md").read_text(encoding="utf-8")
-        t13 = (repo_dir / "openspec/changes/1-3/tasks.md").read_text(encoding="utf-8")
-        assert "- [x] Normalize" in t12
-        assert "- [x] Add CLI" in t13
+        t12 = (repo_dir / f"openspec/changes/{t_norm}/tasks.md").read_text(encoding="utf-8")
+        t13 = (repo_dir / f"openspec/changes/{t_exp}/tasks.md").read_text(encoding="utf-8")
+        assert "- [x]" in t12
+        assert "- [x]" in t13
     elif kit == "beads":
         b_content = (repo_dir / ".beads/issues.jsonl").read_text(encoding="utf-8")
         assert "<<<<<<<" not in b_content
@@ -765,7 +782,7 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
             for line in b_content.splitlines()
             if json.loads(line).get("status") == "closed"
         ]
-        assert "1-2" in closed_ids and "1-3" in closed_ids
+        assert t_norm in closed_ids and t_exp in closed_ids
 
     # Rollback wave 1
     wrm = WorktreeRollbackManager(repo_dir)
@@ -787,8 +804,8 @@ def test_all_five_kits_full_wave_lifecycle_merge_and_rollback(tmp_path: Path, ki
 
     # Verify task statuses reset
     tasks_after_rb = adapter.load_tasks(include_done=False)
-    assert "1-2" in [t.id for t in tasks_after_rb]
-    assert "1-3" in [t.id for t in tasks_after_rb]
+    assert t_norm in [t.id for t in tasks_after_rb]
+    assert t_exp in [t.id for t in tasks_after_rb]
 
 
 def test_multi_kit_coexistence_auto_selects_kit_with_active_tasks_and_isolates_inactive_kit(
@@ -1030,4 +1047,79 @@ def test_beads_jsonl_typed_dependencies_and_blocked_status(tmp_path: Path) -> No
 
     t2 = next(t for t in tasks if t.id == "bd-02")
     assert t2.effort == EffortTier.LOW
+
+
+def test_polymorphic_get_status_files_across_all_five_adapters(tmp_path: Path) -> None:
+    # 1. BMAD
+    bmad = BMADAdapter(tmp_path)
+    assert bmad.get_status_files() == ["_bmad-output/implementation-artifacts/sprint-status.yaml"]
+
+    # 2. Spec Kit
+    spec_kit = SpecKitAdapter(tmp_path)
+    assert spec_kit.get_status_files() == []
+    feat1 = tmp_path / ".specify" / "specs" / "feat1"
+    feat1.mkdir(parents=True)
+    (feat1 / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
+    feat2 = tmp_path / "specs" / "feat2"
+    feat2.mkdir(parents=True)
+    (feat2 / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
+    assert sorted(spec_kit.get_status_files()) == [
+        ".specify/specs/feat1/tasks.md",
+        "specs/feat2/tasks.md",
+    ]
+
+    # 3. GSD
+    gsd = GSDHijackAdapter(tmp_path)
+    assert gsd.get_status_files() == [".planning/STATE.md"]
+    p_dir = tmp_path / ".planning" / "phases" / "01-foundation"
+    p_dir.mkdir(parents=True)
+    (p_dir / "01-01-PLAN.md").write_text("# Plan\n", encoding="utf-8")
+    assert sorted(gsd.get_status_files()) == [
+        ".planning/STATE.md",
+        ".planning/phases/01-foundation/01-01-PLAN.md",
+    ]
+
+    # 4. OpenSpec
+    openspec = OpenSpecAdapter(tmp_path)
+    assert openspec.get_status_files() == []
+    c1 = tmp_path / "openspec" / "changes" / "change-01"
+    c1.mkdir(parents=True)
+    (c1 / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
+    assert openspec.get_status_files() == ["openspec/changes/change-01/tasks.md"]
+
+    # 5. Beads
+    beads = BeadsAdapter(tmp_path)
+    assert sorted(beads.get_status_files()) == [
+        ".beads/beads.jsonl",
+        ".beads/issues.jsonl",
+    ]
+
+
+def test_get_status_merger_dispatcher() -> None:
+    # BMAD yaml
+    assert get_status_merger("sprint-status.yaml") is merge_sprint_status_yaml
+    assert get_status_merger("sprint-status.yml") is merge_sprint_status_yaml
+    assert (
+        get_status_merger("_bmad-output/implementation-artifacts/sprint-status.yaml")
+        is merge_sprint_status_yaml
+    )
+
+    # Markdown tasks checklists
+    assert get_status_merger("tasks.md") is merge_markdown_task_checklists
+    assert get_status_merger(".specify/specs/001-feat/tasks.md") is merge_markdown_task_checklists
+    assert get_status_merger("specs/002-auth/tasks.md") is merge_markdown_task_checklists
+    assert (
+        get_status_merger("openspec/changes/add-feature/tasks.md")
+        is merge_markdown_task_checklists
+    )
+
+    # Beads jsonl
+    assert get_status_merger(".beads/issues.jsonl") is merge_beads_issues_jsonl
+    assert get_status_merger(".beads/beads.jsonl") is merge_beads_issues_jsonl
+
+    # Irrelevant or unsupported paths
+    assert get_status_merger("src/models.py") is None
+    assert get_status_merger("README.md") is None
+    assert get_status_merger(".planning/STATE.md") is None
+    assert get_status_merger("data/records.jsonl") is None
 

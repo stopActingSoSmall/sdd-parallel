@@ -481,3 +481,21 @@ class SpecKitAdapter:
             feat, local_id = task_id.split(":", 1)
             return f"`SPECIFY_FEATURE={feat} /speckit.implement {local_id}`"
         return f"`/speckit.implement {task_id}`"
+
+    def default_artifacts_dir(self) -> Path:
+        """Return default artifacts directory for Spec Kit."""
+        return self.repo_root / ".parallel" / "artifacts"
+
+    def get_status_files(self) -> list[str]:
+        """Return relative paths of Spec Kit tasks.md files in specs/** or .specify/**."""
+        status_files: list[str] = []
+        for spec_root in (self.repo_root / "specs", self.specify_dir / "specs"):
+            if spec_root.is_dir():
+                for p in sorted(spec_root.rglob("tasks.md")):
+                    try:
+                        rel = p.relative_to(self.repo_root).as_posix()
+                        if rel not in status_files:
+                            status_files.append(rel)
+                    except ValueError:
+                        pass
+        return status_files

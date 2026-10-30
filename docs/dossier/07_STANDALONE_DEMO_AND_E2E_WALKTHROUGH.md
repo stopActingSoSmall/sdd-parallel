@@ -323,7 +323,7 @@ git status
 git log -1 --oneline
 ```
 *Repository layout:*
-- `specs/001-telemetry/{spec.md, plan.md, tasks.md}` — authentic GitHub Spec Kit task checklist (`- [ ] 1-1`, `- [ ] 1-2`, `- [ ] 1-3`, `- [ ] 2-1`, `- [ ] 2-2`).
+- `specs/001-telemetry/{spec.md, plan.md, tasks.md}` — authentic GitHub Spec Kit task checklist (`- [ ] T001`, `- [ ] T002 [P]`, `- [ ] T003 [P]`, `- [ ] T004`, `- [ ] T005`).
 - `.specify/memory/constitution.md` and `.specify/feature.json` — immutable project contracts.
 - `src/demo_app/` — 6 Python modules with telemetry logic and hidden Type-2 semantic collision.
 
@@ -334,7 +334,7 @@ uv run sdd-parallel plan
 *What happens:*
 - The scanner detects GitHub Spec Kit automatically via `specs/**/tasks.md` and `.specify/`.
 - AST static analysis classifies `schema.py` as `SPINE`, `cli.py` as `ADDITIVE_REGISTRY`, and catches the semantic dependency between `api.py` and `normalizer.py`.
-- Tasks `1-2` and `1-3` are packed into **Wave 1**, while `2-1` is isolated into **Wave 2** to prevent the Semantic Merge-Bomb.
+- Tasks `T002` and `T003` are packed into **Wave 1**, while `T004` is isolated into **Wave 2** to prevent the Semantic Merge-Bomb.
 
 #### Step 3. Provision Fixed Track Slots (`prepare`)
 ```powershell
@@ -362,15 +362,15 @@ Add-Content -Path .worktrees\track-a\.specify\memory\constitution.md -Value "una
 
 #### Step 5. Simulate Parallel Feature Commits
 ```powershell
-# Agent in track-a implements task 1-2:
+# Agent in track-a implements task T002:
 Set-Content -Path .worktrees\track-a\src\demo_app\normalizer.py -Value "def normalize_payload(raw): return {k.strip(): v.strip() for k, v in raw.items()}"
-(Get-Content .worktrees\track-a\specs\001-telemetry\tasks.md) -replace '\[ \] 1-2', '[x] 1-2' | Set-Content .worktrees\track-a\specs\001-telemetry\tasks.md
-git -C .worktrees\track-a commit -am "feat: complete task 1-2"
+(Get-Content .worktrees\track-a\specs\001-telemetry\tasks.md) -replace '\[ \] T002', '[x] T002' | Set-Content .worktrees\track-a\specs\001-telemetry\tasks.md
+git -C .worktrees\track-a commit -am "feat: complete task T002"
 
-# Agent in track-b implements task 1-3:
+# Agent in track-b implements task T003:
 Set-Content -Path .worktrees\track-b\src\demo_app\exporter.py -Value "def export_events(events): return len(events)"
-(Get-Content .worktrees\track-b\specs\001-telemetry\tasks.md) -replace '\[ \] 1-3', '[x] 1-3' | Set-Content .worktrees\track-b\specs\001-telemetry\tasks.md
-git -C .worktrees\track-b commit -am "feat: complete task 1-3"
+(Get-Content .worktrees\track-b\specs\001-telemetry\tasks.md) -replace '\[ \] T003', '[x] T003' | Set-Content .worktrees\track-b\specs\001-telemetry\tasks.md
+git -C .worktrees\track-b commit -am "feat: complete task T003"
 ```
 
 #### Step 6. Verify Blast Radius and Execute Barrier Checkpoint Merge
@@ -382,7 +382,7 @@ uv run sdd-parallel verify-wave --wave 1
 # 2. Execute barrier merge with 3-way monotonic status reconciliation:
 uv run sdd-parallel merge --wave 1
 ```
-*Observation:* Both `- [x] 1-2` and `- [x] 1-3` are reconciled in `specs/001-telemetry/tasks.md` with **0 Git conflict markers**.
+*Observation:* Both `- [x] T002` and `- [x] T003` are reconciled in `specs/001-telemetry/tasks.md` with **0 Git conflict markers**.
 
 #### Step 7. Transactional LIFO Wave Rollback
 ```powershell
@@ -391,7 +391,7 @@ uv run sdd-parallel rollback-wave --wave 1 --save-backup
 *Verification:*
 - Safety backup branch `backup/wave-1-before-rollback-...` is created.
 - `master` branch is reverted cleanly to the pre-merge commit.
-- In `specs/001-telemetry/tasks.md`, tasks `1-2` and `1-3` are polymorphically reset back to unchecked `[ ]`.
+- In `specs/001-telemetry/tasks.md`, tasks `T002` and `T003` are polymorphically reset back to unchecked `[ ]`.
 
 ---
 
@@ -444,4 +444,4 @@ uv run sdd-parallel rollback-wave --wave 1 --save-backup
 - 📐 **[System Capabilities & Architectural White Paper (`02_SYSTEM_CAPABILITIES_WHITE_PAPER.md`)](02_SYSTEM_CAPABILITIES_WHITE_PAPER.md)** — Decay formulation for blast radius $I(T)$, Kahn acyclicity proofs, Three-Tier Scope Guard, and status lattice algebra.
 - 🔌 **[Integration & Ecosystem Specification (`03_INTEGRATION_AND_ECOSYSTEM_SPEC.md`)](03_INTEGRATION_AND_ECOSYSTEM_SPEC.md)** — Integration specifications for **BMAD**, **GitHub Spec Kit (`.specify/`)**, **GSD (`.planning/`)**, **OpenSpec**, and **Beads**, with `.parallel-lock.json` schema and MCP definitions.
 - 📊 **Brownfield Verification & Case Studies** — Empirical validation of the Two-Stage Assisted workflow across complex multi-epic production repositories.
-- 🛡️ **[Core Invariants in `README.md`](../../README.md#-core-invariants)** — Complete checklist of architectural guarantees.
+- 🛡️ **[Core Architecture & Invariants in `ARCHITECTURE.md`](../../ARCHITECTURE.md)** — Complete checklist of architectural guarantees.

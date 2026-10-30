@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 from sdd_parallel.cli import main
-from sdd_parallel.demo import run_demo
+from sdd_parallel.demo import _DEMO_KIT_TASKS, run_demo
 from sdd_parallel.models import FileRole
 from sdd_parallel.worktree import _restore_os_writable
 
@@ -105,3 +105,16 @@ def test_demo_scaffold_only_flag(tmp_path: Path) -> None:
     assert "SDD-PARALLEL DEMO SANDBOX CREATED (SPEC-KIT)" in out
     assert "Next steps for manual walkthrough:" in out
     assert "sdd-parallel plan --kit spec-kit" in out
+
+
+def test_demo_canonical_task_ids_across_all_five_kits() -> None:
+    """Verify each SDD kit runs with its canonical task identifiers and structure."""
+    for kit in ("bmad", "spec-kit", "gsd", "openspec", "beads"):
+        buf = io.StringIO()
+        res = run_demo(keep_temp=False, output=buf, kit=kit)
+        expected_ids = set(_DEMO_KIT_TASKS[kit].values())
+        assert set(res.plan.scheduled_task_ids) == expected_ids
+        assert res.clean_git_status is True
+        assert res.semantic_collision_detected is True
+        assert res.scope_guard_decision.decision == "deny"
+        assert len(res.merged_branches) == 2

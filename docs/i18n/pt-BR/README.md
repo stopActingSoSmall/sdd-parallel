@@ -1,17 +1,20 @@
-# ⚡ SDD-Parallel (`parallel-flow`)
-
-[![CI](https://github.com/stopActingSoSmall/sdd-parallel/actions/workflows/ci.yml/badge.svg)](https://github.com/stopActingSoSmall/sdd-parallel/actions/workflows/ci.yml)
-[![PyPI version](https://img.shields.io/pypi/v/sdd-parallel.svg)](https://pypi.org/project/sdd-parallel/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../../../LICENSE)
-[![Zero API Keys Demo](https://img.shields.io/badge/demo-offline%20%3C5s-green.svg)](#-teste-em-5-segundos-zero-chaves-de-api-sem-clone)
-
 <p align="center">
-  <img src="../../assets/hero-banner.jpg" width="100%" alt="Visão geral do SDD-Parallel">
+  <img src="../../assets/hero-banner.png" width="100%" alt="SDD-Parallel — Orquestrador determinístico de agentes de IA concorrentes">
 </p>
 
 <p align="center">
-  <b>🌐 Idioma / Language:</b>
+  <a href="https://github.com/stopActingSoSmall/sdd-parallel/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/stopActingSoSmall/sdd-parallel/ci.yml?branch=master&style=flat-square&label=CI" alt="CI"></a>
+  <a href="https://pypi.org/project/sdd-parallel/"><img src="https://img.shields.io/pypi/v/sdd-parallel?style=flat-square&color=0EA5E9" alt="Versão PyPI"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square" alt="Python 3.11+"></a>
+  <a href="../../../LICENSE"><img src="https://img.shields.io/badge/licen%C3%A7a-MIT-F59E0B?style=flat-square" alt="Licença: MIT"></a>
+  <a href="#-experimente-em-5-segundos-zero-chaves-de-api-passo-a-passo-anotado"><img src="https://img.shields.io/badge/demo-offline%20%3C5s-10B981?style=flat-square" alt="Demo offline em menos de 5 segundos"></a>
+  <br>
+  <a href="#-encaixa-se-perfeitamente-na-sua-stack-atual-zero-lock-in"><img src="https://img.shields.io/badge/compat%C3%ADvel%20com-Claude%20Code%20%7C%20Codex%20%7C%20Antigravity%20%7C%20Cursor%20%7C%20OpenCode%20%7C%20Kimi-7C3AED?style=flat-square" alt="Compatível com Claude Code, Codex, Antigravity, Cursor, OpenCode, Kimi"></a>
+  <a href="#-veja-o-layout-exato-do-seu-projeto-sdd-antes-e-depois"><img src="https://img.shields.io/badge/kits%20SDD-Spec%20Kit%20%7C%20BMAD%20%7C%20GSD%20%7C%20OpenSpec%20%7C%20Beads-0EA5E9?style=flat-square" alt="Kits SDD: Spec Kit, BMAD, GSD, OpenSpec, Beads"></a>
+</p>
+
+<p align="center">
+  <b>🌐 Idioma:</b>
   <a href="../../../README.md">English</a> |
   <a href="../zh-CN/README.md">简体中文</a> |
   <a href="../es/README.md">Español</a> |
@@ -21,60 +24,61 @@
   <a href="../ru/README.md">Русский</a>
 </p>
 
-> **Execute 3–4 agentes de IA em paralelo — sem quebrar seu build ou o histórico do Git.**  
-> O controlador de tráfego determinístico, isolador de worktrees e protetor de Blast Radius para **Claude Code**, **OpenAI Codex** e **Google Antigravity** operando em projetos **BMAD**, **GitHub Spec Kit**, **GSD**, **OpenSpec** ou **Beads**.
+<p align="center">
+  <a href="#-experimente-em-5-segundos-zero-chaves-de-api-passo-a-passo-anotado">Demo rápida</a> ·
+  <a href="#-por-que-isso-existe-em-bom-português">Por que existe</a> ·
+  <a href="#%EF%B8%8F-como-funciona-e-fluxo-diário-de-4-comandos">Como funciona</a> ·
+  <a href="#-veja-o-layout-exato-do-seu-projeto-sdd-antes-e-depois">Seu layout SDD</a> ·
+  <a href="#-encaixa-se-perfeitamente-na-sua-stack-atual-zero-lock-in">Harnesses</a> ·
+  <a href="#%EF%B8%8F-referência-completa-da-cli">CLI diária</a> ·
+  <a href="#-arquitetura-modelo-matemático-e-aprofundamento-no-dossier">Aprofundamento</a>
+</p>
+
+> **Execute múltiplos agentes de codificação por IA em paralelo — até 3x mais rápido, zero Merge-Bombs.**  
+> O `sdd-parallel` é o controlador de tráfego determinístico, isolador de worktrees e protetor de raio de impacto (blast radius) entre o seu backlog de **Spec Kit / BMAD / GSD / OpenSpec / Beads** e os agentes de IA (**Claude Code**, **Codex**, **Antigravity** ou qualquer CLI compatível com worktrees) que o implementam.
 
 ---
 
-## ⚡ Por que isso existe? (Em termos simples)
+## ⚡ Por que isso existe? (Em bom português)
 
-Quando você tem um backlog de 10–15 especificações ou histórias, você enfrenta uma escolha difícil:
-1. **Executar 1 agente de IA sequencialmente:** Seguro, mas exige esperar **6–8 horas**.
-2. **Disparar 3–4 agentes de IA em paralelo (`git worktree`):** Rápido, até que você tenta integrá-los e atinge uma **Bomba de Merge (Merge-Bomb)**:
-   - **Colisões diretas de Git:** Vários agentes editam simultaneamente `sprint-status.yaml`, `STATE.md` ou `cli.py`.
-   - **Quebra semântica silenciosa (Colisão Tipo 2):** O Agente A altera a assinatura de uma função em `normalizer.py`, enquanto o Agente B em outro worktree invoca a assinatura antiga a partir de `api.py`. **O Git faz o merge perfeitamente sem nenhum conflito, mas a branch `main` quebra instantaneamente em tempo de execução.**
-   - **Desvio de escopo (Scope Creep):** Um agente decide ser "prestativo" e altera esquemas centrais do banco (`schema.py`) fora da história atribuída.
+<p align="center">
+  <img src="../../assets/merge-bomb-anatomy.png" width="100%" alt="Anatomia de um Merge-Bomb: sequencial vs worktrees ingênuas vs sdd-parallel">
+</p>
 
-**O `sdd-parallel` funciona como um controlador de tráfego aéreo com precisão de compilador entre suas especificações SDD e seus agentes de IA.** Antes de gastar um único token de LLM, ele escaneia o AST e o grafo de chamadas do repositório, organiza tarefas seguras em **Ondas (Waves)** paralelas, isola cada agente em um worktree limpo (`track-a`, `track-b`), bloqueia fisicamente escritas fora de escopo e mescla automaticamente ondas concluídas com zero conflitos.
+Com um backlog de 10 a 15 especificações ou histórias, atualmente você é forçado a escolher entre duas opções ruins:
 
-### 📊 Comparativo: Antes vs. Depois do `sdd-parallel`
+1. **Um único agente, sequencialmente** — seguro, mas são **6 a 8 horas** de espera ociosa.
+2. **3 a 4 agentes em pastas ingênuas com `git worktree`** — rápido, até o momento do merge:
+   - **Colisão do Tipo 1 (direta):** dois agentes editam `sprint-status.yaml`, `STATE.md` ou `cli.py` ao mesmo tempo → conflitos com marcadores `<<<<<<<` a cada merge.
+   - **Colisão do Tipo 2 (semântica, silenciosa):** o Agente A altera uma assinatura em `normalizer.py`; o Agente B, em outra worktree concorrente, chama a assinatura antiga a partir de `api.py`. **O Git realiza o merge de forma limpa, sem nenhum marcador de conflito — e a branch `main` quebra.**
+   - **Fuga de escopo (scope creep):** um agente "prestativo" reescreve o arquivo compartilhado `schema.py`, que jamais fez parte da sua tarefa atribuída.
 
-| Cenário | ❌ SDD Sequencial (1 Agente) | 💥 Paralelo Ingênuo (`--worktree`) | ✅ Com `sdd-parallel` |
+**O `sdd-parallel` resolve isso antes que um único token de LLM seja gasto:** ele analisa a AST e o grafo de chamadas do seu projeto, agrupa tarefas comprovadamente seguras em **Ondas (Waves)** paralelas, isola cada agente dentro de um slot fixo e limpo (`track-a`, `track-b`, …), bloqueia gravações fora de escopo no nível de hooks e do sistema operacional e realiza o merge de cada onda atrás de uma barreira de quality gates.
+
+| O que acontece | ❌ Sequencial (1 Agente) | 💥 Paralelo ingênuo (`--worktree`) | ✅ Com `sdd-parallel` |
 | :--- | :--- | :--- | :--- |
-| **Tempo de sprint (12 histórias)** | ~6–8 horas (uma por uma) | ~2 h codificando + **2 h corrigindo merges quebrados** | **~2.5 horas no total (ganho de 2x–3x)** |
-| **Colisões ocultas de tipo/API** | Evitadas apenas pela lentidão | **Quebra a `main` após o merge** ($W_A \cap I_B$) | **Prevenidas antecipadamente** (separadas em Onda 1 → Onda 2) |
-| **Arquivos compartilhados de CLI/Router** | 1 agente por vez | Conflito de Git a cada merge | **Seguro em paralelo** (detecção de `ADDITIVE_REGISTRY`) |
-| **`sprint-status.yaml` / `tasks.md`** | Atualizados em série | Conflitos constantes com marcas `<<<<<<<` | **Auto-mesclados** (Mesclador monotônico 3-way) |
-| **Agente edita arquivo indevido** | O prompt apenas diz "por favor, não faça" | O agente burla via `bash` / `sed` | **Bloqueio no nível do SO e hooks** (`chmod a-w` + `PreToolUse`) |
-| **Desordem de pastas worktree** | Nenhuma | 15 pastas órfãs `.worktrees/task-*` | **Slots fixos reutilizáveis** (`track-a`, `track-b`, `track-c`) |
+| **Tempo de sprint (12 histórias)** | ~6–8 h (uma por uma) | ~2 h codificando + **~2 h corrigindo merges quebrados** | **~2.5 h no total (aceleração de 2x a 3x)** |
+| **Colisões ocultas de tipos / API** | Evitadas apenas avançando devagar | **Quebra a `main` após o merge** ($W_A \cap I_B \neq \emptyset$) | **Prevenidas antecipadamente** (divididas em Onda 1 → Onda 2) |
+| **Arquivos compartilhados de CLI / roteamento** | Um agente de cada vez | Conflito no Git a cada merge | **Seguro para paralelismo** (detecção de `ADDITIVE_REGISTRY`) |
+| **`sprint-status.yaml` / `tasks.md` / `STATE.md`** | Atualizados em série | Conflitos constantes com `<<<<<<<` | **Auto-merge** (merger de 3 vias monótono) |
+| **Agente edita o arquivo errado** | Prompt pede "por favor, não faça isso" | Burlar via `bash` / `sed` | **Bloqueado** (hook `PreToolUse` + Terminal Guard + `chmod a-w`) |
+| **Poluição de pastas de worktree** | Nenhuma | 15 pastas órfãs `.worktrees/task-*` | **Slots fixos reutilizáveis** (`track-a`, `track-b`, `track-c`) |
 
 ---
 
-## 🚀 Teste em 5 segundos (Zero chaves de API, sem clone)
+## 🚀 Experimente em 5 segundos (zero chaves de API, passo a passo anotado)
 
-Você não precisa de chave de API, assinatura de LLM nem de um projeto existente para ver como o `sdd-parallel` captura uma colisão semântica oculta. Execute este único comando no terminal via [`uv`](https://docs.astral.sh/uv/) (ou `pipx run sdd-parallel demo`):
+Sem chave de API, sem assinatura de LLM, sem clone manual. Um único comando via [`uv`](https://docs.astral.sh/uv/) (ou `pipx run sdd-parallel demo`):
 
 ```bash
-uvx sdd-parallel demo
+uvx sdd-parallel demo          # ou teste um kit específico: uvx sdd-parallel demo --kit spec-kit
 ```
 
-**O que acontece em 3.2 segundos no seu terminal:**
-1. Cria um repositório temporário com 5 histórias e 6 módulos Python (`schema.py`, `normalizer.py`, `api.py`, `exporter.py`, `cli.py`).
-2. **Identifica uma armadilha oculta:** A História `1-2` modifica `normalizer.py`, enquanto a História `2-1` modifica `api.py` (que importa `normalizer.py`). Um bloqueador ingênuo pensaria que são seguras de rodar juntas. O `sdd-parallel` detecta o impacto cruzado no grafo de chamadas e as separa automaticamente na **Onda 1** e **Onda 2**.
-3. **Permite paralelismo seguro em registros compartilhados:** Reconhece `cli.py` como `ADDITIVE_REGISTRY`, permitindo que as Histórias `1-2` e `1-3` rodem em paralelo na **Onda 1** (`track-a` e `track-b`).
-4. **Demonstra o Scope Guard e o merge 3-way:** Bloqueia uma edição indevida em `schema.py` (`DENY: Locked by Spine Chain invariant`) e mescla ambas as branches paralelas com `0 marcadores de conflito`.
+A demonstração cria um repositório temporário com 5 tarefas e 6 módulos Python, executa o motor real sobre ele e conclui em ~4 segundos. Abaixo está a execução do `--kit spec-kit`, dividida em suas 4 etapas.
 
-<details>
-<summary><b>📺 Clique para visualizar a saída exata do terminal de <code>sdd-parallel demo</code></b></summary>
+#### `[Passo 1/4]` AST e Classificação de Papéis
 
 ```text
-============================================================================
-SDD-PARALLEL STANDALONE MERGE-BOMB DEMO (ZERO API KEYS / OFFLINE)
-============================================================================
-Workspace: /tmp/sdd-parallel-demo-xyz
-
-[Step 1/4] AST & Architectural Role Classification
-----------------------------------------------------------------------------
 File Path                              | Detected Role          | Importers
 ----------------------------------------------------------------------------
 src/demo_app/__init__.py               | additive_registry      | -
@@ -83,193 +87,485 @@ src/demo_app/cli.py                    | additive_registry      | -
 src/demo_app/exporter.py               | standard               | -
 src/demo_app/normalizer.py             | standard               | src/demo_app/api.py
 src/demo_app/schema.py                 | spine                  | -
+```
 
-[Step 2/4] Type-2 Semantic Merge-Bomb Detection & BSP Wave Schedule
-----------------------------------------------------------------------------
+Zero configuração, sem caminhos codificados: o scanner marca `schema.py` como a **`spine`** (espinha dorsal; todos dependem dele → serializar), `cli.py` como um **`additive_registry`** (registro de comandos apenas para anexação → seguro para compartilhar) e identifica que `api.py` importa `normalizer.py`.
+
+#### `[Passo 2/4]` Interceptando o Merge-Bomb Oculto de Tipo 2
+
+```text
   Collision Analysis:
-    - Naive Scheduler : W(1-2)={normalizer.py, cli.py} vs W(2-1)={api.py}
+    - Naive Scheduler : W(T002)={normalizer.py, cli.py} vs W(T004)={api.py}
                         -> DISJOINT WRITES (False Safe!)
-    - BSPWaveScheduler: Detected semantic_collision between '1-2' and '2-1'
-                        -> Overlap W(1-2) ^ I(2-1) on: src/demo_app/api.py
-    - Additive Registry: Tasks '1-2' and '1-3' both touch 'src/demo_app/cli.py'
-                        -> Role: ADDITIVE_REGISTRY (Parallel allowed in Wave 1)
-
+    - BSPWaveScheduler: Detected semantic_collision between 'T002' and 'T004'
+                        -> Overlap W(T002) ^ I(T004) on: src/demo_app/api.py
   Wave Schedule:
-    * Wave 1
-        - track-a: Story 1-2 -> writes: src/demo_app/normalizer.py (+ shared: src/demo_app/cli.py)
-        - track-b: Story 1-3 -> writes: src/demo_app/exporter.py (+ shared: src/demo_app/cli.py)
-    * Wave 2
-        - track-a: Story 1-1 -> writes: src/demo_app/schema.py
-        - track-b: Story 2-1 -> writes: src/demo_app/api.py
-    * Wave 3
-        - track-a: Story 2-2 -> writes: src/demo_app/schema.py
+    * Wave 1  track-a: T002 (normalizer.py + shared cli.py) | track-b: T003 (exporter.py + shared cli.py)
+    * Wave 2  track-a: T001 (schema.py)                     | track-b: T004 (api.py)
+    * Wave 3  track-a: T005 (schema.py)
+```
 
-[Step 3/4] Fixed-Slot Worktree Provisioning & PreToolUse Scope Guard
-----------------------------------------------------------------------------
+Tanto `T002` quanto `T004` possuem uma tag manual `[P]` em `tasks.md`, e seus conjuntos de escrita são disjuntos (`normalizer.py ≠ api.py`), de modo que um agendador ingênuo baseado em bloqueio de arquivos os executaria juntos. O `BSPWaveScheduler` detecta que as gravações de `T002` incidem dentro do conjunto de impacto de `T004` e move `T004` para a **Onda 2**, onde ele construirá sobre o `normalizer.py` já integrado. Enquanto isso, `T002` e `T003` escrevem em `cli.py` e ainda assim rodam em paralelo, pois trata-se de um registro aditivo (`additive_registry`).
+
+#### `[Passo 3/4]` Slots Fixos Limpos e Interceptação do Scope Guard
+
+```text
   Provisioned Fixed Slots (100% Clean git status: True):
     - track-a (.worktrees/track-a)
     - track-b (.worktrees/track-b)
 
   PreToolUse Scope Guard Check (track-a -> 'src/demo_app/schema.py'):
     - Decision : DENY
-    - Violation: File 'src/demo_app/schema.py' cannot be modified by Wave 1 / track-a (stories ['1-2'])
+    - Violation: File 'src/demo_app/schema.py' cannot be modified by Wave 1 / track-a (stories ['T002'])
     - Reason   : Locked by Spine Chain invariant.
+```
 
-[Step 4/4] Barrier Checkpoint & Monotonic 3-Way YAML Merge
-----------------------------------------------------------------------------
+Arquivos de limites injetados (`ACTIVE_TRACK.md`, `.parallel-lock.json`, `.tmp/track-context.md`) são mascarados pelo `info/exclude` da worktree, portanto `git status --porcelain` permanece limpo. Quando o agente de `track-a` tenta modificar `schema.py`, a gravação é bloqueada antes de atingir o disco.
+
+#### `[Passo 4/4]` Ponto de Controle de Barreira e Merge de 3 Vias Sem Conflitos
+
+```text
   Merged Branches:
     - parallel/track-a
     - parallel/track-b
+  Resolved tasks.md (0 conflict markers):
+    - - [ ] T001 [US1] Upgrade schema in `src/demo_app/schema.py` (depends on T002)
+    - - [x] T002 [P] [US1] Normalize `src/demo_app/normalizer.py`, `src/demo_app/cli.py`
+    - - [x] T003 [P] [US1] Export `src/demo_app/exporter.py`, `src/demo_app/cli.py`
+```
 
-  Resolved sprint-status.yaml (0 conflict markers):
-    - 1-2-normalize-telemetry-payload: done
-    - 1-3-cli-batch-export: done
+Ambas as branches editaram o mesmo arquivo `tasks.md`. O unificador de status resolve cada linha de forma monótona (`[ ] < [x]`, `backlog < … < done`), garantindo que o resultado não tenha nenhum marcador `<<<<<<<`. A mesma lógica cobre `sprint-status.yaml`, `STATE.md` e `.beads/*.jsonl`.
+
+<details>
+<summary><b>🧪 Clique para ver a matriz de verificação dos 5 kits (<code>uvx sdd-parallel demo --kit all</code>) e o modo sandbox</b></summary>
+
+```text
 ============================================================================
-ALL 5 CORE INVARIANTS VERIFIED IN 3.21s
+5/5 SDD KITS VERIFIED (BMAD, SPEC KIT, GSD, OPENSPEC, BEADS)
+============================================================================
+Kit          | Merge-Bomb   | Worktrees    | Scope Guard  | 3-Way Merge
+----------------------------------------------------------------------------
+bmad         | PASSED       | PASSED       | PASSED       | PASSED
+spec-kit     | PASSED       | PASSED       | PASSED       | PASSED
+gsd          | PASSED       | PASSED       | PASSED       | PASSED
+openspec     | PASSED       | PASSED       | PASSED       | PASSED
+beads        | PASSED       | PASSED       | PASSED       | PASSED
 ============================================================================
 ```
+
+Quer conduzir o fluxo de trabalho manualmente? Gere uma sandbox persistente e execute os comandos reais dentro dela:
+
+```bash
+uvx sdd-parallel demo --kit gsd --scaffold-only --output-dir ./sdd-sandbox
+cd sdd-sandbox
+sdd-parallel plan
+sdd-parallel prepare --wave 1
+```
+
 </details>
 
 ---
 
-## 🗺️ Como funciona visualmente (Do backlog ao merge limpo)
+## 🗺️ Como funciona e fluxo diário de 4 comandos
 
-Em vez de lançar 5 agentes no repositório de uma só vez torcendo para que não colidam, o `sdd-parallel` transforma sua sprint em **Ondas (Waves)** determinísticas:
+<p align="center">
+  <img src="../../assets/how-it-works-pipeline.png" width="100%" alt="Pipeline do sdd-parallel: planejar, preparar, executar agentes, verificar e integrar">
+</p>
 
-```mermaid
-flowchart LR
-    subgraph Backlog["📋 1. Backlog SDD"]
-        direction TB
-        T12["Story 1-2\n(normalizer.py + cli.py)"]
-        T13["Story 1-3\n(exporter.py + cli.py)"]
-        T21["Story 2-1\n(api.py -> chama normalizer)"]
-        T11["Story 1-1\n(schema.py - Bloqueio Spine)"]
-    end
+**1. Instale uma vez** (requer `Python >= 3.11`, `Git >= 2.30`):
 
-    subgraph Planner["🧠 2. sdd-parallel plan"]
-        direction TB
-        Scan["Varredura AST + Grafo de chamadas\n• cli.py = Additive (Seguro!)\n• 1-2 ↔ 2-1 = Conflito de impacto!\n• schema.py = Bloqueio Spine!"]
-    end
-
-    subgraph Wave1["🟢 3. Onda 1 (Worktrees paralelos)"]
-        direction TB
-        SlotA["📁 .worktrees/track-a\nAgente 1 executa Story 1-2\n🔒 schema.py e api.py bloqueados"]
-        SlotB["📁 .worktrees/track-b\nAgente 2 executa Story 1-3\n🔒 schema.py e normalizer.py bloqueados"]
-    end
-
-    subgraph Gate["🛡️ 4. sdd-parallel merge --wave 1"]
-        direction TB
-        M1["✅ Scope Diff auditado\n✅ pytest / mypy / ruff aprovados\n✅ Merge 3-way de status"]
-    end
-
-    subgraph Wave2["🔵 5. Onda 2 (Reutiliza mesmos slots)"]
-        direction TB
-        SlotA2["📁 .worktrees/track-a\nAgente 1 executa Story 1-1"]
-        SlotB2["📁 .worktrees/track-b\nAgente 2 executa Story 2-1\n(lê novo normalizer.py!)"]
-    end
-
-    Backlog --> Planner --> Wave1 --> Gate --> Wave2
-```
-
----
-
-## 🔌 Integração direta no seu ecossistema (Zero Lock-In)
-
-Você **não precisa** reescrever suas especificações nem alterar como orienta seus agentes. O `sdd-parallel` consome os arquivos do seu framework atual em modo somente leitura:
-
-| Se você usa... | O que o `sdd-parallel` adiciona ao seu fluxo de trabalho |
-| :--- | :--- |
-| **Claude Code** (`claude`) | Planejamento determinístico de ondas antes de `--worktree` / `Agent Teams`, bloqueio de arquivos indevidos e comandos Bash via `PreToolUse`, e roteamento por complexidade (`High`/`Medium`/`Low`). |
-| **OpenAI Codex CLI** (`codex`) | Evita condições de corrida ordenando previamente tarefas conflitantes e bloqueando esquemas centrais (`chmod a-w`) em cada slot. |
-| **Google Antigravity** | Fornece slots fixos reutilizáveis (`track-a`, `track-b`, `track-c`) que eliminam falhas de pastas perdidas na IDE e mantêm o `git status --porcelain` 100% limpo via `.git/worktrees/*/info/exclude`. |
-| **BMAD Method (`v6.3+` / `v7`)** | Transforma filas lineares em `sprint-status.yaml` em ondas paralelas multi-epic e mescla status de histórias (`backlog -> done`) sem conflitos de YAML. |
-| **GitHub Spec Kit (`.specify/`)** | Valida tags manuais de paralelismo `[P]` em `tasks.md` contra dependências reais do AST do código, impedindo falsos paralelos de quebrar a build. |
-| **GSD / OpenSpec / Beads** | Isola `.planning/STATE.md` (modo Artifact Hijack), `openspec/changes/` e `.beads/issues.jsonl` em worktrees limpos. |
-
----
-
-## 🛠️ Seu fluxo diário em 4 comandos
-
-### 1. Instalação única
 ```bash
-# Recomendado via uv (ou: pipx install sdd-parallel)
-uv tool install sdd-parallel
+uv tool install sdd-parallel     # ou: pipx install sdd-parallel
 ```
 *(Tanto o comando `sdd-parallel` quanto o alias curto `parallel-flow` ficam disponíveis globalmente).*
 
-### 2. Executar uma Onda Paralela em qualquer projeto
+Tanto `sdd-parallel` quanto o alias conveniente `parallel-flow` ficam disponíveis globalmente.
+
+**2. Execute uma onda em qualquer projeto SDD:**
+
 ```bash
-# Passo 1: Analisar especificações SDD e AST para gerar ondas seguras
+# 1. Analise as especificações + AST da base de código e construa ondas seguras
 sdd-parallel plan
 
-# Passo 2: Preparar a Onda 1 nos slots fixos (.worktrees/track-a, track-b)
-#         e exibir as instruções de lançamento para os agentes de código
+# 2. Aloque a Onda 1 em slots fixos e exiba o comando de inicialização para cada trilha
 sdd-parallel prepare --wave 1
 sdd-parallel run-guide --wave 1
 
-# 👉 Passo 3: Os agentes de IA (Claude Code / Codex / Antigravity) implementam
-#            as histórias simultaneamente dentro de track-a e track-b.
+# 3. Inicie seus agentes dentro de .worktrees/track-a, track-b, ... (um por slot)
 
-# Passo 4: Verificar ausência de violações de escopo e mesclar a Onda 1 na main
+# 4. Audite o escopo, execute os quality gates e integre a Onda 1 de volta na main
 sdd-parallel verify-wave --wave 1
 sdd-parallel merge --wave 1
 ```
-Precisa desfazer uma onda? Execute `sdd-parallel abort-wave --wave 1` (antes do merge) ou `sdd-parallel rollback-wave --wave 1` (após o merge, com branches automáticas de backup e redefinição de status SDD).
+
+Desfazer: `sdd-parallel abort-wave --wave 1` (antes do merge) ou `sdd-parallel rollback-wave --wave 1` (após o merge; ordem LIFO estrita, branch automática `backup/wave-<K>-before-rollback-*`, restauração polimórfica de status SDD).
 
 ---
 
-## 🧩 Matriz de frameworks SDD suportados
+## 📂 Veja o layout exato do seu projeto SDD (Antes e Depois)
 
-| Framework SDD | Status | Artefatos detectados (Somente leitura) | Sincronização de status |
-| :--- | :---: | :--- | :--- |
-| **BMAD Method (`v6.3+` / `v7`)** | ✅ Entregue | `sprint-status.yaml`, `epics.md`, `epic-*-context.md`, `spec-*.md` | Merge 3-way monotônico de YAML |
-| **GitHub Spec Kit (`.specify/`)** | ✅ Entregue | `.specify/specs/*/tasks.md`, `constitution.md` | Caixas de seleção em Markdown |
-| **GSD (Get Shit Done)** | ✅ Entregue | `.planning/phases/*-PLAN.md`, `ROADMAP.md` | Artifact Hijack (atualização centralizada de `STATE.md`) |
-| **OpenSpec (`openspec/`)** | ✅ Entregue | `openspec/changes/<id>/tasks.md` | Rastreamento orientado a especificações |
-| **Beads (`.beads/`)** | ✅ Entregue | `.beads/issues.jsonl` | Atualização topológica de status de issues |
+<p align="center">
+  <img src="../../assets/whats-inside-worktrees.png" width="100%" alt="O que o sdd-parallel cria dentro do seu repositório: estado em .parallel/ e slots de trilhas em .worktrees/">
+</p>
 
----
+O `sdd-parallel` lê os arquivos do seu framework exatamente como eles estão — sem necessidade de migração e sem novo formato de especificação.
 
-## 🔍 Aprofundamento técnico (Arquitetura, invariantes e referência completa da CLI)
+| Framework SDD | Artefatos Somente Leitura (bloqueados nos slots) | Descoberta de Tarefas | Sincronização de Status |
+| :--- | :--- | :--- | :--- |
+| **GitHub Spec Kit** (`.specify/`) | `constitution.md`, `feature.json`, `spec.md`, `plan.md` | `specs/*/tasks.md` (`T001 [P]`) | Merge de 3 vias de caixas de seleção Markdown |
+| **BMAD Method** (`v6.3+` / `v7`) | `epic-*-context.md` (Zero Invalidação de Cache) | `sprint-status.yaml`, `epics.md`, `spec-*.md` | Merge de 3 vias monótono de YAML |
+| **GSD** (`.planning/`) | `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md` | `phases/*/NN-NN-PLAN.md` | Artifact Hijack (`STATE.md` atualizado centralmente no merge) |
+| **OpenSpec** (`openspec/`) | `openspec/specs/**`, `project.md`, `config.yaml`, pastas irmãs de mudanças | `openspec/changes/<slug>/tasks.md` | Merge de 3 vias de caixas de seleção Markdown |
+| **Beads** (`.beads/`) | `.beads/config.yaml` | `.beads/*.jsonl` (`bd-101` + arestas `blocks`) | Merge de 3 vias por linha em semirreticulado JSONL |
 
-Quer inspecionar o modelo matemático, a arquitetura interna dos módulos ou cada parâmetro da CLI? Expanda as seções abaixo ou acesse diretamente o **[Dossiê de Arquitetura e Estratégia](../../dossier/README.md)**:
-
-- 📖 **[01 — Briefing do Produto e Modelo de ROI](../../dossier/01_CORE_PRODUCT_BRIEF.md)** *(Resumo executivo, FinOps de tokens e roteamento por esforço)*
-- 🏛️ **[02 — Capacidades do Sistema e White Paper](../../dossier/02_SYSTEM_CAPABILITIES_WHITE_PAPER.md)** *(Conflitos Tipo 1 vs Tipo 2, taxonomia 3D de arquivos, decaimento CRG)*
-- 🔌 **[03 — Especificação de Integração e Ecossistema](../../dossier/03_INTEGRATION_AND_ECOSYSTEM_SPEC.md)** *(IR `CanonicalTask`, contratos `.tmp/track-context.md`, `.parallel-lock.json`)*
-- 🧪 **[07 — Demonstração Autônoma e Guia E2E Interativo](../../dossier/07_STANDALONE_DEMO_AND_E2E_WALKTHROUGH.md)** *(Snapshots passo a passo e sandbox com `--keep-temp`)*
-- 📐 **[Arquitetura do Sistema SSOT (`ARCHITECTURE.md`)](ARCHITECTURE.md)** | **[Dossiê em Russo](../../i18n/ru/dossier/)**
+Cada instantâneo abaixo foi extraído de fixtures reais do `sdd-parallel demo --scaffold-only` após executar `plan` + `prepare --wave 1`. As árvores de código-fonte foram recolhidas para `src/…` para facilitar a leitura.
 
 <details>
-<summary><b>🏛️ Clique para expandir: Arquitetura interna do motor e 9 invariantes de engenharia</b></summary>
+<summary><b>🌱 GitHub Spec Kit (<code>.specify/</code> &amp; <code>specs/*/tasks.md</code>) — Clique para inspecionar a árvore Antes e Depois</b></summary>
 
-### Fluxo interno de componentes
+**Antes** — seu projeto no estado atual:
+
+```text
+my-project/
+├── .specify/
+│   ├── memory/
+│   │   └── constitution.md
+│   ├── templates/
+│   │   └── tasks-template.md
+│   └── feature.json
+├── specs/
+│   └── 001-telemetry/
+│       ├── plan.md
+│       ├── spec.md
+│       └── tasks.md
+└── src/…
+```
+
+`specs/001-telemetry/tasks.md` — observe a tag manual `[P]` em `T004`, que é insegura concorrentemente com `T002`:
+
+```markdown
+- [ ] T001 [US1] Upgrade schema in `src/demo_app/schema.py` (depends on T002)
+- [ ] T002 [P] [US1] Normalize `src/demo_app/normalizer.py`, `src/demo_app/cli.py`
+- [ ] T003 [P] [US1] Export `src/demo_app/exporter.py`, `src/demo_app/cli.py`
+- [ ] T004 [P] [US2] Expose ingestion in `src/demo_app/api.py`
+- [ ] T005 [US2] Add audit log in `src/demo_app/schema.py` (depends on T001)
+```
+
+**Depois** de `sdd-parallel plan` + `prepare --wave 1`:
+
+```text
+my-project/
+├── .parallel/                        # estado do planejador (novo)
+│   ├── artifacts/
+│   │   ├── execution-plan-parallel.md
+│   │   └── wave-plan.json
+│   ├── history/run-001-<timestamp>/wave-plan.json
+│   └── state.json
+├── .specify/…                        # intocado
+├── .worktrees/
+│   ├── track-a/                      # Onda 1 → T002
+│   │   ├── .specify/memory/constitution.md   # 🔒 somente leitura
+│   │   ├── specs/001-telemetry/
+│   │   │   ├── plan.md               # 🔒 somente leitura
+│   │   │   ├── spec.md               # 🔒 somente leitura
+│   │   │   └── tasks.md
+│   │   ├── src/…
+│   │   ├── .tmp/track-context.md     # 👻 oculto via info/exclude
+│   │   ├── .parallel-lock.json       # 👻 oculto via info/exclude
+│   │   └── ACTIVE_TRACK.md           # 👻 → /speckit.implement T002
+│   └── track-b/                      # Onda 1 → T003 (mesmo layout)
+├── specs/…                           # intocado
+└── src/…
+```
+
+</details>
+
+<details>
+<summary><b>📐 BMAD Method (<code>v6.3+ / v7</code> — <code>_bmad-output/</code>) — Clique para inspecionar a árvore Antes e Depois</b></summary>
+
+**Antes:**
+
+```text
+my-project/
+├── _bmad-output/
+│   ├── implementation-artifacts/
+│   │   ├── epic-1-context.md
+│   │   ├── epic-2-context.md
+│   │   ├── epics.md
+│   │   ├── spec-1-1-upgrade-schema-v2.md
+│   │   ├── spec-1-2-normalize-telemetry-payload.md
+│   │   ├── spec-1-3-cli-batch-export.md
+│   │   ├── spec-2-1-expose-ingestion-api.md
+│   │   ├── spec-2-2-add-audit-log-schema.md
+│   │   └── sprint-status.yaml
+│   └── planning-artifacts/
+│       ├── epic-1-context.md
+│       ├── epic-2-context.md
+│       ├── epics.md
+│       └── project-context.md
+└── src/…
+```
+
+**Depois** de `sdd-parallel plan` + `prepare --wave 1`:
+
+```text
+my-project/
+├── .parallel/
+│   ├── history/run-001-<timestamp>/wave-plan.json
+│   └── state.json
+├── .worktrees/
+│   ├── track-a/                      # Onda 1 → história 1-2
+│   │   ├── _bmad/custom/             # 👻 overlay BMAD por slot (oculto)
+│   │   │   ├── bmad-build.toml
+│   │   │   ├── bmad-build.user.toml
+│   │   │   ├── bmad-build-auto.toml
+│   │   │   └── bmad-build-auto.user.toml
+│   │   ├── _bmad-output/
+│   │   │   ├── implementation-artifacts/   # sprint-status.yaml mesclado em 3 vias
+│   │   │   └── planning-artifacts/
+│   │   │       ├── epic-1-context.md # 🔒 trava Zero Invalidação de Cache
+│   │   │       ├── epic-2-context.md # 🔒
+│   │   │       └── project-context.md
+│   │   ├── src/…
+│   │   ├── .tmp/track-context.md     # 👻
+│   │   ├── .parallel-lock.json       # 👻
+│   │   └── ACTIVE_TRACK.md           # 👻 → /bmad-build 1-2
+│   └── track-b/                      # Onda 1 → história 1-3
+├── _bmad-output/
+│   ├── implementation-artifacts/…
+│   ├── parallel-artifacts/           # saída do planejador (o BMAD a mantém sob _bmad-output)
+│   │   ├── execution-plan-parallel.md
+│   │   └── wave-plan.json
+│   └── planning-artifacts/…
+└── src/…
+```
+
+</details>
+
+<details>
+<summary><b>⚡ GSD — Get Shit Done (<code>.planning/phases/</code> Artifact Hijack) — Clique para inspecionar a árvore Antes e Depois</b></summary>
+
+**Antes:**
+
+```text
+my-project/
+├── .planning/
+│   ├── phases/
+│   │   ├── 01-core/
+│   │   │   ├── 01-01-PLAN.md
+│   │   │   ├── 01-02-PLAN.md
+│   │   │   └── 01-03-PLAN.md
+│   │   └── 02-api/
+│   │       ├── 02-01-PLAN.md
+│   │       └── 02-02-PLAN.md
+│   ├── PROJECT.md
+│   ├── REQUIREMENTS.md
+│   ├── ROADMAP.md
+│   └── STATE.md
+└── src/…
+```
+
+`01-02-PLAN.md` (normalizador) e `02-01-PLAN.md` (API) residem em fases diferentes e não compartilham arquivos, mas `02-01` faz chamadas ao código de `01-02`. O planejador os agenda em ondas distintas.
+
+**Depois** de `sdd-parallel plan` + `prepare --wave 1`:
+
+```text
+my-project/
+├── .parallel/
+│   ├── artifacts/
+│   │   ├── execution-plan-parallel.md
+│   │   └── wave-plan.json
+│   ├── history/run-001-<timestamp>/wave-plan.json
+│   └── state.json
+├── .planning/…                       # intocado na main
+├── .worktrees/
+│   ├── track-a/                      # Onda 1 → 01-02
+│   │   ├── .planning/
+│   │   │   ├── phases/01-core/ · 02-api/
+│   │   │   ├── PROJECT.md            # 🔒 somente leitura
+│   │   │   ├── REQUIREMENTS.md       # 🔒 somente leitura
+│   │   │   ├── ROADMAP.md            # 🔒 somente leitura
+│   │   │   └── STATE.md              # 🔒 bloqueado nos slots, atualizado centralmente no merge
+│   │   ├── src/…
+│   │   ├── .tmp/track-context.md     # 👻
+│   │   ├── .parallel-lock.json       # 👻
+│   │   └── ACTIVE_TRACK.md           # 👻 → /gsd-execute-phase 01-02
+│   └── track-b/                      # Onda 1 → 01-03
+└── src/…
+```
+
+</details>
+
+<details>
+<summary><b>📑 OpenSpec (<code>openspec/changes/</code>) — Clique para inspecionar a árvore Antes e Depois</b></summary>
+
+**Antes:**
+
+```text
+my-project/
+├── openspec/
+│   ├── changes/
+│   │   ├── audit-log-schema/
+│   │   ├── cli-batch-export/
+│   │   ├── ingestion-api-endpoint/
+│   │   ├── normalize-telemetry/
+│   │   │   ├── design.md
+│   │   │   ├── proposal.md
+│   │   │   └── tasks.md
+│   │   └── upgrade-schema-v2/
+│   ├── specs/
+│   │   └── telemetry/
+│   │       └── spec.md
+│   ├── config.yaml
+│   └── project.md
+└── src/…
+```
+
+**Depois** de `sdd-parallel plan` + `prepare --wave 1`:
+
+```text
+my-project/
+├── .parallel/
+│   ├── artifacts/
+│   │   ├── execution-plan-parallel.md
+│   │   └── wave-plan.json
+│   ├── history/run-001-<timestamp>/wave-plan.json
+│   └── state.json
+├── .worktrees/
+│   ├── track-a/                      # Onda 1 → normalize-telemetry
+│   │   ├── openspec/
+│   │   │   ├── changes/
+│   │   │   │   ├── normalize-telemetry/   # ✍️ pasta de mudanças desta trilha
+│   │   │   │   ├── cli-batch-export/      # 🔒 bloqueada pela trilha irmã track-b
+│   │   │   │   └── …
+│   │   │   ├── specs/                # 🔒 especificações canônicas (alteradas apenas via openspec archive)
+│   │   │   ├── config.yaml           # 🔒
+│   │   │   └── project.md            # 🔒
+│   │   ├── src/…
+│   │   ├── .tmp/track-context.md     # 👻
+│   │   ├── .parallel-lock.json       # 👻
+│   │   └── ACTIVE_TRACK.md           # 👻 → /openspec-apply normalize-telemetry
+│   └── track-b/                      # Onda 1 → cli-batch-export (bloqueios espelhados)
+├── openspec/…                        # intocado
+└── src/…
+```
+
+</details>
+
+<details>
+<summary><b>🔗 Beads (<code>.beads/beads.jsonl</code>) — Clique para inspecionar a árvore Antes e Depois</b></summary>
+
+**Antes:**
+
+```text
+my-project/
+├── .beads/
+│   ├── beads.jsonl
+│   ├── config.yaml
+│   └── issues.jsonl
+└── src/…
+```
+
+As tarefas em grafo `bd-101`, `bd-102`, `bd-103`, `bd-201`, `bd-202`, com arestas `blocks` entre elas:
+
+```json
+{"id": "bd-101", "title": "Upgrade schema to v2", "status": "open", "files": ["src/demo_app/schema.py"], "dependencies": [{"target": "bd-102", "type": "blocks"}], "priority": 1, "epic": "epic-1"}
+{"id": "bd-102", "title": "Normalize telemetry payload", "status": "open", "files": ["src/demo_app/normalizer.py", "src/demo_app/cli.py"], "dependencies": [], "priority": 2, "epic": "epic-1"}
+```
+
+**Depois** de `sdd-parallel plan` + `prepare --wave 1`:
+
+```text
+my-project/
+├── .beads/…                          # cópia principal, mesclada linha a linha em `merge --wave 1`
+├── .parallel/
+│   ├── artifacts/
+│   │   ├── execution-plan-parallel.md
+│   │   └── wave-plan.json
+│   ├── history/run-001-<timestamp>/wave-plan.json
+│   └── state.json
+├── .worktrees/
+│   ├── track-a/                      # Onda 1 → bd-102
+│   │   ├── .beads/
+│   │   │   ├── beads.jsonl           # edições de status mescladas por linha em 3 vias (open < closed)
+│   │   │   ├── config.yaml           # 🔒 somente leitura
+│   │   │   └── issues.jsonl
+│   │   ├── src/…
+│   │   ├── .tmp/track-context.md     # 👻
+│   │   ├── .parallel-lock.json       # 👻
+│   │   └── ACTIVE_TRACK.md           # 👻 → bd update bd-102 --status in-progress
+│   └── track-b/                      # Onda 1 → bd-103
+└── src/…
+```
+
+Após `merge --wave 1`, tanto `bd-102` quanto `bd-103` estão com status `closed` em `.beads/beads.jsonl`, com 0 marcadores de conflito.
+
+</details>
+
+Legenda: 🔒 somente leitura (`chmod a-w` + rejeição no `PreToolUse`) · 👻 injetado, oculto do Git via `.git/worktrees/<slot>/info/exclude` · ✍️ escopo com permissão de escrita da trilha.
+
+---
+
+## 🔌 Encaixa-se perfeitamente na sua stack atual (Zero Lock-In)
+
+Você mantém seu agente e seus prompts. Após `sdd-parallel prepare --wave 1`, o comando `sdd-parallel run-guide --wave 1` exibe o comando nativo exato para cada slot, e essa mesma linha é gravada em `.worktrees/track-<id>/ACTIVE_TRACK.md`. Você não precisa digitar caminhos de contexto manualmente:
+
+| Kit SDD | Comando nativo exibido por trilha |
+| :--- | :--- |
+| GitHub Spec Kit | `/speckit.implement T002` |
+| BMAD Method | `/bmad-build 1-2` |
+| GSD | `/gsd-execute-phase 01-02` |
+| OpenSpec | `/openspec-apply normalize-telemetry` |
+| Beads | `bd update bd-102 --status in-progress` |
+
+| Harness | Como ele se integra |
+| :--- | :--- |
+| **Claude Code** (`claude`) | Abra o `claude` dentro de `.worktrees/track-a`; gravações fora de escopo e escapes via shell são negados pelo hook `PreToolUse` e pelo `chmod a-w` do SO. Ou dispare todas as trilhas com `sdd-parallel autopilot --wave 1 --harness claude-code`. |
+| **OpenAI Codex CLI** (`codex`) | `codex --cd .worktrees/track-b`; arquivos somente leitura são protegidos por `chmod a-w`, e o `sdd-parallel verify-wave` audita o diff antes do merge. Autopilot: `--harness codex`. |
+| **Google Antigravity** | `sdd-parallel prepare --wave 1 --antigravity-layout` posiciona os slots em `~/.gemini/antigravity/worktrees/<Project>/track-a`; o arquivo `ACTIVE_TRACK.md` fica na raiz do slot; `sdd-parallel install-plugin` instala o plugin portátil com o hook de scope-guard. |
+| **Qualquer CLI ou IDE compatível com worktrees** — Cursor, Windsurf, OpenCode, Kimi CLI, MiniMax Code, Aider, Cline, Trae | Funciona sem configuração adicional: slots padrão de `git worktree` (`track-a`, `track-b`, `track-c`, … via `--max-tracks N`), travas com `chmod a-w` no SO, `ACTIVE_TRACK.md` e auditoria posterior do diff com `sdd-parallel verify-wave`. |
+
+---
+
+## 🔍 Arquitetura, modelo matemático e aprofundamento no dossier
+
+- 📖 **[01 — Resumo do Produto e Modelo de ROI](../../dossier/01_CORE_PRODUCT_BRIEF.md)**: sumário executivo, FinOps de tokens, roteamento por esforço de modelo
+- 🏛️ **[02 — White Paper de Capacidades do Sistema](../../dossier/02_SYSTEM_CAPABILITIES_WHITE_PAPER.md)**: conflitos Tipo 1 vs. Tipo 2, taxonomia 3D de arquivos, fórmula de decaimento CRG
+- 🔌 **[03 — Especificação de Integração e Ecossistema](../../dossier/03_INTEGRATION_AND_ECOSYSTEM_SPEC.md)**: RI de `CanonicalTask`, contratos de `.tmp/track-context.md` e `.parallel-lock.json`
+- 📊 **[04 — Taxonomia Competitiva e de Benchmarks](../../dossier/04_COMPETITIVE_AND_BENCHMARK_TAXONOMY.md)**: posicionamento frente a ferramentas de orquestração correlatas
+- 🧪 **[07 — Demonstração Independente e Guia Passo a Passo E2E](07_STANDALONE_DEMO_AND_E2E_WALKTHROUGH.md)**: snapshots de disco quadro a quadro, guia da sandbox com `--keep-temp`
+- 📐 **[SSOT da Arquitetura do Sistema (`ARCHITECTURE.md`)](ARCHITECTURE.md)** · **[Índice do Dossier](../../dossier/README.md)** · **[Dossier em russo](../ru/dossier/)**
+
+<details>
+<summary><b>🏛️ Clique para expandir: Arquitetura Interna do Motor e 9 Invariantes Fundamentais</b></summary>
+
+### Fluxo de Componentes Internos
 
 ```mermaid
 flowchart TD
-    subgraph Inputs["1. Adaptadores de roadmaps SDD"]
+    subgraph Inputs["1. Multi-SDD Roadmap Adapters"]
         BMAD["BMAD Method (v6/v7)"]
         SpecKit["GitHub Spec Kit (.specify/)"]
         GSD["GSD Artifact Hijack (.planning/)"]
         OpenSpec["OpenSpec (openspec/changes/)"]
-        Beads["Beads (.beads/issues.jsonl)"]
+        Beads["Beads (.beads/*.jsonl)"]
     end
 
-    subgraph Engine["2. Motor híbrido de DAG e Blast Radius"]
-        AST["Classificador AST universal\n(SPINE, ADDITIVE_REGISTRY, STANDARD)"]
+    subgraph Engine["2. Hybrid DAG & Blast-Radius Engine"]
+        AST["Universal AST Classifier\n(SPINE, ADDITIVE_REGISTRY, STANDARD)"]
         CRG["CRGSidecarAdapter\n(code-review-graph v2.3.9 WAL)"]
-        BSP["BSPWaveScheduler determinístico\n(Ondas K-Track, aciclicidade de Kahn)"]
+        BSP["Deterministic BSPWaveScheduler\n(K-Track Waves, Kahn Acyclicity)"]
     end
 
-    subgraph Actuation["3. Atuação e Scope Guard"]
-        Slots["Slots fixos de track (track-a/b/c)\n(Reset In-Place, core.fileMode false)"]
-        Guard["Scope Guard de três camadas\n(PreToolUse + Interceptação de terminal + chmod a-w)"]
-        Verify["Portão verify-wave\n(Auditoria de diff merge-base...HEAD)"]
+    subgraph Actuation["3. Actuation & Scope Guard"]
+        Slots["Fixed Track Slots (track-a/b/c)\n(In-Place Reset, core.fileMode false)"]
+        Guard["Three-Tier Scope Guard\n(PreToolUse + Terminal Guard + chmod a-w)"]
+        Verify["verify-wave Gate\n(git diff merge-base...HEAD audit)"]
     end
 
-    subgraph Barrier["4. Barreira de sincronização e rollback"]
-        Merge["Checkpoint merge-wave\n(Merge monotônico 3-way de YAML)"]
-        Rollback["Motor transacional de rollback LIFO\n(abort-wave / rollback-wave --save-backup)"]
+    subgraph Barrier["4. Barrier Checkpoint & Rollback"]
+        Merge["merge-wave Checkpoint\n(3-Way Monotonic Status Merger)"]
+        Rollback["LIFO Rollback Engine\n(abort-wave / rollback-wave --save-backup)"]
     end
 
     Inputs --> AST & CRG
@@ -280,99 +576,85 @@ flowchart TD
     Merge -. Erro / Reversão .-> Rollback
 ```
 
-### Os 9 invariantes fundamentais de engenharia
+### Os 9 Invariantes Fundamentais de Engenharia
 
-1. **Zero poluição de worktrees (Zero Worktree Pollution):** Arquivos contextuais injetados (`.tmp/track-context.md`, `.parallel-lock.json`, `ACTIVE_TRACK.md`) mascarados via `info/exclude`. `git status --porcelain` sempre 100% limpo.
-2. **Zero invalidação de cache (Zero Cache Invalidation):** Contextos em `_bmad-output/planning-artifacts/` estritamente somente leitura; o estado do planejador é gravado em `_bmad-output/parallel-artifacts/`.
-3. **100% de cobertura de tarefas e aciclicidade:** Validação topológica por Kahn/Tarjan garantindo zero histórias perdidas e zero ciclos de dependência.
-4. **Aplicação de Blast Radius (Tipo 1 e Tipo 2):** Conjuntos de escrita disjuntos ($W_A \cap W_B = \emptyset$) e impactos semânticos disjuntos ($W_A \cap I_B = \emptyset$).
-5. **Universalidade sem overfitting (Invariante 7):** Sem caminhos específicos de domínio ou entidades fixadas no motor. Classificação de `SPINE`, `ADDITIVE_REGISTRY` e `STANDARD` estritamente via heurísticas AST e centralidade de grafos.
-6. **Slots fixos de track (Pegada $O(1)$ em disco):** Reutiliza `track-a`, `track-b`, `track-c` via `git checkout -B` e `git clean -fd` evitando acúmulo de pastas no sistema e na IDE.
-7. **Defesa em profundidade de três camadas:** Hook `PreToolUse` + interceptação de comandos de terminal (`Bash`, `run_command`) + bloqueio de arquivos via SO `chmod a-w`.
-8. **Semirreticulado monotônico de status:** Convergência monotônica: $\texttt{backlog} (0) < \dots < \texttt{done} (4)$ sem conflitos de merge.
-9. **Rollbacks transacionais LIFO:** Reversão estritamente em ordem inversa com criação automática de branches de segurança (`backup/wave-<K>-before-rollback-*`).
+1. **Zero Poluição de Worktrees:** limites injetados (`.tmp/track-context.md`, `.parallel-lock.json`, `ACTIVE_TRACK.md`) são mascarados via `info/exclude` do git; o `git status --porcelain` permanece limpo.
+2. **Zero Invalidação de Cache:** arquivos de contexto pré-compilados (ex.: `epic-*-context.md` do BMAD) são somente leitura durante uma onda; o estado do planejador é salvo em `.parallel/` (ou `_bmad-output/parallel-artifacts/` no caso do BMAD).
+3. **100% de Cobertura de Tarefas e Aciclicidade:** a verificação topológica de Kahn garante zero tarefas perdidas e zero ciclos de dependência.
+4. **Aplicação Estrita do Raio de Impacto (Tipo 1 e Tipo 2):** gravações disjuntas ($W_A \cap W_B = \emptyset$) somadas a impacto semântico disjunto ($W_A \cap I_B = \emptyset$).
+5. **Anti-Overfitting Universal:** sem caminhos específicos de domínio no núcleo do motor; `SPINE`, `ADDITIVE_REGISTRY` e `STANDARD` são derivados unicamente de heurísticas AST e centralidade no grafo.
+6. **Slots Fixos de Trilhas:** os slots `track-a`, `track-b`, `track-c` são reutilizados in-place via `git checkout -B` + `git clean -fd`, sem acúmulo de pastas órfãs.
+7. **Defesa em Profundidade em Três Níveis (Scope Guard):** hook `PreToolUse` + interceptação de comandos no terminal (`Bash`, `run_command`) + `chmod a-w` no sistema operacional.
+8. **Semirreticulado de Status Monótono:** os status são resolvidos como $\texttt{backlog}(0) < \dots < \texttt{done}(4)$, sem marcadores de merge.
+9. **Rollbacks Transacionais LIFO:** ondas integradas são revertidas estritamente em ordem inversa, com branches de segurança automáticas (`backup/wave-<K>-before-rollback-*`).
 
 </details>
 
+---
+
+## 🛠️ Referência completa da CLI
+
 <details>
-<summary><b>🛠️ Clique para expandir: Referência completa da CLI (Todos os 13 subcomandos e opções)</b></summary>
+<summary><b>Clique para expandir: todos os 13 subcomandos e opções</b></summary>
 
 | Comando | Finalidade |
 | :--- | :--- |
-| `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp] [--scaffold-only] [--output-dir DIR]` | Executar a demonstração offline ou criar um sandbox interativo nos 5 kits SDD. |
-| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit auto] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR]` | Analisar o roadmap e grafo do código; gerar `execution-plan-parallel.md` e `wave-plan.json`. |
-| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run]` | Provisionar slots de worktree (`track-a`, `track-b`), configurar travas de SO e injetar arquivos de contexto. |
-| `sdd-parallel claim-track --wave K --track <id> --worktree <path> [--repo REPO] [--max-tracks N] [--kit KIT] [--headless]` | Associar travas e contexto a um slot de worktree externo pré-existente. |
-| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout]` | Exibir matriz interativa de execução com instruções de lançamento para cada janela de terminal de track. |
-| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | Auditar alterações em relação a `.parallel-lock.json` e diff de múltiplos commits contra `merge-base`. |
-| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | Ponto de controle: merge 3-way de status, merge git, portões de qualidade e autorollback transacional. |
-| `sdd-parallel abort-wave --wave K [--repo REPO] [--dynamic-worktrees]` | Abortar onda não mesclada: resetar slots e remover branches paralelas temporárias. |
-| `sdd-parallel rollback-wave --wave K [--repo REPO] [--dynamic-worktrees] [--to-commit COMMIT] [--save-backup] [--no-backup] [--kit KIT]` | Reverter onda mesclada em ordem LIFO com branch de backup e redefinição de status SDD. |
-| `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | Ferramenta determinística de baixo nível para merge 3-way de `sprint-status.yaml`. |
-| `sdd-parallel check-lock --file PATH [--tool TOOL]` | Validar permissões de escrita de arquivo com base no manifesto ativo de travas. |
-| `sdd-parallel install-plugin [--target-dir DIR]` | Empacotar e instalar o plugin nativo para o Google Antigravity. |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness <tool>] [--antigravity-layout] [--execute]` | Gerar ou executar comandos de piloto automático multi-conversa com roteamento de modelos. |
+| `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp] [--scaffold-only] [--output-dir DIR]` | Executa a demonstração offline do Merge-Bomb ou gera uma sandbox interativa para qualquer um dos 5 kits SDD. |
+| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR]` | Analisa o roadmap e o grafo de código; gera `execution-plan-parallel.md` e `wave-plan.json`. |
+| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run]` | Aloca os slots (`track-a`, `track-b`, …), aplica travas no SO e injeta os arquivos de limite. |
+| `sdd-parallel claim-track --wave K --track <id> --worktree <path> [--repo REPO] [--max-tracks N] [--kit KIT] [--headless]` | Anexa travas e limites a uma worktree externa já existente. |
+| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout]` | Exibe o guia de execução do operador com o comando de inicialização nativo para cada trilha. |
+| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | Audita os slots contra o manifesto `.parallel-lock.json` e verifica o diff de múltiplos commits contra o `merge-base`. |
+| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | Integração em barreira: merge de 3 vias de status, git merge, quality gates e auto-rollback transacional. |
+| `sdd-parallel abort-wave --wave K [--repo REPO] [--dynamic-worktrees]` | Aborta uma onda não integrada: reinicia os slots e remove branches paralelas temporárias. |
+| `sdd-parallel rollback-wave --wave K [--repo REPO] [--dynamic-worktrees] [--to-commit COMMIT] [--save-backup] [--no-backup] [--kit KIT]` | Reverte uma onda já integrada (ordem LIFO) com branch de backup de segurança e restauração de status SDD. |
+| `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | Merge determinístico de 3 vias em baixo nível para `sprint-status.yaml`. |
+| `sdd-parallel check-lock --file PATH [--tool TOOL]` | Verifica uma tentativa de gravação contra o manifesto de bloqueio da worktree ativa. |
+| `sdd-parallel install-plugin [--target-dir DIR]` | Empacota e instala o plugin portátil do Antigravity. |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute]` | Gera ou executa comandos de inicialização em múltiplas janelas com roteamento por esforço de modelo. |
 
 </details>
 
-<details>
-<summary><b>🧪 Clique para expandir: Desenvolvimento local e portões de qualidade</b></summary>
+</details>
 
-### Pré-requisitos
-- **Python:** `>= 3.11` (Python 3.11, 3.12, 3.13)
-- **Git:** `>= 2.30` (necessário para isolamento de `git worktree` e mascaramento via `info/exclude`)
-- **Gerenciador de pacotes:** [`uv`](https://docs.astral.sh/uv/) (recomendado) ou `pipx`
+## 🚢 Matriz de lançamento: Entregue (v0.1.0) vs Roadmap (v0.2+)
+
+### ✅ Entregue na `v0.1.0`
+
+- [x] Agendador de ondas Bulk-Synchronous Parallel (BSP) determinístico com validação de aciclicidade de Kahn.
+- [x] Scanner de hotspots por AST + integração com sidecar `code-review-graph v2.3.9`.
+- [x] Slots fixos de trilhas (`track-a`, `track-b`, `track-c`) com reset in-place e mascaramento via `info/exclude`.
+- [x] Scope Guard em três níveis (`PreToolUse` + Terminal Guard + `chmod a-w` no SO).
+- [x] Fusão monótona de status em 3 vias para YAML, listas de verificação Markdown, `STATE.md` e JSONL.
+- [x] Rollback transacional de ondas em LIFO com branches de backup automáticas.
+- [x] 5 adaptadores SDD: Spec Kit, BMAD, GSD (Artifact Hijack), OpenSpec e Beads, cada um com comando de worker nativo por trilha.
+- [x] Demonstração offline do Merge-Bomb (`sdd-parallel demo --kit all`) e geração de sandboxes interativas (`--scaffold-only`).
+- [x] Piloto automático (autopilot) multi-janela para Antigravity, Claude Code e Codex.
+- [x] CI com clean-clone no Ubuntu / macOS / Windows, Python 3.11–3.13; PyPI Trusted Publishing.
+
+### 🚧 Planejado para `v0.2.0+`
+
+- [ ] **Adaptadores da comunidade:** `mattpocock/skills` (`/implement-spec`) e adaptador de status frontmatter para `bmad-loop`.
+- [ ] **Sincronização de ambiente sem poluição:** symlinks de `.venv` / `node_modules` para dentro dos slots fixos.
+- [ ] **Linker estático de símbolos pré-onda e escalonamento de escopo:** expansão automática do conjunto de escrita via símbolos AST com reagendamento dinâmico.
+- [ ] **Exportadores de FinOps e observabilidade:** spans OpenTelemetry e telemetria de economia de tokens com Langfuse.
+- [ ] **Daemon de piloto automático headless:** execução de agentes via RPC local / despacho de subagentes.
+
+---
+
+## 🤝 Contribuição, desenvolvimento local e segurança
 
 ```bash
 git clone https://github.com/stopActingSoSmall/sdd-parallel.git
 cd sdd-parallel
 uv sync
 
-# Executar mais de 99 testes automatizados (unitários e de integração)
-uv run pytest
-
-# Verificação estrita de tipagem estática
-uv run mypy --strict src/sdd_parallel
-
-# Linter e verificação de estilo
-uv run ruff check src/ tests/ scripts/
-
-# Executar demonstração autônoma offline
-uv run sdd-parallel demo
+uv run pytest                          # suite de testes unitários + integração
+uv run mypy --strict src/sdd_parallel  # tipagem estrita
+uv run ruff check src/ tests/ scripts/ # linter
+uv run sdd-parallel demo --kit all     # demonstração offline com 5 kits
 ```
 
-</details>
-
----
-
-## 🚢 Matriz de lançamentos: Publicado (v0.1.0) vs Roadmap (v0.2+)
-
-### ✅ Entregue na `v0.1.0` (Ambiente de Produção)
-- Agendador determinístico de ondas Bulk-Synchronous Parallel (BSP) com verificação acíclica de Kahn.
-- Scanner de hotspots via AST e integração sidecar com `code-review-graph v2.3.9`.
-- Arquitetura de slots fixos (`track-a`, `track-b`, `track-c`) com capacidade de reset in-place.
-- Scope Guard de três camadas (`PreToolUse` + Guard de terminal + `chmod a-w` do SO).
-- Mesclador monotônico 3-way de YAML preservando comentários e formatação.
-- Motor transacional de rollback de ondas LIFO com branches automáticas de segurança.
-- Padrão Two-Stage Assisted (Slots interativos de IDE, `Depth 0`).
-- 5 adaptadores multi-SDD (BMAD, Spec Kit, GSD Artifact Hijack, OpenSpec, Beads).
-- Demonstração offline sem chaves de API (`sdd-parallel demo`) e suíte completa de CI no GitHub Actions.
-- 99 testes automatizados, `mypy --strict` e portões de qualidade com `ruff`.
-
-### 🚧 Planejado para `v0.2.0+`
-- **Ecossistema de adaptadores comunitários:** Suporte para `mattpocock/skills` (`/implement-spec`) e `bmad-loop` v0.8+.
-- **Sincronização de ambientes sem poluição:** Padrão `workz` com links simbólicos de `.venv` e `node_modules` nos slots fixos.
-- **Linker estático de símbolos e escalabilidade dinâmica de escopo:** Expansão automática do write-set via símbolos AST e reagendamento dinâmico de tarefas.
-- **Exportadores FinOps e observabilidade:** Spans OpenTelemetry e telemetria de economia de tokens no Langfuse.
-- **Daemon autônomo em segundo plano:** Execução completamente headless via RPC local e despacho de subagentes.
-
----
-
-## 🤝 Contribuição e segurança
-
-- **Contribuição:** Consulte nosso **[Guia de Contribuição](../../../CONTRIBUTING.md)** para configuração do ambiente de desenvolvimento e diretrizes de PR.
-- **Segurança:** O processo de reporte de vulnerabilidades está detalhado em nossa **[Política de Segurança](../../../SECURITY.md)**.
-
-## 📜 Licença
-
-Licença MIT. Consulte [LICENSE](../../../LICENSE) para mais detalhes.
+- **Contribuição:** consulte o **[Guia de Contribuição](../../../CONTRIBUTING.md)** para configuração do ambiente e gates de pull request.
+- **Segurança:** reporte vulnerabilidades conforme descrito na **[Política de Segurança](../../../SECURITY.md)**.
+- **Licença:** MIT — consulte [LICENSE](../../../LICENSE).
