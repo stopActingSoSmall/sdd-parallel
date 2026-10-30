@@ -639,3 +639,10 @@ class BMADAdapter:
     def default_artifacts_dir(self) -> Path:
         """Return default artifacts directory for BMAD."""
         return self.repo_root / "_bmad-output" / "parallel-artifacts"
+
+    def get_status_files(self) -> list[str]:
+        """Return relative paths of BMAD status files."""
+        try:
+            return [self.sprint_status_path.relative_to(self.repo_root).as_posix()]
+        except ValueError:
+            return ["_bmad-output/implementation-artifacts/sprint-status.yaml"]

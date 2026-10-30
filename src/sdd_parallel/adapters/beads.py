@@ -326,3 +326,7 @@ class BeadsAdapter:
     def default_artifacts_dir(self) -> Path:
         """Return default artifacts directory for Beads."""
         return self.repo_root / ".parallel" / "artifacts"
+
+    def get_status_files(self) -> list[str]:
+        """Return relative paths of Beads status files."""
+        return [".beads/beads.jsonl", ".beads/issues.jsonl"]

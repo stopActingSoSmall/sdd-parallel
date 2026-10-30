@@ -11,6 +11,7 @@ import pytest
 
 from sdd_parallel.adapters import (
     BeadsAdapter,
+    BMADAdapter,
     GSDHijackAdapter,
     OpenSpecAdapter,
     SpecKitAdapter,
@@ -24,6 +25,12 @@ from sdd_parallel.demo import _DEMO_KIT_TASKS, create_demo_repository
 from sdd_parallel.hooks.blast_radius_guard import evaluate_tool_access
 from sdd_parallel.models import EffortTier, FileRole, TaskStatus
 from sdd_parallel.scheduler import BSPWaveScheduler
+from sdd_parallel.status_merger import (
+    get_status_merger,
+    merge_beads_issues_jsonl,
+    merge_markdown_task_checklists,
+    merge_sprint_status_yaml,
+)
 from sdd_parallel.worktree import WorktreeManager, WorktreeRollbackManager
 
 
@@ -1040,4 +1047,79 @@ def test_beads_jsonl_typed_dependencies_and_blocked_status(tmp_path: Path) -> No
 
     t2 = next(t for t in tasks if t.id == "bd-02")
     assert t2.effort == EffortTier.LOW
+
+
+def test_polymorphic_get_status_files_across_all_five_adapters(tmp_path: Path) -> None:
+    # 1. BMAD
+    bmad = BMADAdapter(tmp_path)
+    assert bmad.get_status_files() == ["_bmad-output/implementation-artifacts/sprint-status.yaml"]
+
+    # 2. Spec Kit
+    spec_kit = SpecKitAdapter(tmp_path)
+    assert spec_kit.get_status_files() == []
+    feat1 = tmp_path / ".specify" / "specs" / "feat1"
+    feat1.mkdir(parents=True)
+    (feat1 / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
+    feat2 = tmp_path / "specs" / "feat2"
+    feat2.mkdir(parents=True)
+    (feat2 / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
+    assert sorted(spec_kit.get_status_files()) == [
+        ".specify/specs/feat1/tasks.md",
+        "specs/feat2/tasks.md",
+    ]
+
+    # 3. GSD
+    gsd = GSDHijackAdapter(tmp_path)
+    assert gsd.get_status_files() == [".planning/STATE.md"]
+    p_dir = tmp_path / ".planning" / "phases" / "01-foundation"
+    p_dir.mkdir(parents=True)
+    (p_dir / "01-01-PLAN.md").write_text("# Plan\n", encoding="utf-8")
+    assert sorted(gsd.get_status_files()) == [
+        ".planning/STATE.md",
+        ".planning/phases/01-foundation/01-01-PLAN.md",
+    ]
+
+    # 4. OpenSpec
+    openspec = OpenSpecAdapter(tmp_path)
+    assert openspec.get_status_files() == []
+    c1 = tmp_path / "openspec" / "changes" / "change-01"
+    c1.mkdir(parents=True)
+    (c1 / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
+    assert openspec.get_status_files() == ["openspec/changes/change-01/tasks.md"]
+
+    # 5. Beads
+    beads = BeadsAdapter(tmp_path)
+    assert sorted(beads.get_status_files()) == [
+        ".beads/beads.jsonl",
+        ".beads/issues.jsonl",
+    ]
+
+
+def test_get_status_merger_dispatcher() -> None:
+    # BMAD yaml
+    assert get_status_merger("sprint-status.yaml") is merge_sprint_status_yaml
+    assert get_status_merger("sprint-status.yml") is merge_sprint_status_yaml
+    assert (
+        get_status_merger("_bmad-output/implementation-artifacts/sprint-status.yaml")
+        is merge_sprint_status_yaml
+    )
+
+    # Markdown tasks checklists
+    assert get_status_merger("tasks.md") is merge_markdown_task_checklists
+    assert get_status_merger(".specify/specs/001-feat/tasks.md") is merge_markdown_task_checklists
+    assert get_status_merger("specs/002-auth/tasks.md") is merge_markdown_task_checklists
+    assert (
+        get_status_merger("openspec/changes/add-feature/tasks.md")
+        is merge_markdown_task_checklists
+    )
+
+    # Beads jsonl
+    assert get_status_merger(".beads/issues.jsonl") is merge_beads_issues_jsonl
+    assert get_status_merger(".beads/beads.jsonl") is merge_beads_issues_jsonl
+
+    # Irrelevant or unsupported paths
+    assert get_status_merger("src/models.py") is None
+    assert get_status_merger("README.md") is None
+    assert get_status_merger(".planning/STATE.md") is None
+    assert get_status_merger("data/records.jsonl") is None
 

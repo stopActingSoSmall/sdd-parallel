@@ -10,7 +10,7 @@ import stat
 import subprocess
 import sys
 import tomllib
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -18,11 +18,7 @@ from typing import Any
 from sdd_parallel.adapters import SDDAdapterProtocol, get_adapter
 from sdd_parallel.hooks.blast_radius_guard import _matches_any_glob
 from sdd_parallel.models import LockManifest, Wave, WavePlan, WaveTrack
-from sdd_parallel.status_merger import (
-    merge_beads_issues_jsonl,
-    merge_markdown_task_checklists,
-    merge_sprint_status_yaml,
-)
+from sdd_parallel.status_merger import get_status_merger
 
 _EXCLUDE_ENTRIES = (
     "_bmad/custom/bmad-build.user.toml",
@@ -871,8 +867,16 @@ class WorktreeManager:
         cleanup_worktrees: bool = False,
         dry_run: bool = False,
         strict_gates: bool = False,
+        adapter: SDDAdapterProtocol | None = None,
     ) -> list[str]:
-        """Merge all track branches in `wave_number`, resolve sprint-status.yaml, and run gates."""
+        """Merge all track branches in `wave_number`, resolve status files, and run gates."""
+        if adapter is None:
+            kit_name = getattr(plan, "sdd_kit", "auto") or "auto"
+            try:
+                adapter = get_adapter(self.repo_root, kit=kit_name)[1]
+            except Exception:
+                adapter = get_adapter(self.repo_root)[1]
+
         target_wave = next((w for w in plan.waves if w.wave_number == wave_number), None)
         if target_wave is None:
             raise ValueError(f"Wave {wave_number} not found in plan")
@@ -961,28 +965,14 @@ class WorktreeManager:
                 else []
             )
 
-            # Always check sprint-status.yaml in BMAD as candidate as well
-            status_rel_str = "_bmad-output/implementation-artifacts/sprint-status.yaml"
             candidate_status_files = set(branch_changed)
-            if (self.repo_root / status_rel_str).is_file():
-                candidate_status_files.add(status_rel_str)
-
-            def _merge_bmad_status(b: str, o: str, t: str) -> str:
-                return merge_sprint_status_yaml(b, o, t)
+            for st_rel in adapter.get_status_files():
+                if (self.repo_root / st_rel).is_file():
+                    candidate_status_files.add(st_rel)
 
             resolved_status_files: dict[str, str] = {}
             for rel in sorted(candidate_status_files):
-                merger_fn: Callable[[str, str, str], str] | None = None
-                if rel == status_rel_str:
-                    merger_fn = _merge_bmad_status
-                elif rel.endswith("tasks.md") and (
-                    rel.startswith(".specify/")
-                    or rel.startswith("specs/")
-                    or rel.startswith("openspec/")
-                ):
-                    merger_fn = merge_markdown_task_checklists
-                elif rel in {".beads/issues.jsonl", ".beads/beads.jsonl"}:
-                    merger_fn = merge_beads_issues_jsonl
+                merger_fn = get_status_merger(rel)
 
                 if merger_fn is not None:
                     main_file = self.repo_root / rel
@@ -1130,7 +1120,7 @@ class WorktreeManager:
             )
             if updated_state and updated_state.is_file():
                 subprocess.run(
-                    ["git", "add", ".planning/STATE.md"],
+                    ["git", "add", updated_state.relative_to(self.repo_root).as_posix()],
                     cwd=self.repo_root,
                     check=False,
                 )

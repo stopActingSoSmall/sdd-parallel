@@ -405,3 +405,16 @@ class GSDHijackAdapter:
     def default_artifacts_dir(self) -> Path:
         """Return default artifacts directory for GSD."""
         return self.repo_root / ".parallel" / "artifacts"
+
+    def get_status_files(self) -> list[str]:
+        """Return relative paths of GSD status and phase plan files."""
+        files: list[str] = [".planning/STATE.md"]
+        if self.phases_dir.is_dir():
+            for p in sorted(self.phases_dir.rglob("*-PLAN.md")):
+                try:
+                    rel = p.relative_to(self.repo_root).as_posix()
+                    if rel not in files:
+                        files.append(rel)
+                except ValueError:
+                    pass
+        return files

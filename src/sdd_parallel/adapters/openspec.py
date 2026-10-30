@@ -444,3 +444,17 @@ class OpenSpecAdapter:
     def default_artifacts_dir(self) -> Path:
         """Return default artifacts directory for OpenSpec."""
         return self.repo_root / ".parallel" / "artifacts"
+
+    def get_status_files(self) -> list[str]:
+        """Return relative paths of OpenSpec tasks.md files."""
+        if not self.changes_dir.is_dir():
+            return []
+        files: list[str] = []
+        for p in sorted(self.changes_dir.rglob("tasks.md")):
+            try:
+                rel = p.relative_to(self.repo_root).as_posix()
+                if rel not in files:
+                    files.append(rel)
+            except ValueError:
+                pass
+        return files
