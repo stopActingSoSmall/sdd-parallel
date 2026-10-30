@@ -322,3 +322,7 @@ class BeadsAdapter:
             if track.task_ids
             else "`bd update`"
         )
+
+    def default_artifacts_dir(self) -> Path:
+        """Return default artifacts directory for Beads."""
+        return self.repo_root / ".parallel" / "artifacts"

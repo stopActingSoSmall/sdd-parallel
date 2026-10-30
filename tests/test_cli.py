@@ -133,3 +133,33 @@ def test_cli_clean_json_error_handling(tmp_path: Path) -> None:
     assert err_json["command"] == "merge"
     assert err_json["wave"] == 99
     assert "Wave 99 not found" in err_json["error"]
+
+
+def test_cli_plan_default_artifacts_dir_polymorphic(tmp_path: Path) -> None:
+    """Verify sdd-parallel plan saves artifacts in .parallel/artifacts for non-BMAD kits."""
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test Runner"], cwd=tmp_path, check=True)
+
+    # Setup Spec Kit repo
+    spec_dir = tmp_path / "specs" / "001-feat"
+    spec_dir.mkdir(parents=True)
+    (spec_dir / "tasks.md").write_text(
+        "# Tasks\n- [ ] T001 Implement in `src/feature.py`\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "feature.py").write_text("y = 2\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True)
+
+    exit_code = main(["plan", "--repo", str(tmp_path), "--kit", "spec-kit"])
+    assert exit_code == 0
+
+    parallel_artifacts = tmp_path / ".parallel" / "artifacts"
+    assert parallel_artifacts.is_dir()
+    assert (parallel_artifacts / "execution-plan-parallel.md").is_file()
+    assert (parallel_artifacts / "wave-plan.json").is_file()
+
+    # Invariant: non-BMAD kits must not produce _bmad-output
+    assert not (tmp_path / "_bmad-output").exists()

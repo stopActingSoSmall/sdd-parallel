@@ -405,11 +405,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         md_text = scheduler.render_markdown_plan(plan, tasks)
         if not args.dry_run:
-            out_dir = (
-                args.output_dir.resolve()
-                if args.output_dir is not None
-                else (repo_root / "_bmad-output" / "parallel-artifacts")
-            )
+            if args.output_dir is not None:
+                out_dir = args.output_dir.resolve()
+            else:
+                _, adapter = get_adapter(repo_root, kit=plan.sdd_kit)
+                out_dir = adapter.default_artifacts_dir()
             out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / "execution-plan-parallel.md").write_text(md_text, encoding="utf-8")
             plan_dict = plan.to_dict()

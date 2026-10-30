@@ -481,3 +481,7 @@ class SpecKitAdapter:
             feat, local_id = task_id.split(":", 1)
             return f"`SPECIFY_FEATURE={feat} /speckit.implement {local_id}`"
         return f"`/speckit.implement {task_id}`"
+
+    def default_artifacts_dir(self) -> Path:
+        """Return default artifacts directory for Spec Kit."""
+        return self.repo_root / ".parallel" / "artifacts"

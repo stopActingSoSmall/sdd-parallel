@@ -635,3 +635,7 @@ class BMADAdapter:
     def render_worker_command(self, track: WaveTrack) -> str:
         """Render operator worker command for BMAD track."""
         return f"`/bmad-build {track.task_ids[0]}`" if track.task_ids else "`/bmad-build`"
+
+    def default_artifacts_dir(self) -> Path:
+        """Return default artifacts directory for BMAD."""
+        return self.repo_root / "_bmad-output" / "parallel-artifacts"

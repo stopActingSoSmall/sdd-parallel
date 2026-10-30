@@ -54,13 +54,27 @@ class AutopilotLauncher:
         tier_map = _MODEL_MAP.get(h_key, _MODEL_MAP["antigravity"])
         return tier_map.get(effort, tier_map[EffortTier.MEDIUM])
 
-    def _build_track_prompt(self, wave_number: int, track: WaveTrack, wt_path: Path) -> str:
+    def _build_track_prompt(
+        self,
+        wave_number: int,
+        track: WaveTrack,
+        wt_path: Path,
+        sdd_kit: str = "bmad",
+    ) -> str:
+        from sdd_parallel.adapters import get_adapter
+
+        try:
+            _, adapter = get_adapter(self.repo_root, kit=sdd_kit)
+            worker_cmd = adapter.render_worker_command(track).strip("`")
+        except ValueError:
+            worker_cmd = f"/bmad-build {' '.join(track.task_ids)}"
+
         stories = ", ".join(track.task_ids)
         return (
             f"Working directory: {wt_path.as_posix()}. "
             f"Read .tmp/track-context.md and .parallel-lock.json first. "
             f"Execute Wave {wave_number} / {track.track_id} stories ({stories}) "
-            "using /bmad-build-auto strictly within the allowed write scope."
+            f"using `{worker_cmd}` strictly within the allowed write scope."
         )
 
     def build_launch_specs(
@@ -84,7 +98,9 @@ class AutopilotLauncher:
             model_id = self.resolve_model_for_effort(h_norm, track.effort)
             stories_str = ", ".join(track.task_ids)
             title = f"Wave {wave_number} ({track.track_id}): {stories_str}"
-            prompt = self._build_track_prompt(wave_number, track, wt_path)
+            prompt = self._build_track_prompt(
+                wave_number, track, wt_path, sdd_kit=plan.sdd_kit
+            )
 
             if h_norm == "antigravity":
                 argv = [

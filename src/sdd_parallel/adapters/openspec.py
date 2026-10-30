@@ -114,13 +114,36 @@ class OpenSpecAdapter:
         if not self.changes_dir.is_dir():
             return []
 
-        tasks: list[TaskNode] = []
-        for change_dir in sorted(self.changes_dir.iterdir()):
-            if not change_dir.is_dir() or change_dir.name in {"archive", ".archive"}:
-                continue
-            if "archive" in change_dir.parts and not include_done:
-                continue
+        project_file = self.openspec_dir / "project.md"
+        change_order: dict[str, int] = {}
+        change_epic: dict[str, str] = {}
+        if project_file.is_file():
+            cur_phase = "openspec"
+            order_idx = 0
+            for line in project_file.read_text(encoding="utf-8-sig").splitlines():
+                sline = line.strip()
+                if sline.startswith("## "):
+                    cur_phase = sline[3:].strip()
+                elif sline.startswith("- ") or sline.startswith("* "):
+                    cid = sline[2:].strip().strip("`'\"")
+                    if cid:
+                        change_order[cid] = order_idx
+                        change_epic[cid] = cur_phase
+                        order_idx += 1
 
+        tasks: list[TaskNode] = []
+        change_dirs = sorted(
+            [
+                d
+                for d in self.changes_dir.iterdir()
+                if d.is_dir()
+                and d.name not in {"archive", ".archive"}
+                and "archive" not in d.parts
+            ],
+            key=lambda d: (change_order.get(d.name, 999), d.name),
+        )
+
+        for change_dir in change_dirs:
             change_id = change_dir.name
             tasks_file = change_dir / "tasks.md"
             proposal_file = change_dir / "proposal.md"
@@ -239,7 +262,7 @@ class OpenSpecAdapter:
                 TaskNode(
                     id=change_id,
                     title=str(title),
-                    epic_id="openspec",
+                    epic_id=change_epic.get(change_id, "openspec"),
                     status=status,
                     effort=effort,
                     write_files=write_files,
@@ -417,3 +440,7 @@ class OpenSpecAdapter:
     def render_worker_command(self, track: WaveTrack) -> str:
         """Render operator worker command for OpenSpec track."""
         return f"`/openspec-apply {track.task_ids[0]}`" if track.task_ids else "`/openspec-apply`"
+
+    def default_artifacts_dir(self) -> Path:
+        """Return default artifacts directory for OpenSpec."""
+        return self.repo_root / ".parallel" / "artifacts"

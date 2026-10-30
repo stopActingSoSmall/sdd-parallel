@@ -401,3 +401,7 @@ class GSDHijackAdapter:
             if track.task_ids
             else "`/gsd-execute-phase`"
         )
+
+    def default_artifacts_dir(self) -> Path:
+        """Return default artifacts directory for GSD."""
+        return self.repo_root / ".parallel" / "artifacts"
