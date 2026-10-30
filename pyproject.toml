@@ -1,6 +1,6 @@
 [project]
 name = "sdd-parallel"
-version = "0.1.0"
+version = "0.1.1"
 description = "SDD-agnostic multi-track parallel roadmap orchestrator, AST/CRG blast-radius solver, and Git worktree manager for AI coding agents"
 readme = "README.md"
 license = "MIT"
