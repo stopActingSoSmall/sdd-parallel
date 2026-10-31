@@ -244,6 +244,7 @@ class SpecKitAdapter:
                     effort=effort,
                     write_files=write_files,
                     depends_on=depends_on,
+                    description=desc.strip(),
                 )
                 tasks.append(task_node)
                 current_task = task_node

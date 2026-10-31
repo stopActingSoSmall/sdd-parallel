@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Sequence
+from typing import Any
 
 from sdd_parallel.models import (
+    DEFAULT_CONTRACT_GLOBS,
     ConflictEdge,
     ConflictType,
     FileRole,
@@ -13,6 +15,7 @@ from sdd_parallel.models import (
     Wave,
     WavePlan,
     WaveTrack,
+    is_contract_file,
 )
 
 
@@ -31,11 +34,17 @@ class BSPWaveScheduler:
         self,
         max_tracks: int = 3,
         file_roles: dict[str, FileRole] | None = None,
+        ast_scanner: Any | None = None,
+        contract_globs: Sequence[str] | None = None,
     ) -> None:
         if max_tracks < 1:
             raise ValueError("max_tracks must be >= 1")
         self.max_tracks = max_tracks
         self.file_roles: dict[str, FileRole] = dict(file_roles or {})
+        self.ast_scanner = ast_scanner
+        self.contract_globs = (
+            tuple(contract_globs) if contract_globs is not None else DEFAULT_CONTRACT_GLOBS
+        )
 
     def get_file_role(self, path: str) -> FileRole:
         normalized = path.replace("\\", "/").lstrip("./")
@@ -45,6 +54,8 @@ class BSPWaveScheduler:
             return FileRole.STANDARD
         if normalized in self.file_roles:
             return self.file_roles[normalized]
+        if is_contract_file(normalized, self.contract_globs):
+            return FileRole.SPINE
         if filename in {"schema.py", "models.py"}:
             return FileRole.SPINE
         if filename in {"cli.py", "__init__.py"} or normalized.endswith("/mcp/server.py"):
@@ -67,6 +78,9 @@ class BSPWaveScheduler:
 
     def build_edges(self, tasks: Sequence[TaskNode]) -> list[ConflictEdge]:
         """Construct directed dependencies and undirected collision edges across tasks."""
+        if self.ast_scanner is not None:
+            self.ast_scanner.link_tasks(tasks)
+
         edges: list[ConflictEdge] = []
         task_map = {t.id: t for t in tasks}
         explicit_adj: dict[str, set[str]] = {t.id: set() for t in tasks}

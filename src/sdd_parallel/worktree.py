@@ -17,7 +17,14 @@ from typing import Any
 
 from sdd_parallel.adapters import SDDAdapterProtocol, get_adapter
 from sdd_parallel.hooks.blast_radius_guard import _matches_any_glob
-from sdd_parallel.models import LockManifest, Wave, WavePlan, WaveTrack
+from sdd_parallel.models import (
+    EffortTier,
+    LockManifest,
+    TaskStatus,
+    Wave,
+    WavePlan,
+    WaveTrack,
+)
 from sdd_parallel.status_merger import get_status_merger
 
 _DEFAULT_SHARED_DIRS = (".venv", "node_modules", ".cache")
@@ -437,6 +444,7 @@ class WorktreeManager:
         else:
             self.worktrees_dir = (self.repo_root / ".worktrees").resolve()
         self._config: dict[str, Any] | None = None
+        self.last_escalations: list[dict[str, Any]] = []
 
     def get_config(self) -> dict[str, Any]:
         """Return cached parallel configuration for repo_root."""
@@ -984,11 +992,157 @@ class WorktreeManager:
         )
         return lock
 
+    def check_scope_escalations(
+        self,
+        wave_number: int,
+        plan: WavePlan | None = None,
+    ) -> list[dict[str, Any]]:
+        """Collect pending scope escalation requests (.tmp/scope-escalation.json) for wave."""
+        escalations: list[dict[str, Any]] = []
+        target_wave = None
+        if plan is not None:
+            target_wave = next((w for w in plan.waves if w.wave_number == wave_number), None)
+
+        paths_to_check: list[Path] = [self.repo_root / ".tmp" / "scope-escalation.json"]
+        if target_wave is not None:
+            for track in target_wave.tracks:
+                paths_to_check.append(
+                    self.worktree_path_for_track(wave_number, track.track_id)
+                    / ".tmp"
+                    / "scope-escalation.json"
+                )
+                paths_to_check.append(
+                    self.worktrees_dir
+                    / f"wave-{wave_number}-{track.track_id}"
+                    / ".tmp"
+                    / "scope-escalation.json"
+                )
+
+        seen: set[tuple[str, str]] = set()
+        for esc_path in paths_to_check:
+            if not esc_path.is_file():
+                continue
+            try:
+                raw = json.loads(esc_path.read_text(encoding="utf-8"))
+                items = raw if isinstance(raw, list) else [raw]
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    sid = str(item.get("story_id", "")).strip()
+                    req_file = str(item.get("requested_file", "")).replace("\\", "/").strip()
+                    if (sid, req_file) not in seen and (sid or req_file):
+                        seen.add((sid, req_file))
+                        escalations.append(item)
+            except Exception:
+                continue
+
+        return escalations
+
+    def defer_escalated_task(
+        self,
+        plan: WavePlan,
+        story_id: str,
+        requested_file: str,
+        current_wave: int,
+    ) -> WavePlan:
+        """Defer an escalated task to Wave K+1 and add requested_file to its write scope."""
+        norm_file = requested_file.replace("\\", "/").strip()
+        next_wave_num = current_wave + 1
+
+        curr_wave = next((w for w in plan.waves if w.wave_number == current_wave), None)
+        effort = EffortTier.MEDIUM
+        if curr_wave is not None:
+            for trk in curr_wave.tracks:
+                if story_id in trk.task_ids:
+                    trk.task_ids.remove(story_id)
+                    effort = trk.effort
+                    break
+
+        next_wave = next((w for w in plan.waves if w.wave_number == next_wave_num), None)
+        if next_wave is None:
+            new_track = WaveTrack(
+                track_id="track-a",
+                task_ids=[story_id] if story_id else [],
+                effort=effort,
+                exclusive_write_files=[norm_file] if norm_file else [],
+            )
+            next_wave = Wave(
+                wave_number=next_wave_num,
+                tracks=[new_track],
+                checkpoint_gates=list(curr_wave.checkpoint_gates) if curr_wave else [],
+            )
+            plan.waves.append(next_wave)
+        else:
+            placed = False
+            for trk in next_wave.tracks:
+                if len(trk.task_ids) < 3:
+                    if story_id and story_id not in trk.task_ids:
+                        trk.task_ids.append(story_id)
+                    if norm_file and norm_file not in trk.exclusive_write_files:
+                        trk.exclusive_write_files.append(norm_file)
+                    placed = True
+                    break
+            if not placed:
+                idx = len(next_wave.tracks)
+                letter = chr(ord("a") + idx) if idx < 26 else str(idx + 1)
+                new_track = WaveTrack(
+                    track_id=f"track-{letter}",
+                    task_ids=[story_id] if story_id else [],
+                    effort=effort,
+                    exclusive_write_files=[norm_file] if norm_file else [],
+                )
+                next_wave.tracks.append(new_track)
+
+        p_file = self.repo_root / ".parallel" / "wave-plan.json"
+        if p_file.is_file() or (self.repo_root / ".parallel").is_dir():
+            p_file.parent.mkdir(parents=True, exist_ok=True)
+            p_file.write_text(
+                json.dumps(plan.to_dict(), indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
+        return plan
+
     def verify_wave(self, plan: WavePlan, wave_number: int) -> list[str]:
         """Verify that generated story specs and worktree files do not violate locks."""
         target_wave = next((w for w in plan.waves if w.wave_number == wave_number), None)
         if target_wave is None:
             raise ValueError(f"Wave {wave_number} not found in plan")
+
+        self.last_escalations = []
+        escalations = self.check_scope_escalations(wave_number, plan)
+        escalated_stories: set[str] = set()
+        escalated_files: set[str] = set()
+
+        if escalations:
+            for esc in escalations:
+                sid = str(esc.get("story_id", "")).strip()
+                req_file = str(esc.get("requested_file", "")).replace("\\", "/").strip()
+                if sid:
+                    escalated_stories.add(sid)
+                if req_file:
+                    escalated_files.add(req_file)
+                self.defer_escalated_task(
+                    plan=plan,
+                    story_id=sid,
+                    requested_file=req_file,
+                    current_wave=wave_number,
+                )
+                self.last_escalations.append(
+                    {
+                        "story_id": sid,
+                        "requested_file": req_file,
+                        "status": TaskStatus.ESCALATED_DEFERRED.value,
+                        "deferred_to_wave": wave_number + 1,
+                    }
+                )
+            if self.last_escalations:
+                esc_hist = self.repo_root / ".parallel" / "escalations.json"
+                esc_hist.parent.mkdir(parents=True, exist_ok=True)
+                esc_hist.write_text(
+                    json.dumps(self.last_escalations, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
 
         violations: list[str] = []
         cfg = self.get_config()
@@ -1052,6 +1206,8 @@ class WorktreeManager:
                         norm_f = raw_file.replace("\\", "/")
                         ignored_prefixes = (
                             ".tmp/",
+                            ".parallel/",
+                            ".worktrees/",
                             "_bmad/custom/",
                             ".pytest_cache/",
                             "__pycache__/",
@@ -1062,6 +1218,10 @@ class WorktreeManager:
                         if norm_f.startswith(ignored_prefixes):
                             continue
                         if norm_f in {
+                            ".worktrees",
+                            ".worktrees/",
+                            ".parallel",
+                            ".parallel/",
                             ".parallel-lock.json",
                             "ACTIVE_TRACK.md",
                             ".env",
@@ -1121,6 +1281,8 @@ class WorktreeManager:
                             continue
                         diff_ignored = (
                             ".tmp/",
+                            ".parallel/",
+                            ".worktrees/",
                             "_bmad/custom/",
                             ".pytest_cache/",
                             "__pycache__/",
@@ -1131,6 +1293,10 @@ class WorktreeManager:
                         if norm_d.startswith(diff_ignored):
                             continue
                         if norm_d in {
+                            ".worktrees",
+                            ".worktrees/",
+                            ".parallel",
+                            ".parallel/",
                             ".parallel-lock.json",
                             "ACTIVE_TRACK.md",
                             ".env",
@@ -1154,6 +1320,21 @@ class WorktreeManager:
                                 f"Wave {wave_number} / {track.track_id}: committed file '{norm_d}' "
                                 "is outside declared Allowed Write Scope"
                             )
+
+        if escalated_files or escalated_stories:
+            filtered_violations: list[str] = []
+            for v in violations:
+                is_esc = any(
+                    f"'{ef}'" in v or f" {ef}" in v or v.endswith(f"/{ef}")
+                    for ef in escalated_files
+                ) or any(
+                    f"story {es}" in v or f"'{es}'" in v
+                    for es in escalated_stories
+                )
+                if not is_esc:
+                    filtered_violations.append(v)
+            violations = filtered_violations
+
         return violations
 
     def merge_wave(

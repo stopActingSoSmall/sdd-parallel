@@ -267,6 +267,7 @@ class OpenSpecAdapter:
                     effort=effort,
                     write_files=write_files,
                     depends_on=depends_on,
+                    description=all_text,
                 )
             )
 
@@ -309,6 +310,7 @@ class OpenSpecAdapter:
                     effort=EffortTier.MEDIUM if len(item_files) >= 3 else EffortTier.LOW,
                     write_files=item_files,
                     depends_on=depends_on,
+                    description=desc.strip(),
                 )
             )
 

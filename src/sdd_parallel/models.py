@@ -2,9 +2,64 @@
 
 from __future__ import annotations
 
+import fnmatch
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
+
+DEFAULT_CONTRACT_GLOBS: tuple[str, ...] = (
+    "**/schemas/**",
+    "**/schema.py",
+    "**/models/**",
+    "**/migrations/**",
+    "**/versions/**",
+    "openapi.json",
+    "openapi.yaml",
+    "*.proto",
+)
+
+
+def matches_path_pattern(path: str, pattern: str) -> bool:
+    """Match relative posix path against glob pattern with recursive directory support."""
+    norm_path = path.replace("\\", "/").strip("/")
+    norm_pat = pattern.replace("\\", "/").strip("/")
+
+    if norm_pat.startswith("**/"):
+        inner = norm_pat[3:]
+        if matches_path_pattern(norm_path, inner):
+            return True
+        if fnmatch.fnmatch(norm_path, f"*/{inner}"):
+            return True
+        if fnmatch.fnmatch(norm_path, f"*/**/{inner}"):
+            return True
+
+    if norm_pat.endswith("/**"):
+        prefix = norm_pat[:-3]
+        parts = norm_path.split("/")
+        if prefix in parts:
+            return True
+
+    if fnmatch.fnmatch(norm_path, norm_pat) or fnmatch.fnmatch(norm_path, f"*/{norm_pat}"):
+        return True
+
+    fname = norm_path.split("/")[-1] if "/" in norm_path else norm_path
+    if fnmatch.fnmatch(fname, norm_pat):
+        return True
+
+    return False
+
+
+def is_contract_file(
+    path: str,
+    contract_globs: Sequence[str] | None = None,
+) -> bool:
+    """Return True if path matches any contract/schema globs requiring Spine Lock."""
+    globs = contract_globs if contract_globs is not None else DEFAULT_CONTRACT_GLOBS
+    for pat in globs:
+        if matches_path_pattern(path, pat):
+            return True
+    return False
 
 
 class TaskStatus(StrEnum):
@@ -16,12 +71,14 @@ class TaskStatus(StrEnum):
     IN_PROGRESS = "in-progress"
     REVIEW = "review"
     DONE = "done"
+    ESCALATED_DEFERRED = "escalated-deferred"
 
     def rank(self) -> int:
         """Return monotonic progress rank for 3-way status merging."""
         ranks: dict[TaskStatus, int] = {
             TaskStatus.BACKLOG: 0,
             TaskStatus.BLOCKED: 0,
+            TaskStatus.ESCALATED_DEFERRED: 0,
             TaskStatus.READY_FOR_DEV: 1,
             TaskStatus.IN_PROGRESS: 2,
             TaskStatus.REVIEW: 3,
@@ -40,6 +97,8 @@ class TaskStatus(StrEnum):
             return cls.DONE
         if normalized in {"blocked"}:
             return cls.BLOCKED
+        if normalized in {"escalated-deferred", "escalated_deferred", "escalated"}:
+            return cls.ESCALATED_DEFERRED
         return cls.BACKLOG
 
 
@@ -82,6 +141,7 @@ class TaskNode:
     impact_files: list[str] = field(default_factory=list)
     depends_on: list[str] = field(default_factory=list)
     shared_function_notes: dict[str, str] = field(default_factory=dict)
+    description: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -95,7 +155,26 @@ class TaskNode:
             "impact_files": list(self.impact_files),
             "depends_on": list(self.depends_on),
             "shared_function_notes": dict(self.shared_function_notes),
+            "description": self.description,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TaskNode:
+        return cls(
+            id=str(data["id"]),
+            title=str(data.get("title", "")),
+            epic_id=str(data.get("epic_id", "")),
+            status=TaskStatus.from_raw(str(data.get("status", "backlog"))),
+            effort=EffortTier(str(data.get("effort", "medium")).lower()),
+            write_files=[str(f) for f in data.get("write_files", [])],
+            read_files=[str(f) for f in data.get("read_files", [])],
+            impact_files=[str(f) for f in data.get("impact_files", [])],
+            depends_on=[str(d) for d in data.get("depends_on", [])],
+            shared_function_notes={
+                str(k): str(v) for k, v in data.get("shared_function_notes", {}).items()
+            },
+            description=str(data.get("description", "")),
+        )
 
 
 @dataclass(slots=True, frozen=True)

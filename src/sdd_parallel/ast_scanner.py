@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import ast
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from sdd_parallel.models import FileRole
+from sdd_parallel.models import (
+    DEFAULT_CONTRACT_GLOBS,
+    FileRole,
+    TaskNode,
+    is_contract_file,
+)
 
 _SPINE_KEYWORDS = ("SCHEMA_VERSION", "auto_migrate", "_migrate_v")
 _ADDITIVE_DECORATORS = (
@@ -41,6 +48,41 @@ _IGNORED_SCAN_DIRS = {
     "phases",
     "docs",
 }
+_EXCLUDED_SYMBOLS = frozenset(
+    {
+        "__init__",
+        "__str__",
+        "__repr__",
+        "__eq__",
+        "__call__",
+        "__enter__",
+        "__exit__",
+        "get",
+        "set",
+        "update",
+        "delete",
+        "save",
+        "run",
+        "main",
+        "start",
+        "stop",
+        "execute",
+        "close",
+        "read",
+        "write",
+        "open",
+        "clear",
+        "pop",
+        "copy",
+        "setUp",
+        "tearDown",
+        "setUpClass",
+        "tearDownClass",
+        "True",
+        "False",
+        "None",
+    }
+)
 
 
 @dataclass(slots=True)
@@ -59,12 +101,21 @@ class FileMetadata:
 class ASTHotspotScanner:
     """Builds internal Python import graph and classifies Spine vs Additive Registry files."""
 
-    def __init__(self, repo_root: Path, src_dir: str = "src") -> None:
+    def __init__(
+        self,
+        repo_root: Path,
+        src_dir: str = "src",
+        contract_globs: Sequence[str] | None = None,
+    ) -> None:
         self.repo_root = repo_root.resolve()
         self.src_dir = src_dir
         self.src_root = self.repo_root / src_dir
+        self.contract_globs = (
+            tuple(contract_globs) if contract_globs is not None else DEFAULT_CONTRACT_GLOBS
+        )
         self._files: dict[str, FileMetadata] = {}
         self._module_to_path: dict[str, str] = {}
+        self._symbols_to_files: dict[str, set[str]] = {}
 
     def _path_to_module(self, py_file: Path) -> str:
         if self.src_root.is_dir() and py_file.is_relative_to(self.src_root):
@@ -81,6 +132,7 @@ class ASTHotspotScanner:
         """Scan all .py files under src_dir, compute in-degree, and classify roles."""
         self._files.clear()
         self._module_to_path.clear()
+        self._symbols_to_files.clear()
 
         if self.src_root.is_dir():
             scan_root = self.src_root
@@ -121,9 +173,10 @@ class ASTHotspotScanner:
                 self._module_to_path[mod_name] = rel_path
             raw_trees[rel_path] = tree
 
-        # Second pass: resolve internal imports and decorator patterns
+        # Second pass: resolve internal imports, decorator patterns, and defined symbols
         for rel_path, tree in raw_trees.items():
             meta = self._files[rel_path]
+            is_test = self._is_test_path(rel_path)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     for alias in node.names:
@@ -140,13 +193,36 @@ class ASTHotspotScanner:
                     for dec in node.decorator_list:
                         if self._is_registry_decorator(dec):
                             meta.has_registry_decorators = True
+                    if not is_test and node.name not in _EXCLUDED_SYMBOLS and len(node.name) >= 3:
+                        self._symbols_to_files.setdefault(node.name, set()).add(rel_path)
+                elif isinstance(node, ast.ClassDef):
+                    if not is_test and node.name not in _EXCLUDED_SYMBOLS and len(node.name) >= 3:
+                        self._symbols_to_files.setdefault(node.name, set()).add(rel_path)
+                elif isinstance(node, ast.Assign) and not is_test:
+                    for target in node.targets:
+                        if (
+                            isinstance(target, ast.Name)
+                            and target.id.isupper()
+                            and len(target.id) >= 2
+                            and target.id not in _EXCLUDED_SYMBOLS
+                        ):
+                            self._symbols_to_files.setdefault(target.id, set()).add(rel_path)
+                elif isinstance(node, ast.AnnAssign) and not is_test:
+                    if (
+                        isinstance(node.target, ast.Name)
+                        and node.target.id.isupper()
+                        and len(node.target.id) >= 2
+                        and node.target.id not in _EXCLUDED_SYMBOLS
+                    ):
+                        self._symbols_to_files.setdefault(node.target.id, set()).add(rel_path)
 
         # Third pass: assign FileRole
         for rel_path, meta in self._files.items():
             if self._is_test_path(rel_path):
                 meta.role = FileRole.STANDARD
             elif (
-                meta.has_schema_version
+                is_contract_file(rel_path, self.contract_globs)
+                or meta.has_schema_version
                 or Path(rel_path).name in {"models.py", "schema.py"}
                 or len(meta.imported_by) >= 5
             ):
@@ -195,6 +271,8 @@ class ASTHotspotScanner:
             return FileRole.STANDARD
         if normalized in self._files:
             return self._files[normalized].role
+        if is_contract_file(normalized, self.contract_globs):
+            return FileRole.SPINE
         filename = Path(normalized).name
         if filename in {"schema.py", "models.py"}:
             return FileRole.SPINE
@@ -207,3 +285,68 @@ class ASTHotspotScanner:
         normalized = rel_path.replace("\\", "/")
         meta = self._files.get(normalized)
         return set(meta.imported_by) if meta else set()
+
+    def get_symbol_definitions(self) -> dict[str, set[str]]:
+        """Return dictionary mapping discovered symbol names to defining relative file paths."""
+        return {k: set(v) for k, v in self._symbols_to_files.items()}
+
+    def find_symbol_files(self, symbol: str) -> set[str]:
+        """Find relative file paths defining the given symbol name."""
+        return set(self._symbols_to_files.get(symbol, ()))
+
+    def resolve_symbols_in_text(self, text: str) -> set[str]:
+        """Extract identifier tokens from text and match against known code symbols."""
+        if not text or not self._symbols_to_files:
+            return set()
+        tokens = set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", text))
+        candidate_files: set[str] = set()
+        for tok in tokens:
+            if tok in self._symbols_to_files and tok not in _EXCLUDED_SYMBOLS:
+                candidate_files.update(self._symbols_to_files[tok])
+        return candidate_files
+
+    def link_task_symbols(
+        self,
+        task: TaskNode,
+        extra_text: str = "",
+    ) -> list[str]:
+        """Scan task description/title/notes for symbol references and enrich task.write_files."""
+        if not self._symbols_to_files:
+            self.scan()
+
+        combined_text = "\n".join(
+            filter(
+                None,
+                [
+                    task.title,
+                    task.description,
+                    " ".join(task.shared_function_notes.values()),
+                    extra_text,
+                ],
+            )
+        )
+        found_files = self.resolve_symbols_in_text(combined_text)
+        newly_added: list[str] = []
+        for file_path in sorted(found_files):
+            norm = file_path.replace("\\", "/")
+            if norm not in task.write_files:
+                task.write_files.append(norm)
+                newly_added.append(norm)
+        return newly_added
+
+    def link_tasks(
+        self,
+        tasks: Sequence[TaskNode],
+        extra_texts: dict[str, str] | None = None,
+    ) -> dict[str, list[str]]:
+        """Enrich write_files across a collection of tasks from mentioned AST symbols."""
+        if not self._symbols_to_files:
+            self.scan()
+        texts = extra_texts or {}
+        linked_map: dict[str, list[str]] = {}
+        for task in tasks:
+            extra = texts.get(task.id, "")
+            added = self.link_task_symbols(task, extra_text=extra)
+            if added:
+                linked_map[task.id] = added
+        return linked_map

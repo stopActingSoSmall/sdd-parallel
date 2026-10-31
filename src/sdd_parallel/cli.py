@@ -12,6 +12,7 @@ import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from sdd_parallel.adapters import diagnose_multi_kit_coexistence, get_adapter
 from sdd_parallel.ast_scanner import ASTHotspotScanner
@@ -385,7 +386,11 @@ def _compute_repo_plan(
             task.impact_files = sorted(crg.compute_impact_files(task.write_files))
 
     blockers = adapter.check_wave_zero_blockers()
-    scheduler = BSPWaveScheduler(max_tracks=max_tracks, file_roles=file_roles)
+    scheduler = BSPWaveScheduler(
+        max_tracks=max_tracks,
+        file_roles=file_roles,
+        ast_scanner=scanner,
+    )
     plan = scheduler.schedule(tasks, sdd_kit=kit_name, wave_zero_blockers=blockers)
     return scheduler, tasks, plan
 
@@ -532,13 +537,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+        out_payload: dict[str, Any] = {
+            "wave": args.wave,
+            "compliant": len(violations) == 0,
+            "violations": violations,
+        }
+        if getattr(wm, "last_escalations", None):
+            out_payload["escalations"] = wm.last_escalations
         print(
             json.dumps(
-                {
-                    "wave": args.wave,
-                    "compliant": len(violations) == 0,
-                    "violations": violations,
-                },
+                out_payload,
                 indent=2,
                 ensure_ascii=False,
             )

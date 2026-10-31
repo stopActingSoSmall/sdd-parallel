@@ -196,6 +196,9 @@ class BeadsAdapter:
                 or "beads"
             )
 
+            desc = str(
+                record.get("description") or record.get("body") or record.get("text") or title
+            )
             tasks.append(
                 TaskNode(
                     id=tid,
@@ -205,6 +208,7 @@ class BeadsAdapter:
                     effort=effort,
                     write_files=write_files,
                     depends_on=depends_on,
+                    description=desc,
                 )
             )
 

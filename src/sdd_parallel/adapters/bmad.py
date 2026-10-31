@@ -199,6 +199,20 @@ class BMADAdapter:
 
         return blockers
 
+    def _get_spec_text(self, story_key: str, short_id: str) -> str:
+        """Return raw spec markdown text if present in implementation artifacts."""
+        if not self.impl_dir.is_dir():
+            return ""
+        candidates = list(self.impl_dir.glob(f"spec-{story_key}*.md"))
+        if not candidates:
+            candidates = list(self.impl_dir.glob(f"spec-{short_id}-*.md"))
+        if candidates:
+            try:
+                return candidates[0].read_text(encoding="utf-8-sig")
+            except Exception:
+                pass
+        return ""
+
     def _extract_spec_files_and_deps(
         self, story_key: str, short_id: str
     ) -> tuple[list[str], list[str], dict[str, str]]:
@@ -473,6 +487,7 @@ class BMADAdapter:
                 ):
                     effort = EffortTier.LOW
 
+            spec_text = self._get_spec_text(key, short_id)
             tasks.append(
                 TaskNode(
                     id=short_id,
@@ -483,6 +498,7 @@ class BMADAdapter:
                     write_files=write_files,
                     depends_on=depends_on,
                     shared_function_notes=shared_function_notes,
+                    description=spec_text,
                 )
             )
 

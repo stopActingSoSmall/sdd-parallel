@@ -226,6 +226,7 @@ class GSDHijackAdapter:
                     effort=effort,
                     write_files=write_files,
                     depends_on=depends_on,
+                    description=text,
                 )
             )
 
