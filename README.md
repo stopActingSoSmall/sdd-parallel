@@ -199,6 +199,8 @@ sdd-parallel merge --wave 1
 
 Undo: `sdd-parallel abort-wave --wave 1` (before merge) or `sdd-parallel rollback-wave --wave 1` (after merge; LIFO order, automatic `backup/wave-<K>-before-rollback-*` branch, SDD status reset).
 
+Visualize & Inspect: explore wave plans, blast-radius locks, and interactive SVG DAG graphs via `sdd-parallel inspect --open` (standalone zero-dependency UI at `assets/inspector.html`). Reproducible terminal screencasts are defined via `assets/demo.tape` (`charmbracelet/vhs`).
+
 ---
 
 ## 📂 See Your Exact SDD Project Layout (Before & After)
@@ -594,7 +596,7 @@ flowchart TD
 ## 🛠️ Full CLI Reference
 
 <details>
-<summary><b>Click to expand: all 13 subcommands &amp; flags</b></summary>
+<summary><b>Click to expand: all 15 subcommands &amp; flags</b></summary>
 
 | Command | Purpose |
 | :--- | :--- |
@@ -611,6 +613,8 @@ flowchart TD
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | Check a write against the active worktree lock manifest. |
 | `sdd-parallel install-plugin [--target-dir DIR]` | Package and install the portable Antigravity plugin. |
 | `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute]` | Generate or execute multi-window autopilot launch commands with model effort routing. |
+| `sdd-parallel bench [--repo REPO] [--since REV] [--until REV] [--demo] [--max-tracks N] [--kit KIT] [--format {text,json}] [--output-file FILE]` | Retrospective backtest on commit history or demo repo evaluating Merge-Bomb collision metrics (TP/FP/FN/TN, Precision, Recall, F1). |
+| `sdd-parallel inspect [--repo REPO] [--plan PATH] [--output PATH] [--open] [--kit KIT]` | Generate and view standalone offline HTML Wave Inspector visualizing wave tracks, slot boundaries, and interactive SVG DAG conflict graphs. |
 
 </details>
 

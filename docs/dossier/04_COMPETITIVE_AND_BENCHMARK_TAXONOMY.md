@@ -64,7 +64,12 @@ flowchart TD
 
 ### 2.4. Specification Frameworks (BMAD Method, GitHub Spec Kit, GSD)
 - **Core Value:** Rigorous requirements engineering, contract freezing, and clear scope boundaries.
-- **Blind Spot:** **Strictly linear execution.** Architected around a single agent executing sequentially.
+- **Blind Spot:** **Strictly linear execution.** Architected around a single agent executing sequentially. Note: `gsd-build/get-shit-done` transitioned to public archive status in October 2026, freezing its `.planning/` schema, while `bmad-loop` introduced deterministic ticket-tree loops (`[stories] source = "tickets"`) that still require top-level cross-story blast-radius scheduling.
+
+### 2.5. Worktree Multiplexers & Layer Coordinators (FeatureBoard, MAO, Superset, Yardlet, tabsh)
+- **Core Value:** Desktop canvases, TUI dashboards, and CLI multiplexers that bind parallel agent sessions or visual "layers" (`MAO` $\to$ `Ground`, `FeatureBoard` lanes) to isolated `git worktree` instances, tracking session activity (`Yardlet`, `tabsh`) or collecting pre-merge token usage (`FeatureBoard v0.16.12`).
+- **Strength:** Ergonomic window management, pre-merge uncommitted/text-conflict checks, and token accounting (`land_wave`).
+- **Blind Spot:** **Semantic and SDD blindness.** Commercial tools like `MAO` ($20 desktop app) require developers to slice layers manually on a canvas without reading SDD roadmaps (`sprint-status.yaml`, `tasks.md`, `.openspec.yaml`, `.beads/issues.jsonl`) or computing AST/CRG call-graph blast radius ($W_A \cap I_B$). They detect conflicts only *after* tokens are burned, right before merging into `Ground`.
 
 ---
 

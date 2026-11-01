@@ -128,3 +128,5 @@ All subcommands exposed by `sdd-parallel`:
 - `rollback-wave`: Revert merged wave in strict LIFO order with safety backup branch.
 - `install-plugin`: Package and deploy portable Antigravity IDE plugin.
 - `demo`: Run standalone 5-second Merge-Bomb demo and multi-kit verification.
+- `bench`: Run retrospective benchmark & confusion matrix evaluation on git history or synthetic demo.
+- `inspect`: Launch or generate standalone interactive HTML Wave Inspector for wave plans and slot status.

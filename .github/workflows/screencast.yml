@@ -1,0 +1,45 @@
+name: Screencast
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  render-screencast:
+    name: Render Terminal Screencast (charmbracelet/vhs)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.12 and dependencies
+        run: |
+          uv python install 3.12
+          uv sync --frozen --python 3.12
+
+      - name: Configure Git identity for worktree operations
+        run: |
+          git config --global user.email "screencast@sdd-parallel.local"
+          git config --global user.name "SDD-Parallel VHS Bot"
+
+      - name: Render VHS Tape
+        uses: charmbracelet/vhs-action@v2
+        with:
+          path: assets/demo.tape
+
+      - name: Upload Screencast Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-screencast
+          path: |
+            assets/demo.gif
+            docs/assets/demo.gif
