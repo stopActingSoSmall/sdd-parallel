@@ -25,6 +25,11 @@ _CHECKLIST_DONE_RE = re.compile(r"^\s*-\s*\[[xX]\]\s*(.+)$")
 class GSDHijackAdapter:
     """Artifact Hijack adapter for gsd-build/get-shit-done (.planning/).
 
+    Upstream Status:
+    Original repository `gsd-build/get-shit-done` transitioned to PUBLIC ARCHIVE
+    (read-only) status in October 2026. The `.planning/STATE.md` and `PLAN.md` file
+    schema is frozen, providing a permanent and breaking-change-free contract.
+
     Reads `{phase}-{NN}-PLAN.md` files across all phases, lifting GSD's intra-phase
     lock-in while locking `.planning/STATE.md` and `.planning/ROADMAP.md` inside
     worker worktrees so parallel workers never conflict on global state files.
@@ -419,3 +424,7 @@ class GSDHijackAdapter:
                 except ValueError:
                     pass
         return files
+
+    def get_change_worktree(self, change_id: str) -> Path | None:
+        """Return Path to assigned worktree if supported by framework or None."""
+        return None

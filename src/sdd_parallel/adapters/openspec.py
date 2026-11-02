@@ -93,17 +93,129 @@ class OpenSpecAdapter:
 
         return data
 
-    def _extract_files_from_text(self, text: str) -> list[str]:
+    @staticmethod
+    def _parse_yaml_or_frontmatter(text: str) -> dict[str, Any]:
+        """Parse YAML dictionary from raw YAML text or Markdown frontmatter."""
+        stripped = text.lstrip("\ufeff").strip()
+        m = _FRONTMATTER_RE.match(stripped)
+        raw_yaml = m.group(1) if m else stripped
+        try:
+            from ruamel.yaml import YAML
+
+            yaml = YAML(typ="safe")
+            loaded = yaml.load(raw_yaml)
+            if isinstance(loaded, dict):
+                return {str(k).lower(): v for k, v in loaded.items()}
+        except Exception:
+            pass
+        return OpenSpecAdapter._parse_frontmatter(text)
+
+    def _is_clean_project_path(
+        self,
+        fp: str,
+        assigned_worktrees: set[str] | None = None,
+    ) -> bool:
+        """Check whether path is a clean project source file and not a worktree or spec path."""
+        norm = fp.replace("\\", "/").strip().lstrip("./")
+        if not norm or ".." in norm:
+            return False
+        if norm.startswith(
+            (
+                ".worktrees/",
+                "worktrees/",
+                "openspec/",
+                ".openspec/",
+                ".openspec.",
+                ".git/",
+                ".tmp/",
+                "tests/",
+            )
+        ):
+            return False
+        if norm in {
+            "openspec",
+            ".openspec",
+            ".worktrees",
+            "worktrees",
+            ".openspec.yaml",
+            "openspec.yaml",
+        }:
+            return False
+        if assigned_worktrees:
+            for wt in assigned_worktrees:
+                clean_wt = wt.replace("\\", "/").strip().lstrip("./")
+                if norm == clean_wt or norm.startswith(f"{clean_wt}/"):
+                    return False
+        return True
+
+    def _extract_files_from_text(
+        self,
+        text: str,
+        assigned_worktrees: set[str] | None = None,
+    ) -> list[str]:
         write_files: list[str] = []
         for fm in _BACKTICK_PATH_RE.finditer(text):
             fp = fm.group(1).replace("\\", "/")
-            if not fp.startswith("tests/") and fp not in write_files:
+            if self._is_clean_project_path(fp, assigned_worktrees) and fp not in write_files:
                 write_files.append(fp)
         for fm in _PREFIX_PATH_RE.finditer(text):
             fp = fm.group(1).replace("\\", "/")
-            if not fp.startswith("tests/") and fp not in write_files:
+            if self._is_clean_project_path(fp, assigned_worktrees) and fp not in write_files:
                 write_files.append(fp)
         return write_files
+
+    def get_change_worktree(self, change_id: str) -> Path | None:
+        """Return Path to assigned worktree for change_id per WRK-01/WRK-02 or None."""
+        change_dir = self.changes_dir / change_id
+        if not change_dir.is_dir():
+            return None
+
+        # 1. Check .openspec.yaml or openspec.yaml
+        for candidate_name in (".openspec.yaml", "openspec.yaml"):
+            f = change_dir / candidate_name
+            if f.is_file():
+                try:
+                    data = self._parse_yaml_or_frontmatter(f.read_text(encoding="utf-8-sig"))
+                    wt_val = (
+                        data.get("worktree")
+                        or data.get("worktree_path")
+                        or data.get("workspace")
+                    )
+                    if wt_val and isinstance(wt_val, str) and wt_val.strip():
+                        p = Path(wt_val.strip())
+                        return p if p.is_absolute() else (self.repo_root / p).resolve()
+                except Exception:
+                    pass
+
+        # 2. Check proposal.md frontmatter
+        prop_file = change_dir / "proposal.md"
+        if prop_file.is_file():
+            try:
+                fm = self._parse_yaml_or_frontmatter(prop_file.read_text(encoding="utf-8-sig"))
+                wt_val = (
+                    fm.get("worktree")
+                    or fm.get("worktree_path")
+                    or fm.get("workspace")
+                )
+                if wt_val and isinstance(wt_val, str) and wt_val.strip():
+                    p = Path(wt_val.strip())
+                    return p if p.is_absolute() else (self.repo_root / p).resolve()
+            except Exception:
+                pass
+
+        return None
+
+    def get_assigned_worktrees(self) -> dict[str, Path]:
+        """Return mapping of change_id -> assigned worktree Path."""
+        if not self.changes_dir.is_dir():
+            return {}
+        res: dict[str, Path] = {}
+        for d in sorted(self.changes_dir.iterdir()):
+            if d.is_dir() and d.name not in {"archive", ".archive"} and "archive" not in d.parts:
+                wt = self.get_change_worktree(d.name)
+                if wt is not None:
+                    res[d.name] = wt
+        return res
 
     def load_tasks(
         self,
@@ -143,11 +255,22 @@ class OpenSpecAdapter:
             key=lambda d: (change_order.get(d.name, 999), d.name),
         )
 
+        assigned_wts_dict = self.get_assigned_worktrees()
+        assigned_wt_strs = {wt.as_posix() for wt in assigned_wts_dict.values()}
+        for wt in assigned_wts_dict.values():
+            try:
+                assigned_wt_strs.add(wt.relative_to(self.repo_root).as_posix())
+            except ValueError:
+                pass
+
         for change_dir in change_dirs:
             change_id = change_dir.name
             tasks_file = change_dir / "tasks.md"
             proposal_file = change_dir / "proposal.md"
             design_file = change_dir / "design.md"
+            openspec_yaml_file = change_dir / ".openspec.yaml"
+            if not openspec_yaml_file.is_file():
+                openspec_yaml_file = change_dir / "openspec.yaml"
 
             combined_texts: list[str] = []
             prop_text = ""
@@ -161,11 +284,17 @@ class OpenSpecAdapter:
             for delta_spec in sorted(change_dir.rglob("specs/*/spec.md")):
                 combined_texts.append(delta_spec.read_text(encoding="utf-8-sig"))
 
-            if not combined_texts:
+            yaml_data: dict[str, Any] = {}
+            if openspec_yaml_file.is_file():
+                yaml_data = self._parse_yaml_or_frontmatter(
+                    openspec_yaml_file.read_text(encoding="utf-8-sig")
+                )
+
+            if not combined_texts and not yaml_data:
                 continue
 
             all_text = "\n".join(combined_texts)
-            fm = self._parse_frontmatter(prop_text) if prop_text else {}
+            fm = self._parse_yaml_or_frontmatter(prop_text) if prop_text else {}
 
             total_items = 0
             done_items = 0
@@ -177,7 +306,7 @@ class OpenSpecAdapter:
                         if m.group(1).lower() == "x":
                             done_items += 1
 
-            fm_status = str(fm.get("status", "")).lower()
+            fm_status = str(yaml_data.get("status") or fm.get("status", "")).lower()
             if fm_status in {"done", "merged", "completed"}:
                 status = TaskStatus.DONE
             elif total_items > 0 and done_items == total_items:
@@ -190,21 +319,43 @@ class OpenSpecAdapter:
             if status == TaskStatus.DONE and not include_done:
                 continue
 
-            # Extract write files
-            write_files = self._extract_files_from_text(all_text)
-            fm_files = fm.get("files") or fm.get("files_modified")
-            if isinstance(fm_files, list):
-                for f in fm_files:
+            # Extract write files (protect against worktree / openspec pollution)
+            write_files = self._extract_files_from_text(all_text, assigned_wt_strs)
+            raw_files = (
+                yaml_data.get("affected_areas")
+                or yaml_data.get("files")
+                or yaml_data.get("files_modified")
+                or fm.get("affected_areas")
+                or fm.get("files")
+                or fm.get("files_modified")
+            )
+            if isinstance(raw_files, list):
+                for f in raw_files:
                     clean_f = str(f).replace("\\", "/").strip()
-                    if clean_f and clean_f not in write_files:
+                    if (
+                        self._is_clean_project_path(clean_f, assigned_wt_strs)
+                        and clean_f not in write_files
+                    ):
                         write_files.append(clean_f)
 
             # Extract dependencies
             depends_on: list[str] = []
-            fm_deps = fm.get("depends_on") or fm.get("dependencies") or fm.get("requires")
-            if isinstance(fm_deps, list):
-                for dep in fm_deps:
+            raw_deps = (
+                yaml_data.get("depends_on")
+                or yaml_data.get("dependencies")
+                or yaml_data.get("requires")
+                or fm.get("depends_on")
+                or fm.get("dependencies")
+                or fm.get("requires")
+            )
+            if isinstance(raw_deps, list):
+                for dep in raw_deps:
                     d_str = str(dep).strip().strip("`'\"")
+                    if d_str and d_str != change_id and d_str not in depends_on:
+                        depends_on.append(d_str)
+            elif isinstance(raw_deps, str):
+                for part in re.split(r"[,; ]+", raw_deps):
+                    d_str = part.strip().strip("`'\"")
                     if d_str and d_str != change_id and d_str not in depends_on:
                         depends_on.append(d_str)
 
@@ -227,7 +378,7 @@ class OpenSpecAdapter:
                         depends_on.append(dep_id)
 
             # Determine title
-            title = fm.get("title")
+            title = yaml_data.get("title") or fm.get("title")
             if not title and prop_text:
                 tm = _TITLE_RE.search(prop_text)
                 if tm:
@@ -246,7 +397,7 @@ class OpenSpecAdapter:
 
             # Determine effort
             effort = EffortTier.MEDIUM
-            fm_eff = fm.get("effort")
+            fm_eff = yaml_data.get("effort") or fm.get("effort")
             if isinstance(fm_eff, str):
                 eff_lower = fm_eff.lower()
                 if eff_lower == "low":
@@ -339,7 +490,7 @@ class OpenSpecAdapter:
         self.reset_tasks_status(task_ids)
 
     def check_wave_zero_blockers(self, wave: Wave | None = None) -> list[str]:
-        """Detect uncommitted changes in Git working tree."""
+        """Detect uncommitted changes in Git working tree, ignoring assigned worktrees."""
         blockers: list[str] = []
         try:
             proc = subprocess.run(
@@ -350,19 +501,28 @@ class OpenSpecAdapter:
                 check=False,
             )
             dirty_lines: list[str] = []
+            ignored_prefixes: set[str] = {
+                ".tmp",
+                "_bmad-output/parallel-artifacts",
+                ".parallel",
+                ".worktrees",
+                ".parallel-lock.json",
+            }
+            # Ignore registered worktrees from .openspec.yaml per WRK-01 / WRK-04
+            for wt_path in self.get_assigned_worktrees().values():
+                try:
+                    rel = wt_path.relative_to(self.repo_root).as_posix()
+                    ignored_prefixes.add(rel)
+                except ValueError:
+                    pass
+
             for raw_line in proc.stdout.splitlines():
                 if len(raw_line) < 4:
                     continue
                 path_part = raw_line[3:].strip().strip('"').replace("\\", "/").rstrip("/")
                 if any(
                     path_part == pref or path_part.startswith(f"{pref}/")
-                    for pref in (
-                        ".tmp",
-                        "_bmad-output/parallel-artifacts",
-                        ".parallel",
-                        ".worktrees",
-                        ".parallel-lock.json",
-                    )
+                    for pref in ignored_prefixes
                 ):
                     continue
                 dirty_lines.append(raw_line.strip())
@@ -386,6 +546,7 @@ class OpenSpecAdapter:
         canonical_reason = "Canonical OpenSpec specs are updated only via openspec archive"
         forbidden["openspec/project.md"] = canonical_reason
         forbidden["openspec/config.yaml"] = canonical_reason
+        forbidden[".openspec.yaml"] = canonical_reason
 
         specs_dir = self.openspec_dir / "specs"
         if specs_dir.is_dir():
@@ -410,6 +571,9 @@ class OpenSpecAdapter:
                     forbidden[f"openspec/changes/{sib_task}/**"] = (
                         f"Locked by sibling track '{sibling.track_id}'"
                     )
+                forbidden[f"openspec/changes/{sib_task}/.openspec.yaml"] = (
+                    f"Locked by sibling track '{sibling.track_id}'"
+                )
         return forbidden
 
     def get_track_env_vars(self, track: WaveTrack) -> dict[str, str]:
@@ -419,7 +583,32 @@ class OpenSpecAdapter:
         return []
 
     def prepare_worktree_overlay(self, worktree_path: Path, track: WaveTrack) -> list[str]:
-        return []
+        """Synchronize tasks and specs to worktree per WRK-03 (Plans stay in main checkout)."""
+        injected: list[str] = []
+        wt = worktree_path.resolve()
+        if wt == self.repo_root:
+            return injected
+
+        for tid in track.task_ids:
+            src_change_dir = self.changes_dir / tid
+            if not src_change_dir.is_dir():
+                continue
+            dest_change_dir = wt / "openspec" / "changes" / tid
+            dest_change_dir.mkdir(parents=True, exist_ok=True)
+            for fname in (
+                "tasks.md",
+                "proposal.md",
+                "design.md",
+                ".openspec.yaml",
+                "openspec.yaml",
+            ):
+                src_f = src_change_dir / fname
+                if src_f.is_file():
+                    dest_f = dest_change_dir / fname
+                    if not dest_f.is_file() or dest_f.read_bytes() != src_f.read_bytes():
+                        dest_f.write_bytes(src_f.read_bytes())
+                        injected.append(dest_f.relative_to(wt).as_posix())
+        return injected
 
     def verify_track_spec_scope(
         self,
@@ -441,7 +630,7 @@ class OpenSpecAdapter:
 
     def render_worker_command(self, track: WaveTrack) -> str:
         """Render operator worker command for OpenSpec track."""
-        return f"`/openspec-apply {track.task_ids[0]}`" if track.task_ids else "`/openspec-apply`"
+        return f"`/opsx:apply {track.task_ids[0]}`" if track.task_ids else "`/opsx:apply`"
 
     def default_artifacts_dir(self) -> Path:
         """Return default artifacts directory for OpenSpec."""

@@ -500,3 +500,7 @@ class SpecKitAdapter:
                     except ValueError:
                         pass
         return status_files
+
+    def get_change_worktree(self, change_id: str) -> Path | None:
+        """Return Path to assigned worktree if supported by framework or None."""
+        return None

@@ -1123,3 +1123,220 @@ def test_get_status_merger_dispatcher() -> None:
     assert get_status_merger(".planning/STATE.md") is None
     assert get_status_merger("data/records.jsonl") is None
 
+
+def test_openspec_wrk_changes_workspaces_and_opsx_command(tmp_path: Path) -> None:
+    """Verify OpenSpec WRK-01..04 changes-workspaces metadata, pollution guard, and opsx command."""
+    c_auth = tmp_path / "openspec" / "changes" / "user-auth"
+    c_auth.mkdir(parents=True)
+
+    # WRK-01 / WRK-02: .openspec.yaml with worktree and affected_areas
+    (c_auth / ".openspec.yaml").write_text(
+        "worktree: .worktrees/auth-workspace\n"
+        "status: in_progress\n"
+        "effort: high\n"
+        "depends_on:\n"
+        "  - db-init\n"
+        "affected_areas:\n"
+        "  - src/auth/service.py\n"
+        "  - .worktrees/auth-workspace/leak.py\n"
+        "  - openspec/changes/user-auth/tasks.md\n",
+        encoding="utf-8",
+    )
+    (c_auth / "tasks.md").write_text(
+        "# Tasks\n"
+        "- [ ] Implement auth in `src/auth/service.py`\n"
+        "- [ ] Check worktree path in `.worktrees/auth-workspace/temp.py`\n",
+        encoding="utf-8",
+    )
+
+    adapter = OpenSpecAdapter(tmp_path)
+    assert adapter.detect() is True
+
+    # Check worktree assignment
+    assigned = adapter.get_assigned_worktrees()
+    assert "user-auth" in assigned
+    expected_wt = (tmp_path / ".worktrees" / "auth-workspace").resolve()
+    assert assigned["user-auth"] == expected_wt
+    assert adapter.get_change_worktree("user-auth") == expected_wt
+
+    # Load tasks and verify blast radius clean files (Zero Worktree/Spec Pollution)
+    tasks = adapter.load_tasks(include_done=False)
+    assert len(tasks) == 1
+    t = tasks[0]
+    assert t.id == "user-auth"
+    assert t.status == TaskStatus.IN_PROGRESS
+    assert t.effort == EffortTier.HIGH
+    assert t.depends_on == ["db-init"]
+    assert "src/auth/service.py" in t.write_files
+    for wf in t.write_files:
+        assert not wf.startswith(".worktrees")
+        assert not wf.startswith("openspec")
+        assert "auth-workspace" not in wf
+
+    # Verify OPSX command fidelity
+    from sdd_parallel.models import Wave, WaveTrack
+
+    track = WaveTrack(track_id="track-a", effort=EffortTier.HIGH, task_ids=["user-auth"])
+    cmd = adapter.render_worker_command(track)
+    assert cmd == "`/opsx:apply user-auth`"
+
+    # Verify forbidden files include sibling .openspec.yaml
+    sibling_track = WaveTrack(track_id="track-b", effort=EffortTier.LOW, task_ids=["billing"])
+    wave_multi = Wave(wave_number=1, tracks=[track, sibling_track])
+    forbidden = adapter.get_forbidden_files(wave_multi, track)
+    assert "openspec/changes/billing/.openspec.yaml" in forbidden
+    assert ".openspec.yaml" in forbidden
+
+    # WRK-03: prepare_worktree_overlay syncs tasks and proposal to worktree
+    fake_wt = tmp_path / "custom-worktree"
+    fake_wt.mkdir(parents=True)
+    injected = adapter.prepare_worktree_overlay(fake_wt, track)
+    assert any("tasks.md" in f for f in injected)
+    assert (fake_wt / "openspec" / "changes" / "user-auth" / "tasks.md").is_file()
+
+
+def test_bmad_v7_stories_yaml_and_frontmatter_status(tmp_path: Path) -> None:
+    """Verify BMAD v7 stories.yaml and spec frontmatter status support."""
+    impl_dir = tmp_path / "_bmad-output" / "implementation-artifacts"
+    impl_dir.mkdir(parents=True)
+
+    # 1. Test stories.yaml loading without sprint-status.yaml
+    (impl_dir / "stories.yaml").write_text(
+        "stories:\n"
+        "  1-1-setup:\n"
+        "    status: ready-for-dev\n"
+        "    title: Initial Core Setup\n"
+        "    files: [src/core/setup.py]\n"
+        "    effort: low\n"
+        "  1-2-pipeline:\n"
+        "    status: in_progress\n"
+        "    title: Pipeline Service\n"
+        "    files: [src/core/pipeline.py]\n"
+        "    depends_on: [1-1-setup]\n"
+        "    effort: medium\n",
+        encoding="utf-8",
+    )
+
+    adapter = BMADAdapter(tmp_path)
+    assert adapter.detect() is True
+    tasks = adapter.load_tasks(include_done=False)
+    assert len(tasks) == 2
+    t1 = next(t for t in tasks if t.id == "1-1")
+    t2 = next(t for t in tasks if t.id == "1-2")
+    assert t1.title == "Initial Core Setup"
+    assert t1.status == TaskStatus.READY_FOR_DEV
+    assert t1.effort == EffortTier.LOW
+    assert "src/core/setup.py" in t1.write_files
+
+    assert t2.status == TaskStatus.IN_PROGRESS
+    assert "1-1-setup" in t2.depends_on or "1-1" in t2.depends_on
+    assert "src/core/pipeline.py" in t2.write_files
+
+    # 2. Test status reset in stories.yaml
+    adapter.reset_tasks_status(["1-2"], target_status="ready-for-dev")
+    reset_text = (impl_dir / "stories.yaml").read_text(encoding="utf-8")
+    assert "status: ready-for-dev" in reset_text
+
+    # 3. Test frontmatter status in story spec file overriding sprint-status.yaml
+    (impl_dir / "sprint-status.yaml").write_text(
+        "development_status:\n"
+        "  1-3-auth: backlog\n",
+        encoding="utf-8",
+    )
+    (impl_dir / "spec-1-3-auth.md").write_text(
+        "---\n"
+        "status: ready-for-dev\n"
+        "title: Frontmatter Auth\n"
+        "effort: high\n"
+        "---\n"
+        "# Spec: Auth\n`src/auth/auth.py`\n",
+        encoding="utf-8",
+    )
+    bmad_tasks = adapter.load_tasks(include_done=False)
+    t3 = next(t for t in bmad_tasks if t.id == "1-3")
+    assert t3.status == TaskStatus.READY_FOR_DEV
+    assert t3.title == "Frontmatter Auth"
+    assert t3.effort == EffortTier.HIGH
+    assert "src/auth/auth.py" in t3.write_files
+
+
+def test_bmad_loop_tickets_mode_and_mattpocock_issues(tmp_path: Path) -> None:
+    """Verify bmad-loop.toml [stories] source = 'tickets' and .scratch/ issues."""
+    # 1. Test bmad-loop.toml source = "tickets" with tickets/*.md
+    (tmp_path / "bmad-loop.toml").write_text(
+        '[stories]\nsource = "tickets"\n',
+        encoding="utf-8",
+    )
+    t_dir = tmp_path / "tickets"
+    t_dir.mkdir()
+    (t_dir / "001-user-login.md").write_text(
+        "---\n"
+        "id: 001-user-login\n"
+        "title: User Login Flow\n"
+        "status: ready-for-dev\n"
+        "files:\n"
+        "  - src/auth/login.py\n"
+        "effort: medium\n"
+        "---\n"
+        "# 001-user-login: User Login Flow\n"
+        "Updates `src/auth/login.py`.\n",
+        encoding="utf-8",
+    )
+
+    adapter = BMADAdapter(tmp_path)
+    assert adapter.detect() is True
+    tasks = adapter.load_tasks()
+    assert len(tasks) == 1
+    assert tasks[0].id == "001-user-login"
+    assert tasks[0].title == "User Login Flow"
+    assert tasks[0].status == TaskStatus.READY_FOR_DEV
+    assert "src/auth/login.py" in tasks[0].write_files
+
+    # 2. Test Matt Pocock .scratch/<slug>/issues/*.md tickets
+    scratch_issues = tmp_path / ".scratch" / "billing" / "issues"
+    scratch_issues.mkdir(parents=True)
+    (scratch_issues / "002-checkout.md").write_text(
+        "---\n"
+        "id: 002-checkout\n"
+        "title: Stripe Checkout\n"
+        "status: in_progress\n"
+        "depends_on:\n"
+        "  - 001-user-login\n"
+        "files:\n"
+        "  - src/billing/checkout.py\n"
+        "---\n"
+        "# 002-checkout: Stripe Checkout\n",
+        encoding="utf-8",
+    )
+
+    pocock_adapter = BMADAdapter(tmp_path)
+    p_tasks = pocock_adapter.load_tasks()
+    checkout_task = next(t for t in p_tasks if t.id == "002-checkout")
+    assert checkout_task.status == TaskStatus.IN_PROGRESS
+    assert "001-user-login" in checkout_task.depends_on
+    assert "src/billing/checkout.py" in checkout_task.write_files
+
+    # Check worker command for .scratch
+    from sdd_parallel.models import WaveTrack
+
+    track = WaveTrack(track_id="track-a", effort=EffortTier.MEDIUM, task_ids=["002-checkout"])
+    cmd = pocock_adapter.render_worker_command(track)
+    assert cmd == "`/implement-spec 002-checkout`"
+
+
+def test_bmad_ucg_verdicts_ignored_in_dirty_check(tmp_path: Path) -> None:
+    """Verify UCG verdict JSON files and directories do not block wave zero."""
+    from sdd_parallel.adapters.bmad import _IGNORED_DIRTY_PREFIXES
+
+    assert "_bmad-output/ultracode" in _IGNORED_DIRTY_PREFIXES
+    assert "_bmad-output/ucg" in _IGNORED_DIRTY_PREFIXES
+    assert "ultracode-verdicts" in _IGNORED_DIRTY_PREFIXES
+
+
+def test_gsd_archive_docstring_and_stability() -> None:
+    """Verify GSD adapter docstring documents upstream public archive freeze."""
+    doc = GSDHijackAdapter.__doc__ or ""
+    assert "PUBLIC ARCHIVE" in doc
+    assert "read-only" in doc
+    assert "frozen" in doc.lower()
+

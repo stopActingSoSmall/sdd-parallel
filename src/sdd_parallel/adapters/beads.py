@@ -334,3 +334,7 @@ class BeadsAdapter:
     def get_status_files(self) -> list[str]:
         """Return relative paths of Beads status files."""
         return [".beads/beads.jsonl", ".beads/issues.jsonl"]
+
+    def get_change_worktree(self, change_id: str) -> Path | None:
+        """Return Path to assigned worktree if supported by framework or None."""
+        return None
