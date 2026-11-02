@@ -37,6 +37,12 @@
 > **Параллельный запуск нескольких ИИ-агентов программирования — до 3x быстрее, без Merge-Bombs.**  
 > `sdd-parallel` — это детерминированный регулировщик, изолятор worktree и защитник blast radius между бэклогом ваших спецификаций (**Spec Kit / BMAD / GSD / OpenSpec / Beads**) и кодинг-агентами (**Claude Code**, **Codex**, **Antigravity** или любым CLI с поддержкой worktree), которые его реализуют.
 
+<p align="center">
+  <img src="../../assets/demo.gif" width="100%" alt="Терминальный скринкаст SDD-Parallel — верификация 5 SDD-китов, бэктест и параллельные worktrees">
+  <br>
+  <em>Детерминированный расчёт волн blast-radius, ноль merge-bombs и чистые слоты worktree за 45 секунд.</em>
+</p>
+
 ---
 
 ## ⚡ Зачем это нужно? (Простыми словами)

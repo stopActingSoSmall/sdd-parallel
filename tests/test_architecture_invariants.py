@@ -457,3 +457,21 @@ def test_worktree_invariant_four_zero_hardcoded_kit_paths() -> None:
             "SDDAdapterProtocol.get_status_files()."
         )
 
+
+@pytest.mark.skipif(
+    not (Path(__file__).resolve().parent.parent / "AGENTS.md").is_file(),
+    reason="Private governance files not present in public clone",
+)
+def test_knowledge_graph_and_progressive_disclosure_integrity() -> None:
+    """Verify zero orphan GTM docs, bidirectional INS-* bridges, and Context Boundary hygiene."""
+    import sys
+
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    import scripts.drift_sentinel as sentinel
+
+    findings = sentinel.check_knowledge_graph_integrity(repo_root)
+    assert not findings, f"Knowledge graph integrity violations detected: {findings}"
+
+

@@ -28,6 +28,24 @@ uv run python -X utf8 scripts/drift_sentinel.py --strict --staged-only
 _PRE_PUSH_SCRIPT = """#!/bin/sh
 # sdd-parallel pre-push hook (installed by scripts/install_git_hooks.py)
 
+remote_name="$1"
+remote_url="$2"
+
+# Hardware Guard: Never allow private governance/marketing paths to leak to public origin
+case "$remote_name $remote_url" in
+    *origin*|*stopActingSoSmall/sdd-parallel*)
+        priv_re='^(AGENTS\\.md|CLAUDE\\.md|MASTER_INDEX\\.md|ARCHIVE_INDEX\\.md'
+        priv_re="$priv_re|phases/|docs/marketing/|docs/adr/|docs/research/"
+        priv_re="$priv_re|docs/case-studies/|\\.agents/)"
+        leaked_files=$(git ls-tree -r --name-only HEAD | grep -E "$priv_re")
+        if [ -n "$leaked_files" ]; then
+            echo "[SECURITY BLOCK] Private files in HEAD! Push to '$remote_name' aborted:" >&2
+            echo "$leaked_files" >&2
+            exit 1
+        fi
+        ;;
+esac
+
 if [ "$SKIP_DRIFT_SENTINEL" = "1" ]; then
     echo "[drift-sentinel] Skipping pre-push gate (SKIP_DRIFT_SENTINEL=1)"
     exit 0

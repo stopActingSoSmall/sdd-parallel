@@ -37,6 +37,12 @@
 > **複数の AI コーディングエージェントを安全に並行実行 — 最大 3 倍高速化、マージボム（Merge-Bomb）はゼロ。**  
 > `sdd-parallel` は、**Spec Kit / BMAD / GSD / OpenSpec / Beads** のバックログと、それを実装するコーディングエージェント（**Claude Code**、**Codex**、**Antigravity**、または任意の worktree 対応 CLI）の間に立つ、決定論的トラフィックコントローラ、worktree 隔離レイヤ、および影響半径（Blast-Radius）ガードです。
 
+<p align="center">
+  <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel ターミナルスクリーンキャスト — 5大 SDD キット検証、ベンチマーク再現率、並行 worktree">
+  <br>
+  <em>影響半径に基づく決定論的ウェーブ計画、マージボムゼロ、クリーンな worktree スロットを 45 秒で実演。</em>
+</p>
+
 ---
 
 ## ⚡ なぜこれが必要なのか？（平易な解説）

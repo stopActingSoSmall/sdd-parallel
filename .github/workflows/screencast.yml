@@ -25,6 +25,8 @@ jobs:
         run: |
           uv python install 3.12
           uv sync --frozen --python 3.12
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+          uv tool install --force .
 
       - name: Configure Git identity for worktree operations
         run: |

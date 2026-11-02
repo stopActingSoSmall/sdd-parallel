@@ -514,6 +514,199 @@ def check_delta_blast_radius(
     return findings
 
 
+def check_knowledge_graph_integrity(repo_root: Path) -> list[DriftFinding]:
+    """Verify reachability, INS-* cross-bridges, and Progressive Disclosure boundaries."""
+    findings: list[DriftFinding] = []
+    gtm_index = repo_root / "docs" / "marketing" / "MASTER_GTM_INDEX.md"
+    master_index = repo_root / "MASTER_INDEX.md"
+    agents_md = repo_root / "AGENTS.md"
+    ledger_md = repo_root / "docs" / "marketing" / "INTELLIGENCE_LEDGER.md"
+
+    if not gtm_index.is_file() or not master_index.is_file():
+        return findings
+
+    gtm_text = gtm_index.read_text(encoding="utf-8")
+    master_text = master_index.read_text(encoding="utf-8")
+
+    # 1. Cross-dispatcher bridge check (L0 <-> Engineering <-> GTM)
+    if agents_md.is_file():
+        agents_text = agents_md.read_text(encoding="utf-8")
+        for required_link in ("MASTER_INDEX.md", "MASTER_GTM_INDEX.md", "INTELLIGENCE_LEDGER.md"):
+            if required_link not in agents_text:
+                findings.append(
+                    DriftFinding(
+                        category="[KNOWLEDGE_GRAPH]",
+                        summary=f"L0 AGENTS.md missing routing link to '{required_link}'",
+                        remediation=f"Add '{required_link}' router entry to AGENTS.md §3",
+                        is_critical=True,
+                    )
+                )
+
+    if "MASTER_GTM_INDEX.md" not in master_text:
+        findings.append(
+            DriftFinding(
+                category="[KNOWLEDGE_GRAPH]",
+                summary=(
+                    "MASTER_INDEX.md missing cross-bridge to docs/marketing/MASTER_GTM_INDEX.md"
+                ),
+                remediation="Link MASTER_GTM_INDEX.md in MASTER_INDEX.md header",
+                is_critical=True,
+            )
+        )
+
+    if "MASTER_INDEX.md" not in gtm_text:
+        findings.append(
+            DriftFinding(
+                category="[KNOWLEDGE_GRAPH]",
+                summary="MASTER_GTM_INDEX.md missing cross-bridge to MASTER_INDEX.md",
+                remediation="Link MASTER_INDEX.md in MASTER_GTM_INDEX.md header",
+                is_critical=True,
+            )
+        )
+
+    # 2. Zero Orphan Marketing Registries & GTM Task Specs
+    marketing_dir = repo_root / "docs" / "marketing"
+    for md_file in sorted(marketing_dir.glob("*.md")):
+        if md_file.name == "MASTER_GTM_INDEX.md":
+            continue
+        if md_file.name not in gtm_text:
+            findings.append(
+                DriftFinding(
+                    category="[KNOWLEDGE_GRAPH]",
+                    summary=(
+                        f"Orphan marketing registry '{md_file.name}' "
+                        "not routed in MASTER_GTM_INDEX.md"
+                    ),
+                    remediation=f"Register '{md_file.name}' in docs/marketing/MASTER_GTM_INDEX.md",
+                    is_critical=True,
+                )
+            )
+
+    gtm_tasks_dir = marketing_dir / "tasks"
+    if gtm_tasks_dir.is_dir():
+        for spec_file in sorted(gtm_tasks_dir.glob("gtm_*.md")):
+            if spec_file.name not in gtm_text:
+                findings.append(
+                    DriftFinding(
+                        category="[KNOWLEDGE_GRAPH]",
+                        summary=(
+                            f"Orphan GTM task spec 'tasks/{spec_file.name}' "
+                            "not routed in MASTER_GTM_INDEX.md"
+                        ),
+                        remediation=(
+                            f"Add 'tasks/{spec_file.name}' to MASTER_GTM_INDEX.md queue or archive"
+                        ),
+                        is_critical=True,
+                    )
+                )
+
+    # 3. Context Boundary, Token-Hygiene & Handoff Contract enforcement on active specs
+    active_specs: list[Path] = []
+    if gtm_tasks_dir.is_dir():
+        active_specs.extend(sorted(gtm_tasks_dir.glob("gtm_*.md")))
+    phases_dir = repo_root / "phases"
+    if phases_dir.is_dir():
+        for task_num in ("29", "30", "31", "32"):
+            active_specs.extend(sorted(phases_dir.glob(f"task_{task_num}_*.md")))
+
+    for spec in active_specs:
+        spec_text = spec.read_text(encoding="utf-8")
+        rel_spec = spec.relative_to(repo_root).as_posix()
+        if "Context Boundary" not in spec_text or "Handoff Contract" not in spec_text:
+            findings.append(
+                DriftFinding(
+                    category="[KNOWLEDGE_GRAPH]",
+                    summary=(
+                        f"Spec '{rel_spec}' missing 'Context Boundary' "
+                        "or 'Handoff Contract' section"
+                    ),
+                    remediation=(
+                        f"Add mandatory Context Boundary and Handoff Contract to {rel_spec}"
+                    ),
+                    is_critical=True,
+                )
+            )
+        # Check that Files Allowed to Read does not pull in ARCHIVE_INDEX.md
+        read_block_match = re.search(
+            r"###\s+Files Allowed to Read.*?(?=###|\n##\s+|\Z)",
+            spec_text,
+            re.DOTALL,
+        )
+        if read_block_match:
+            read_block = read_block_match.group(0)
+            if "ARCHIVE_INDEX.md" in read_block:
+                findings.append(
+                    DriftFinding(
+                        category="[KNOWLEDGE_GRAPH]",
+                        summary=(
+                            f"Token bloat in '{rel_spec}': ARCHIVE_INDEX.md "
+                            "listed in Files Allowed to Read"
+                        ),
+                        remediation=(
+                            f"Remove ARCHIVE_INDEX.md from Files Allowed to Read in {rel_spec}"
+                        ),
+                        is_critical=True,
+                    )
+                )
+
+    # 4. Bidirectional Insight Bridge: INTELLIGENCE_LEDGER.md <-> Task/GTM specs
+    if ledger_md.is_file():
+        ledger_text = ledger_md.read_text(encoding="utf-8")
+        for line in ledger_text.splitlines():
+            ins_match = re.search(r"\*\*(INS-\d{4}-\d{2}-\d{2}-\d{2})\*\*", line)
+            if not ins_match:
+                continue
+            ins_id = ins_match.group(1)
+
+            # Check referenced engineering tasks (Task NN)
+            for task_num in set(re.findall(r"\bTask\s+(\d+)\b", line)):
+                matched_tasks = (
+                    list(phases_dir.glob(f"task_{task_num}_*.md"))
+                    if phases_dir.is_dir()
+                    else []
+                )
+                for t_file in matched_tasks:
+                    t_text = t_file.read_text(encoding="utf-8")
+                    if ins_id not in t_text:
+                        rel_t = t_file.relative_to(repo_root).as_posix()
+                        findings.append(
+                            DriftFinding(
+                                category="[KNOWLEDGE_GRAPH]",
+                                summary=(
+                                    f"Broken insight bridge: '{ins_id}' references "
+                                    f"Task {task_num}, but '{rel_t}' lacks '{ins_id}'"
+                                ),
+                                remediation=f"Add '{ins_id}' reference to {rel_t}",
+                                is_critical=True,
+                            )
+                        )
+
+            # Check referenced GTM tasks (GTM-NN)
+            for gtm_num in set(re.findall(r"\bGTM-(\d{2})\b", line)):
+                matched_gtm = (
+                    list(gtm_tasks_dir.glob(f"gtm_{gtm_num}_*.md"))
+                    if gtm_tasks_dir.is_dir()
+                    else []
+                )
+                for g_file in matched_gtm:
+                    g_text = g_file.read_text(encoding="utf-8")
+                    if ins_id not in g_text:
+                        rel_g = g_file.relative_to(repo_root).as_posix()
+                        findings.append(
+                            DriftFinding(
+                                category="[KNOWLEDGE_GRAPH]",
+                                summary=(
+                                    f"Broken insight bridge: '{ins_id}' references "
+                                    f"GTM-{gtm_num}, but '{rel_g}' lacks '{ins_id}'"
+                                ),
+                                remediation=f"Add '{ins_id}' reference to {rel_g}",
+                                is_critical=True,
+                            )
+                        )
+
+    return findings
+
+
 def run_drift_inspection(
     repo_root: Path,
     staged_only: bool = False,
@@ -538,7 +731,10 @@ def run_drift_inspection(
     # 5. Multilingual parity
     findings.extend(check_i18n_parity(repo_root))
 
-    # 6. Delta blast-radius projection
+    # 6. Knowledge graph reachability & INS-* bridge integrity
+    findings.extend(check_knowledge_graph_integrity(repo_root))
+
+    # 7. Delta blast-radius projection
     if delta_files:
         findings.extend(check_delta_blast_radius(repo_root, delta_files))
 

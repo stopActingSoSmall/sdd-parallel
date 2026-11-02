@@ -39,6 +39,12 @@
 > **Ejecuta múltiples agentes de codificación con IA en paralelo — hasta 3 veces más rápido, cero Merge-Bombs.**  
 > `sdd-parallel` es el controlador de tráfico determinista, aislador de worktrees y guardián de blast radius entre tu backlog de **Spec Kit / BMAD / GSD / OpenSpec / Beads** y los agentes de codificación (**Claude Code**, **Codex**, **Antigravity** o cualquier CLI con soporte para worktrees) que lo implementan.
 
+<p align="center">
+  <img src="../../assets/demo.gif" width="100%" alt="Screencast de terminal de SDD-Parallel — verificación de 5 kits SDD, recall de benchmark y worktrees paralelos">
+  <br>
+  <em>Plan de ondas determinista por radio de impacto, cero merge-bombs y slots de worktree limpios en menos de 45 segundos.</em>
+</p>
+
 ---
 
 ## ⚡ ¿Por qué existe esto? (En lenguaje sencillo)

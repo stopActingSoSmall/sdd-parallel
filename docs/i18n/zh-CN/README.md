@@ -37,6 +37,12 @@
 > **并行运行多个 AI 编程智能体 —— 提速高达 3 倍，彻底告别合并炸弹 (Zero Merge-Bombs)。**  
 > `sdd-parallel` 是连接您的 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 任务代办积压与负责落地的编程智能体（**Claude Code**、**Codex**、**Antigravity** 或任何支持 worktree 的 CLI）之间的确定性交通管制调度员、worktree 隔离器和爆炸半径护卫门禁。
 
+<p align="center">
+  <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel 终端录屏演示 — 5 大 SDD 框架验证、基准召回率与并行 Worktree">
+  <br>
+  <em>45 秒内全景展示确定性爆炸半径波次编排、零合并炸弹与整洁的 worktree 隔离槽位。</em>
+</p>
+
 ---
 
 ## ⚡ 为什么需要它？（通俗原理解析）

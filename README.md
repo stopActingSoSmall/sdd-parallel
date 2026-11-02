@@ -37,6 +37,12 @@
 > **Run Multiple AI Coding Agents in Parallel — Up to 3x Faster, Zero Merge-Bombs.**  
 > `sdd-parallel` is the deterministic traffic controller, worktree isolator, and blast-radius guard between your **Spec Kit / BMAD / GSD / OpenSpec / Beads** backlog and the coding agents (**Claude Code**, **Codex**, **Antigravity**, or any worktree-capable CLI) that implement it.
 
+<p align="center">
+  <img src="docs/assets/demo.gif" width="100%" alt="SDD-Parallel Terminal Screencast — 5-Kit Verification, Bench Recall and Parallel Worktrees">
+  <br>
+  <em>Deterministic blast-radius wave plan, zero merge-bombs and clean worktree slots in under 45 seconds.</em>
+</p>
+
 ---
 
 ## ⚡ Why Does This Exist? (In Plain English)

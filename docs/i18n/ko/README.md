@@ -37,6 +37,12 @@
 > **여러 AI 코딩 에이전트를 안전하게 병렬 실행 — 최대 3배 빠른 개발, 머지 충돌 폭탄(Merge-Bomb) 제로.**  
 > `sdd-parallel`은 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 백로그와 이를 구현하는 코딩 에이전트(**Claude Code**, **Codex**, **Antigravity** 및 worktree를 지원하는 모든 CLI) 사이에서 동작하는 결정론적 트래픽 컨트롤러이자 워크트리 격리기 및 영향 반경(Blast-Radius) 보호 하네스입니다.
 
+<p align="center">
+  <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel 터미널 스크린캐스트 — 5대 SDD 프레임워크 검증, 벤치마크 재현율 및 병렬 워크트리">
+  <br>
+  <em>45초 만에 확인하는 영향 반경 기반 결정론적 웨이브 플랜, 머지 폭탄 제로 및 격리된 클린 워크트리 슬롯.</em>
+</p>
+
 ---
 
 ## ⚡ 왜 이것이 필요한가? (쉽게 풀어쓴 설명)
