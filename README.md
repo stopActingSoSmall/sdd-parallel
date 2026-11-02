@@ -451,7 +451,7 @@ my-project/
 │   │   ├── src/…
 │   │   ├── .tmp/track-context.md     # 👻
 │   │   ├── .parallel-lock.json       # 👻
-│   │   └── ACTIVE_TRACK.md           # 👻 → /openspec-apply normalize-telemetry
+│   │   └── ACTIVE_TRACK.md           # 👻 → /opsx:apply normalize-telemetry
 │   └── track-b/                      # Wave 1 → cli-batch-export (mirror locks)
 ├── openspec/…                        # untouched
 └── src/…
@@ -522,7 +522,7 @@ You keep your agent and your prompts. After `sdd-parallel prepare --wave 1`, `sd
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/openspec-apply normalize-telemetry` |
+| OpenSpec | `/opsx:apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 | Harness | How it plugs in |
@@ -643,9 +643,9 @@ flowchart TD
 
 ### 🚧 Planned for `v0.2.0+`
 
-- [ ] **Community adapters:** `mattpocock/skills` (`/implement-spec`) and `bmad-loop` frontmatter status adapter.
-- [ ] **Zero-pollution environment sync:** `.venv` / `node_modules` symlinks into fixed slots.
-- [ ] **Pre-wave static symbol linker & scope escalation:** automatic write-set expansion via AST symbols with dynamic rescheduling.
+- [x] **Community adapters:** `mattpocock/skills` (`/implement-spec`) and `bmad-loop` frontmatter status adapter.
+- [x] **Zero-pollution environment sync:** `.venv` / `node_modules` symlinks into fixed slots.
+- [x] **Pre-wave static symbol linker & scope escalation:** automatic write-set expansion via AST symbols with dynamic rescheduling.
 - [ ] **FinOps & observability exporters:** OpenTelemetry spans and Langfuse token-savings telemetry.
 - [ ] **Headless autopilot daemon:** agent execution via local RPC / subagent dispatch.
 

@@ -8,7 +8,7 @@ description: Build a blast-radius-safe parallel wave plan across SDD roadmaps (B
 ## Overview
 
 Use this skill whenever the user wants to:
-1. Parallelize an SDD backlog or roadmap (`sprint-status.yaml`, `epics.md`, `.specify/specs/*/tasks.md`, `.planning/ROADMAP.md`, `openspec/changes/*/tasks.md`, `.beads/issues.jsonl`).
+1. Parallelize an SDD backlog or roadmap (`sprint-status.yaml`, `stories.yaml`, `epics.md`, `.scratch/**/issues/*.md`, `.specify/specs/*/tasks.md`, `.planning/ROADMAP.md`, `openspec/changes/*/tasks.md`, `.beads/issues.jsonl`).
 2. Calculate file/AST/CRG blast-radius collisions and pack stories into barrier-synchronized waves ($K=2$ or $3$ tracks) with Model Effort routing (`high` / `medium` / `low`).
 3. Provision clean `git worktree` environments with `.tmp/track-context.md` and `.parallel-lock.json` (`100% clean git status --porcelain`).
 4. Execute waves via **Mode A: Two-Stage Assisted (Interactive IDE Slots — Spec Kit / GSD / OpenSpec / Beads / BMAD) (Recommended)** or **Mode B: Multi-Window Autopilot**, followed by deterministic checkpoint merges and quality gates.

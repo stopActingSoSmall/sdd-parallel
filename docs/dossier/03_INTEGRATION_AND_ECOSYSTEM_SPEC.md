@@ -53,7 +53,7 @@ The architectural boundary cleanly separates kit-specific file formats and conve
 | **Semantic Impact Radius** | `Core Engine` | Computes weighted call-graph blast radius ($W_A \cap I_B$) using `CRGSidecarAdapter` (`code-review-graph v2.3.9` WAL). |
 | **Wave Partitioning (BSP Scheduler)** | `Core Engine` | Deterministic `BSPWaveScheduler` ensuring 100% story coverage and Kahn acyclicity. |
 | **Worktree Slot Provisioning** | `Core Engine` + `Adapter` | Engine allocates fixed slots `track-<id>` and OS permissions (`chmod a-w`). Adapter supplies `get_allowed_write_globs()` and `get_forbidden_files()`. |
-| **Worker Launch Instructions** | `SDDAdapter` | Produces native agent commands (`/bmad-build`, `/speckit.implement`, `/gsd-execute-phase`, `/openspec-apply`, `bd update`). |
+| **Worker Launch Instructions** | `SDDAdapter` | Produces native agent commands (`/bmad-build`, `/speckit.implement`, `/gsd-execute-phase`, `/opsx:apply`, `bd update`). |
 | **Multi-Tier Scope Guard** | `Core Engine` | Enforces `PreToolUse` hook, Terminal Guard command interception (`Bash`, `run_command`), and OS read-only locks. |
 | **3-Way Monotonic Status Merge** | `SDDAdapter` + `Core` | Engine orchestrates barrier git merge; specialized semi-lattice reconciler (`status_merger.py`) merges status files with zero conflict markers. |
 | **LIFO Transactional Rollback** | `Core Engine` + `Adapter` | Engine creates safety backup branches (`backup/wave-<K>-before-rollback-*`) and resets `HEAD`; adapter polymorphically resets task statuses. |
@@ -73,12 +73,13 @@ When repositories contain artifacts from multiple SDD frameworks (e.g., legacy `
 All framework adapters adhere to a **Read-Only ACL** contract during scheduling: they never mutate original roadmap files, preserving file `mtime` timestamps and internal compiler caches.
 
 ### 2.1. BMAD Method Adapter
-- **Target Files:** `_bmad-output/implementation-artifacts/sprint-status.yaml`, `epics.md`, `spec-*.md`.
+- **Target Files:** `_bmad-output/implementation-artifacts/sprint-status.yaml`, `stories.yaml` (v7), `epics.md`, `spec-*.md`, `bmad-loop.toml` (tickets mode), `.scratch/<slug>/issues/*.md` (`mattpocock/skills`).
 - **Extracted Fields:**
-  - Story ID (e.g., `11-2`, `14-1`) and development status.
-  - `## Code Map` sections from generated specifications: parsing of `write_files` and `read_files`.
+  - Story ID (e.g., `11-2`, `14-1`, `ISSUE-01`) and development status (including frontmatter status tags and ticket definitions).
+  - `## Code Map` sections from generated specifications or issue files: parsing of `write_files` and `read_files`.
   - Data dependencies declared in `epic-<N>-context.md`.
-- **Cache Protection:** All planning calculations are written to `.parallel/` or `_bmad-output/parallel-artifacts/`, keeping BMAD caches untouched.
+- **Worker Command:** `/bmad-build <id>` for standard stories; `/implement-spec` for `.scratch/` tickets mode.
+- **Cache & Verdict Protection:** All planning calculations are written to `.parallel/` or `_bmad-output/parallel-artifacts/`, keeping BMAD caches untouched; UltraCode Goal (UCG) verdicts are ignored in clean checks.
 
 ### 2.2. GitHub Spec Kit Adapter
 - **Target Files:** `.specify/specs/*/tasks.md`, `.specify/memory/constitution.md`.
@@ -89,21 +90,22 @@ All framework adapters adhere to a **Read-Only ACL** contract during scheduling:
 
 ### 2.3. GSD (Get Shit Done) — Artifact Hijack Mode
 - **Target Files:** `.planning/{phase}-*-PLAN.md`.
+- **Repository Lifecycle Status:** Frozen in `PUBLIC ARCHIVE (read-only)` status as of October 2026.
 - **The GSD Problem:** Native GSD executes tasks in a single working directory without worktree isolation, corrupting `.planning/STATE.md` during concurrent runs.
 - **The `sdd-parallel` Solution (Artifact Hijack):** Ingests `files_modified` and `depends_on` from GSD phase plans, but executes them inside physically isolated worktrees, safeguarding `.planning/STATE.md`.
 
 ### 2.4. OpenSpec & Beads Adapters
-- **OpenSpec:** Scans `openspec/changes/` directory (`proposal.md`, `tasks.md` manifests).
-- **Beads:** Parses the streaming JSONL task log at `.beads/issues.jsonl` with `blocks` / `blocked_by` relational links.
+- **OpenSpec:** Scans `openspec/changes/` directory (`proposal.md`, `tasks.md`, `.openspec.yaml` manifests per `WRK-01..04`). Syncs canonical specifications to track overlay per `WRK-03` and dispatches worker command `/opsx:apply <id>`.
+- **Beads:** Parses the streaming JSONL task log at `.beads/issues.jsonl` or `.beads/beads.jsonl` with `blocks` / `blocked_by` relational links.
 
 ### 2.5. Summary Protection, Isolation & Merge Matrix for 5 SDD Ecosystems
 
 | SDD Framework (`kit`) | Input Roadmaps / Tasks | Permitted Metadata Files (`allowed_write_globs`) | Protected System Files (`forbidden_files`) | 3-Way Status Merge Strategy | Worker Launch Command (`run-guide`) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **BMAD Method** (`bmad`) | `sprint-status.yaml`, `epics.md`, `spec-*.md` | `sprint-status.yaml`, `spec-{sid}*.md` | `epic-*-context.md` (*Zero Cache Invalidation*) | `merge_sprint_status_yaml` (monotonic $\max(\text{rank})$) | `/bmad-build <id>` |
+| **BMAD Method** (`bmad`) | `sprint-status.yaml`, `stories.yaml`, `epics.md`, `spec-*.md`, `.scratch/**/issues/*.md` | `sprint-status.yaml`, `stories.yaml`, `spec-{sid}*.md`, `.scratch/**` | `epic-*-context.md` (*Zero Cache Invalidation*) | `merge_sprint_status_yaml` (monotonic $\max(\text{rank})$) | `/bmad-build <id>` (or `/implement-spec`) |
 | **GitHub Spec Kit** (`spec-kit`) | `.specify/specs/**/tasks.md` | `tasks.md`, `checklists/**` | `.specify/memory/constitution.md`, `spec.md`, `plan.md` | `merge_markdown_task_checklists` (monotonic `[x]`) | `/speckit.implement <id>` |
 | **GSD** (`gsd`) | `.planning/phases/*-PLAN.md` | `.planning/phases/**` | `STATE.md`, `ROADMAP.md`, `PROJECT.md`, `REQUIREMENTS.md` | Worktree isolation (*Artifact Hijack*) | `/gsd-execute-phase <id>` |
-| **OpenSpec** (`openspec`) | `openspec/changes/*/tasks.md` | `openspec/changes/{sid}/**` | `openspec/project.md`, `openspec/specs/**`, sibling changes | `merge_markdown_task_checklists` (monotonic `[x]`) | `/openspec-apply <id>` |
+| **OpenSpec** (`openspec`) | `openspec/changes/*/tasks.md`, `.openspec.yaml` | `openspec/changes/{sid}/**` | `openspec/project.md`, `openspec/specs/**`, sibling changes | `merge_markdown_task_checklists` (monotonic `[x]`) | `/opsx:apply <id>` |
 | **Beads** (`beads`) | `.beads/issues.jsonl` | `.beads/issues.jsonl` | `.beads/config.yaml` | `merge_beads_issues_jsonl` (monotonic by ID) | `bd update <id> --status in-progress` |
 
 ---

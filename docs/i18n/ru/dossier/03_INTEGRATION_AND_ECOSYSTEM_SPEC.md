@@ -53,7 +53,7 @@ flowchart LR
 | **Семантический радиус поражения** | `Core Engine` | Вычисляет взвешенный радиус поражения ($W_A \cap I_B$) через `CRGSidecarAdapter` (`code-review-graph v2.3.9` WAL). |
 | **Планирование волн (BSP Scheduler)** | `Core Engine` | Детерминированный планировщик `BSPWaveScheduler` с гарантией 100% покрытия задач и ацикличности (алгоритм Кана). |
 | **Подготовка слотов ворк-три** | `Core Engine` + `Adapter` | Ядро выделяет слоты `track-<id>` и права ОС (`chmod a-w`). Адаптер поставляет `get_allowed_write_globs()` и `get_forbidden_files()`. |
-| **Инструкции запуска воркеров** | `SDDAdapter` | Формирует нативную команду для инструмента (`/bmad-build`, `/speckit.implement`, `/gsd-execute-phase`, `/openspec-apply`, `bd update`). |
+| **Инструкции запуска воркеров** | `SDDAdapter` | Формирует нативную команду для инструмента (`/bmad-build`, `/speckit.implement`, `/gsd-execute-phase`, `/opsx:apply`, `bd update`). |
 | **Многоуровневый Scope Guard** | `Core Engine` | Перехватывает вызовы `PreToolUse`, терминальные команды (`Bash`, `run_command`) и предотвращает выход агента за пределы скоупа. |
 | **3-Way слияние статусов задач** | `SDDAdapter` + `Core` | Ядро оркеструет Git-слияние; специализированный монотонный резолвер (`status_merger.py`) объединяет статусы без маркеров конфликта. |
 | **Транзакционный откат волн (LIFO)** | `Core Engine` + `Adapter` | Ядро создаёт страховочную ветку `backup/wave-<K>-before-rollback-*` и возвращает `HEAD`; адаптер полиморфно сбрасывает статусы задач. |
@@ -73,12 +73,13 @@ flowchart LR
 Все адаптеры реализуют контракт чтения в режиме **Read-Only ACL**. Они никогда не модифицируют исходные спецификации во время планирования, сохраняя `mtime` файлов и кэш контекстов.
 
 ### 2.1. BMAD Method Adapter
-- **Целевые файлы:** `_bmad-output/implementation-artifacts/sprint-status.yaml`, `epics.md`, `spec-*.md`.
+- **Целевые файлы:** `_bmad-output/implementation-artifacts/sprint-status.yaml`, `stories.yaml` (v7), `epics.md`, `spec-*.md`, `bmad-loop.toml` (режим tickets), `.scratch/<slug>/issues/*.md` (`mattpocock/skills`).
 - **Извлекаемые данные:**
-  - Идентификатор истории (например, `11-2`, `14-1`) и текущий статус разработки.
-  - Поле `## Code Map` из сгенерированных спек: извлечение путей `write_files` и `read_files`.
+  - Идентификатор истории (например, `11-2`, `14-1`, `ISSUE-01`) и текущий статус разработки (включая frontmatter-статусы и тикеты).
+  - Поле `## Code Map` из сгенерированных спек или файлов тикетов: извлечение путей `write_files` и `read_files`.
   - Зависимости по данным из `epic-<N>-context.md`.
-- **Защита кэша:** Все результаты расчетов сохраняются в `.parallel/` или `_bmad-output/parallel-artifacts/`, не сбрасывая кеши BMAD.
+- **Команда воркера:** `/bmad-build <id>` для стандартных историй; `/implement-spec` для режима тикетов `.scratch/`.
+- **Защита кэша и вердиктов:** Все результаты расчетов сохраняются в `.parallel/` или `_bmad-output/parallel-artifacts/`, не сбрасывая кеши BMAD; вердикты UltraCode Goal (UCG) игнорируются при проверке чистоты дерева.
 
 ### 2.2. GitHub Spec Kit Adapter
 - **Целевые файлы:** `.specify/specs/*/tasks.md`, `.specify/memory/constitution.md`.
@@ -89,21 +90,22 @@ flowchart LR
 
 ### 2.3. GSD (Get Shit Done) — Режим «Artifact Hijack»
 - **Целевые файлы:** `.planning/{phase}-*-PLAN.md`.
+- **Жизненный цикл upstream:** Заморожен в архивном статусе `PUBLIC ARCHIVE (read-only)` (октябрь 2026).
 - **Проблема GSD:** Нативный GSD выполняет задачи в единой рабочей директории без Git Worktree, что приводит к порче `.planning/STATE.md` при конкурентных запусках.
 - **Решение `sdd-parallel` (Artifact Hijack):** Адаптер считывает секции `files_modified` и `depends_on` из планов GSD, но исполняет их в физически изолированных рабочих деревьях, полностью изолируя `.planning/STATE.md`.
 
 ### 2.4. OpenSpec & Beads Adapters
-- **OpenSpec:** Чтение директории `openspec/changes/` (манифесты `proposal.md`, `tasks.md`).
-- **Beads:** Чтение потокового JSONL-лога задач `.beads/issues.jsonl` со связями `blocks` / `blocked_by`.
+- **OpenSpec:** Чтение директории `openspec/changes/` (манифесты `proposal.md`, `tasks.md`, `.openspec.yaml` по стандарту `WRK-01..04`). Синхронизация канонических спецификаций в оверлей слота по `WRK-03` и запуск команды `/opsx:apply <id>`.
+- **Beads:** Чтение потокового JSONL-лога задач `.beads/issues.jsonl` или `.beads/beads.jsonl` со связями `blocks` / `blocked_by`.
 
 ### 2.5. Сводная матрица защиты, изоляции и слияния 5 SDD-экосистем
 
 | SDD-фреймворк (`kit`) | Входные дорожные карты / задачи | Разрешённые файлы метаданных (`allowed_write_globs`) | Защищённые файлы (`forbidden_files`) | Стратегия 3-way merge статусов | Команда воркера (`run-guide`) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **BMAD Method** (`bmad`) | `sprint-status.yaml`, `epics.md`, `spec-*.md` | `sprint-status.yaml`, `spec-{sid}*.md` | `epic-*-context.md` (*Zero Cache Invalidation*) | `merge_sprint_status_yaml` (монотонный $\max(\text{rank})$) | `/bmad-build <id>` |
+| **BMAD Method** (`bmad`) | `sprint-status.yaml`, `stories.yaml`, `epics.md`, `spec-*.md`, `.scratch/**/issues/*.md` | `sprint-status.yaml`, `stories.yaml`, `spec-{sid}*.md`, `.scratch/**` | `epic-*-context.md` (*Zero Cache Invalidation*) | `merge_sprint_status_yaml` (монотонный $\max(\text{rank})$) | `/bmad-build <id>` (или `/implement-spec`) |
 | **GitHub Spec Kit** (`spec-kit`) | `.specify/specs/**/tasks.md` | `tasks.md`, `checklists/**` | `.specify/memory/constitution.md`, `spec.md`, `plan.md` | `merge_markdown_task_checklists` (монотонный `[x]`) | `/speckit.implement <id>` |
 | **GSD** (`gsd`) | `.planning/phases/*-PLAN.md` | `.planning/phases/**` | `STATE.md`, `ROADMAP.md`, `PROJECT.md`, `REQUIREMENTS.md` | Изоляция в worktree (*Artifact Hijack*) | `/gsd-execute-phase <id>` |
-| **OpenSpec** (`openspec`) | `openspec/changes/*/tasks.md` | `openspec/changes/{sid}/**` | `openspec/project.md`, `openspec/specs/**`, соседние changes | `merge_markdown_task_checklists` (монотонный `[x]`) | `/openspec-apply <id>` |
+| **OpenSpec** (`openspec`) | `openspec/changes/*/tasks.md`, `.openspec.yaml` | `openspec/changes/{sid}/**` | `openspec/project.md`, `openspec/specs/**`, соседние changes | `merge_markdown_task_checklists` (монотонный `[x]`) | `/opsx:apply <id>` |
 | **Beads** (`beads`) | `.beads/issues.jsonl` | `.beads/issues.jsonl` | `.beads/config.yaml` | `merge_beads_issues_jsonl` (монотонный по ID) | `bd update <id> --status in-progress` |
 
 ---

@@ -450,7 +450,7 @@ my-project/
 │   │   ├── src/…
 │   │   ├── .tmp/track-context.md     # 👻
 │   │   ├── .parallel-lock.json       # 👻
-│   │   └── ACTIVE_TRACK.md           # 👻 → /openspec-apply normalize-telemetry
+│   │   └── ACTIVE_TRACK.md           # 👻 → /opsx:apply normalize-telemetry
 │   └── track-b/                      # Волна 1 → cli-batch-export (зеркальные блокировки)
 ├── openspec/…                        # не затронуто
 └── src/…
@@ -521,7 +521,7 @@ my-project/
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/openspec-apply normalize-telemetry` |
+| OpenSpec | `/opsx:apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 | Харнесс | Как подключается |
@@ -646,9 +646,9 @@ flowchart TD
 
 ### 🚧 Запланировано в `v0.2.0+`
 
-- [ ] **Комьюнити-адаптеры:** `mattpocock/skills` (`/implement-spec`) и адаптер frontmatter-статусов `bmad-loop`.
-- [ ] **Синхронизация окружения Zero-Pollution:** симлинки `.venv` / `node_modules` в фиксированные слоты.
-- [ ] **Статический линковщик символов и эскалация скоупа:** автоматическое расширение набора файлов на запись по AST-символам с динамическим перепланированием волн.
+- [x] **Комьюнити-адаптеры:** `mattpocock/skills` (`/implement-spec`) и адаптер frontmatter-статусов `bmad-loop`.
+- [x] **Синхронизация окружения Zero-Pollution:** симлинки `.venv` / `node_modules` в фиксированные слоты.
+- [x] **Статический линковщик символов и эскалация скоупа:** автоматическое расширение набора файлов на запись по AST-символам с динамическим перепланированием волн.
 - [ ] **Экспортёры FinOps и наблюдаемости:** трейсы OpenTelemetry и телеметрия экономии токенов Langfuse.
 - [ ] **Headless демон автопилота:** исполнение агентов через локальный RPC / диспетчеризацию субагентов.
 
