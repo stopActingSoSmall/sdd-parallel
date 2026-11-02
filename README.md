@@ -37,6 +37,14 @@
 > **Run Multiple AI Coding Agents in Parallel — Up to 3x Faster, Zero Merge-Bombs.**  
 > `sdd-parallel` is the deterministic traffic controller, worktree isolator, and blast-radius guard between your **Spec Kit / BMAD / GSD / OpenSpec / Beads** backlog and the coding agents (**Claude Code**, **Codex**, **Antigravity**, or any worktree-capable CLI) that implement it.
 
+<p align="center">
+  <img src="docs/assets/demo.gif" width="100%" alt="SDD-Parallel Terminal Screencast — 5-Kit Verification, Bench Recall and Parallel Worktrees">
+  <br>
+  <em>Deterministic blast-radius wave plan, zero merge-bombs and clean worktree slots in under 28 seconds.</em>
+</p>
+
+Prefer to read at your own pace? See the [4-step annotated breakdown below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough).
+
 ---
 
 ## ⚡ Why Does This Exist? (In Plain English)
@@ -79,14 +87,23 @@ The demo scaffolds a throwaway repo with 5 tasks and 6 Python modules, runs the 
 #### `[Step 1/4]` AST & Role Classification
 
 ```text
-File Path                              | Detected Role          | Importers
-----------------------------------------------------------------------------
-src/demo_app/__init__.py               | additive_registry      | -
-src/demo_app/api.py                    | standard               | -
-src/demo_app/cli.py                    | additive_registry      | -
-src/demo_app/exporter.py               | standard               | -
-src/demo_app/normalizer.py             | standard               | src/demo_app/api.py
-src/demo_app/schema.py                 | spine                  | -
+┌────────────────────────────────────────────────────────────────────┐
+│ ⚠️  HIDDEN LINK FOUND: api.py (T004) imports normalizer.py (T002)   │
+│    Standard worktrees run them in parallel and crash on merge.     │
+│    SDD-Parallel AST scanner catches semantic imports upfront.      │
+└────────────────────────────────────────────────────────────────────┘
+
+[Step 1/4] AST & Architectural Role Classification
+File Path                              | Detected Role      | Importers
+----------------------------------------------------------------------
+src/demo_app/api.py                    | standard           | -
+src/demo_app/cli.py                    | additive_registry  | -
+src/demo_app/exporter.py               | standard           | -
+src/demo_app/normalizer.py             | standard           | src/demo_app/api.py
+src/demo_app/schema.py                 | spine              | -
+
+----------------------------------------------------------------------
+[Step 1/4 ●○○○] Next: sdd-parallel plan ...
 ```
 
 No configuration, no hardcoded paths: the scanner marks `schema.py` as the **`spine`** (everything depends on it → serialize), `cli.py` as an **`additive_registry`** (append-only command registration → safe to share), and records that `api.py` imports `normalizer.py`.
@@ -94,15 +111,23 @@ No configuration, no hardcoded paths: the scanner marks `schema.py` as the **`sp
 #### `[Step 2/4]` Catching the Hidden Type-2 Merge-Bomb
 
 ```text
-  Collision Analysis:
-    - Naive Scheduler : W(T002)={normalizer.py, cli.py} vs W(T004)={api.py}
-                        -> DISJOINT WRITES (False Safe!)
-    - BSPWaveScheduler: Detected semantic_collision between 'T002' and 'T004'
-                        -> Overlap W(T002) ^ I(T004) on: src/demo_app/api.py
-  Wave Schedule:
-    * Wave 1  track-a: T002 (normalizer.py + shared cli.py) | track-b: T003 (exporter.py + shared cli.py)
-    * Wave 2  track-a: T001 (schema.py)                     | track-b: T004 (api.py)
-    * Wave 3  track-a: T005 (schema.py)
+┌────────────────────────────────────────────────────────────────────┐
+│ ❌ Standard Worktrees: T002 + T004 in parallel -> CRASH ON MERGE   │
+│ ✅ SDD-Parallel Plan : Split into Wave 1 -> Wave 2                 │
+│    Hidden import resolved sequentially, cli.py merged safely!      │
+└────────────────────────────────────────────────────────────────────┘
+
+[Step 2/4] Type-2 Semantic Collision Detection & BSP Wave Schedule
+Collision Analysis:
+  - Hidden Link Found: api.py (T004) imports normalizer.py (T002)
+  - Additive Registry: T002 and T003 extend cli.py (Wave 1 Safe)
+Wave Schedule:
+  * Wave 1: [track-a: T002] [track-b: T003] (parallel independent)
+  * Wave 2: [track-a: T001] [track-b: T004] (runs after Wave 1 normalizer)
+  * Wave 3: [track-a: T005] (schema migration barrier)
+
+----------------------------------------------------------------------
+[Step 2/4 ●●○○] Next: sdd-parallel prepare --wave 1 ...
 ```
 
 Both `T002` and `T004` carry a hand-written `[P]` tag in `tasks.md`, and their write sets are disjoint (`normalizer.py ≠ api.py`), so a file-locking scheduler would run them together. `BSPWaveScheduler` sees that `T002`'s writes land inside `T004`'s impact set and moves `T004` to **Wave 2**, where it builds on the already-merged `normalizer.py`. Meanwhile `T002` and `T003` both write `cli.py` and still run in parallel, because it is an additive registry.
@@ -110,14 +135,23 @@ Both `T002` and `T004` carry a hand-written `[P]` tag in `tasks.md`, and their w
 #### `[Step 3/4]` Clean Fixed Slots & Scope Guard Interception
 
 ```text
-  Provisioned Fixed Slots (100% Clean git status: True):
-    - track-a (.worktrees/track-a)
-    - track-b (.worktrees/track-b)
+┌────────────────────────────────────────────────────────────────────┐
+│ 🔒 Fixed-slot worktrees (.worktrees/track-a, track-b)              │
+│    PreToolUse Scope Guard prevents rogue writes across slots       │
+│    track-a attempt to edit schema.py -> DENY (Spine-Lock)!         │
+└────────────────────────────────────────────────────────────────────┘
 
-  PreToolUse Scope Guard Check (track-a -> 'src/demo_app/schema.py'):
-    - Decision : DENY
-    - Violation: File 'src/demo_app/schema.py' cannot be modified by Wave 1 / track-a (stories ['T002'])
-    - Reason   : Locked by Spine Chain invariant.
+[Step 3/4] Fixed-Slot Worktree Provisioning & PreToolUse Scope Guard
+----------------------------------------------------------------------
+Provisioned Fixed Slots (100% Clean git status: True):
+  - track-a (.worktrees/track-a)
+  - track-b (.worktrees/track-b)
+PreToolUse Scope Guard Check (track-a -> 'src/demo_app/schema.py'):
+  - Decision : DENY
+  - Reason   : Locked by Spine Chain invariant.
+
+----------------------------------------------------------------------
+[Step 3/4 ●●●○] Next: sdd-parallel merge --wave 1 ...
 ```
 
 Injected boundary files (`ACTIVE_TRACK.md`, `.parallel-lock.json`, `.tmp/track-context.md`) are masked via the worktree's `info/exclude`, so `git status --porcelain` stays empty. When the `track-a` agent reaches for `schema.py`, the write is denied before it touches disk.
@@ -125,13 +159,24 @@ Injected boundary files (`ACTIVE_TRACK.md`, `.parallel-lock.json`, `.tmp/track-c
 #### `[Step 4/4]` Barrier Checkpoint & Zero-Conflict 3-Way Merge
 
 ```text
-  Merged Branches:
-    - parallel/track-a
-    - parallel/track-b
-  Resolved tasks.md (0 conflict markers):
-    - - [ ] T001 [US1] Upgrade schema in `src/demo_app/schema.py` (depends on T002)
-    - - [x] T002 [P] [US1] Normalize `src/demo_app/normalizer.py`, `src/demo_app/cli.py`
-    - - [x] T003 [P] [US1] Export `src/demo_app/exporter.py`, `src/demo_app/cli.py`
+┌────────────────────────────────────────────────────────────────────┐
+│ ✨ Wave 1 merged with 0 conflict markers in tasks.md               │
+│    Verified across all 5 SDD frameworks (BMAD, Spec Kit, GSD...)   │
+│    Worktrees cleaned up. Ready for Wave 2 execution!               │
+└────────────────────────────────────────────────────────────────────┘
+
+[Step 4/4] Barrier Checkpoint & Monotonic 3-Way Merge
+----------------------------------------------------------------------
+Merged Branches: parallel/track-a, parallel/track-b
+Resolved tasks.md (0 conflict markers):
+  - [x] T002 [P] [US1] Normalize `src/demo_app/normalizer.py`, `src/demo_app/cli.py`
+  - [x] T003 [P] [US1] Export `src/demo_app/exporter.py`, `src/demo_app/cli.py`
+======================================================================
+ALL 5 CORE INVARIANTS VERIFIED IN 0.38s (5/5 SDD KITS PASSED)
+======================================================================
+
+----------------------------------------------------------------------
+[Step 4/4 ●●●●] Complete! Try: uvx sdd-parallel demo
 ```
 
 Both branches edited the same `tasks.md`. The status merger resolves each line monotonically (`[ ] < [x]`, `backlog < … < done`), so the result has no `<<<<<<<` markers. The same logic covers `sprint-status.yaml`, `STATE.md`, and `.beads/*.jsonl`.
@@ -198,6 +243,8 @@ sdd-parallel merge --wave 1
 ```
 
 Undo: `sdd-parallel abort-wave --wave 1` (before merge) or `sdd-parallel rollback-wave --wave 1` (after merge; LIFO order, automatic `backup/wave-<K>-before-rollback-*` branch, SDD status reset).
+
+Visualize & Inspect: explore wave plans, blast-radius locks, and interactive SVG DAG graphs via `sdd-parallel inspect --open` (standalone zero-dependency UI at `assets/inspector.html`). Reproducible terminal screencasts are defined via `assets/demo.tape` (`charmbracelet/vhs`).
 
 ---
 
@@ -443,7 +490,7 @@ my-project/
 │   │   ├── src/…
 │   │   ├── .tmp/track-context.md     # 👻
 │   │   ├── .parallel-lock.json       # 👻
-│   │   └── ACTIVE_TRACK.md           # 👻 → /openspec-apply normalize-telemetry
+│   │   └── ACTIVE_TRACK.md           # 👻 → /opsx:apply normalize-telemetry
 │   └── track-b/                      # Wave 1 → cli-batch-export (mirror locks)
 ├── openspec/…                        # untouched
 └── src/…
@@ -514,7 +561,7 @@ You keep your agent and your prompts. After `sdd-parallel prepare --wave 1`, `sd
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/openspec-apply normalize-telemetry` |
+| OpenSpec | `/opsx:apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 | Harness | How it plugs in |
@@ -594,7 +641,7 @@ flowchart TD
 ## 🛠️ Full CLI Reference
 
 <details>
-<summary><b>Click to expand: all 13 subcommands &amp; flags</b></summary>
+<summary><b>Click to expand: all 15 subcommands &amp; flags</b></summary>
 
 | Command | Purpose |
 | :--- | :--- |
@@ -611,6 +658,8 @@ flowchart TD
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | Check a write against the active worktree lock manifest. |
 | `sdd-parallel install-plugin [--target-dir DIR]` | Package and install the portable Antigravity plugin. |
 | `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute]` | Generate or execute multi-window autopilot launch commands with model effort routing. |
+| `sdd-parallel bench [--repo REPO] [--since REV] [--until REV] [--demo] [--max-tracks N] [--kit KIT] [--format {text,json}] [--output-file FILE]` | Retrospective backtest on commit history or demo repo evaluating Merge-Bomb collision metrics (TP/FP/FN/TN, Precision, Recall, F1). |
+| `sdd-parallel inspect [--repo REPO] [--plan PATH] [--output PATH] [--open] [--kit KIT]` | Generate and view standalone offline HTML Wave Inspector visualizing wave tracks, slot boundaries, and interactive SVG DAG conflict graphs. |
 
 </details>
 
@@ -633,9 +682,9 @@ flowchart TD
 
 ### 🚧 Planned for `v0.2.0+`
 
-- [ ] **Community adapters:** `mattpocock/skills` (`/implement-spec`) and `bmad-loop` frontmatter status adapter.
-- [ ] **Zero-pollution environment sync:** `.venv` / `node_modules` symlinks into fixed slots.
-- [ ] **Pre-wave static symbol linker & scope escalation:** automatic write-set expansion via AST symbols with dynamic rescheduling.
+- [x] **Community adapters:** `mattpocock/skills` (`/implement-spec`) and `bmad-loop` frontmatter status adapter.
+- [x] **Zero-pollution environment sync:** `.venv` / `node_modules` symlinks into fixed slots.
+- [x] **Pre-wave static symbol linker & scope escalation:** automatic write-set expansion via AST symbols with dynamic rescheduling.
 - [ ] **FinOps & observability exporters:** OpenTelemetry spans and Langfuse token-savings telemetry.
 - [ ] **Headless autopilot daemon:** agent execution via local RPC / subagent dispatch.
 

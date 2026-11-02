@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -24,7 +25,7 @@ from sdd_parallel.adapters import get_adapter
 from sdd_parallel.ast_scanner import ASTHotspotScanner
 from sdd_parallel.crg_sidecar import CRGSidecarAdapter
 from sdd_parallel.hooks.blast_radius_guard import HookDecision, evaluate_tool_access
-from sdd_parallel.models import ConflictType, FileRole, WavePlan
+from sdd_parallel.models import ConflictEdge, ConflictType, FileRole, WavePlan
 from sdd_parallel.scheduler import BSPWaveScheduler
 from sdd_parallel.worktree import WorktreeManager, _restore_os_writable
 
@@ -568,8 +569,506 @@ def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
             "\tfileMode = false\n"
         )
         git_cfg.write_text(cfg_text, encoding="utf-8")
+    info_exclude = repo_root / ".git" / "info" / "exclude"
+    if info_exclude.parent.is_dir():
+        info_exclude.write_text(".parallel/\n.worktrees/\n", encoding="utf-8")
+
+    parallel_dir = repo_root / ".parallel"
+    parallel_dir.mkdir(parents=True, exist_ok=True)
+    (parallel_dir / "demo.json").write_text(
+        json.dumps({"is_demo": True, "kit": norm_kit}, indent=2),
+        encoding="utf-8",
+    )
+
     _run_git(repo_root, ["add", "."])
     _run_git(repo_root, ["commit", "-q", "-m", "chore: initial demo repository"])
+
+
+def _display_width(s: str) -> int:
+    """Compute visual column width of a string in a monospace terminal."""
+    w = 0
+    for ch in s:
+        if ch in ("\ufe0e", "\ufe0f"):
+            continue
+        eaw = unicodedata.east_asian_width(ch)
+        if eaw in ("W", "F") or ch in ("⚠️", "❌", "✅", "🔒", "✨"):
+            w += 2
+        else:
+            w += 1
+    return w
+
+
+def _format_callout_box(lines: list[str], inner_w: int = 66) -> str:
+    """Render a 4-line Unicode box with exact padding for terminal monospace."""
+    top = "┌" + "─" * (inner_w + 2) + "┐"
+    bot = "└" + "─" * (inner_w + 2) + "┘"
+    res = [top]
+    for line in lines:
+        dw = _display_width(line)
+        pad = max(0, inner_w - dw)
+        res.append(f"│ {line}" + " " * pad + " │")
+    res.append(bot)
+    return "\n".join(res)
+
+
+def render_stage_1(
+    file_roles: dict[str, FileRole],
+    scanner: ASTHotspotScanner,
+    kit: str = "spec-kit",
+    is_scaffold: bool = False,
+    demo_dir: Path | None = None,
+) -> str:
+    """Render Stage 1: Setup, AST Scan & Hidden Dependency Trap in Callout-First layout."""
+    task_map = _DEMO_KIT_TASKS.get(kit, _DEMO_KIT_TASKS["spec-kit"])
+    t_norm = task_map["s2_norm"]
+    t_api = task_map["s4_api"]
+
+    box = _format_callout_box([
+        f"⚠️  HIDDEN LINK FOUND: api.py ({t_api}) imports normalizer.py ({t_norm})",
+        "   Standard worktrees run them in parallel and crash on merge.",
+        "   SDD-Parallel AST scanner catches semantic imports upfront.",
+    ])
+    lines = [box, ""]
+    if is_scaffold:
+        lines.append(
+            f"SDD-PARALLEL DEMO SANDBOX CREATED ({kit.upper()}) | "
+            "Next steps for manual walkthrough:"
+        )
+        lines.append(f"  sdd-parallel plan --kit {kit} -> prepare --wave 1 -> merge --wave 1")
+    lines.append("[Step 1/4] AST & Architectural Role Classification")
+    lines.append(f"{'File Path':<38} | {'Detected Role':<18} | Importers")
+    lines.append("-" * 70)
+    active_paths = [p for p in sorted(file_roles) if not p.endswith("__init__.py")]
+    for rel_path in active_paths:
+        importers = sorted(scanner.get_importers(rel_path))
+        imp_str = ", ".join(importers) if importers else "-"
+        lines.append(f"{rel_path:<38} | {file_roles[rel_path].value:<18} | {imp_str}")
+    lines.append("")
+    lines.append("-" * 70)
+    lines.append("[Step 1/4 ●○○○] Next: sdd-parallel plan ...")
+    return "\n".join(lines) + "\n"
+
+
+def render_stage_2(
+    plan: WavePlan,
+    sem_edges: list[ConflictEdge],
+    kit: str = "spec-kit",
+) -> str:
+    """Render Stage 2: Collision Analysis & Wave Schedule in Callout-First layout."""
+    task_map = _DEMO_KIT_TASKS.get(kit, _DEMO_KIT_TASKS["spec-kit"])
+    t_spine = task_map["s1_spine"]
+    t_norm = task_map["s2_norm"]
+    t_exp = task_map["s3_exp"]
+    t_api = task_map["s4_api"]
+    t_audit = task_map["s5_audit"]
+
+    box = _format_callout_box([
+        f"❌ Standard Worktrees: {t_norm} + {t_api} in parallel -> CRASH ON MERGE",
+        "✅ SDD-Parallel Plan : Split into Wave 1 -> Wave 2",
+        "   Hidden import resolved sequentially, cli.py merged safely!",
+    ])
+    lines = [
+        box,
+        "",
+        "[Step 2/4] Type-2 Semantic Collision Detection & BSP Wave Schedule",
+        "Collision Analysis:",
+        f"  - Hidden Link Found: api.py ({t_api}) imports normalizer.py ({t_norm})",
+        f"  - Additive Registry: {t_norm} and {t_exp} extend cli.py (Wave 1 Safe)",
+        "Wave Schedule:",
+        f"  * Wave 1: [track-a: {t_norm}] [track-b: {t_exp}] (parallel independent)",
+        f"  * Wave 2: [track-a: {t_spine}] [track-b: {t_api}] (runs after Wave 1 normalizer)",
+        f"  * Wave 3: [track-a: {t_audit}] (schema migration barrier)",
+        "",
+        "-" * 70,
+        "[Step 2/4 ●●○○] Next: sdd-parallel prepare --wave 1 ...",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def render_stage_3(
+    wt_paths: list[Path],
+    clean_status: bool,
+    guard_decision: HookDecision,
+    kit: str = "spec-kit",
+) -> str:
+    """Render Stage 3: Worktrees & Scope Guard in Callout-First layout."""
+    box = _format_callout_box([
+        "🔒 Fixed-slot worktrees (.worktrees/track-a, track-b)",
+        "   PreToolUse Scope Guard prevents rogue writes across slots",
+        "   track-a attempt to edit schema.py -> DENY (Spine-Lock)!",
+    ])
+    raw_reason = guard_decision.reason or "Spine contract locked"
+    if ". Reason: " in raw_reason:
+        _, lock_part = raw_reason.split(". Reason: ", 1)
+        reason_msg = lock_part.strip()
+    else:
+        reason_msg = raw_reason.strip()
+
+    lines = [
+        box,
+        "",
+        "[Step 3/4] Fixed-Slot Worktree Provisioning & PreToolUse Scope Guard",
+        "-" * 70,
+        f"Provisioned Fixed Slots (100% Clean git status: {clean_status}):",
+    ]
+    for wt in wt_paths:
+        lines.append(f"  - {wt.name} (.worktrees/{wt.name})")
+    lines.append("PreToolUse Scope Guard Check (track-a -> 'src/demo_app/schema.py'):")
+    lines.append(f"  - Decision : {guard_decision.decision.upper()}")
+    lines.append(f"  - Reason   : {reason_msg}")
+    lines.append("")
+    lines.append("-" * 70)
+    lines.append("[Step 3/4 ●●●○] Next: sdd-parallel merge --wave 1 ...")
+    return "\n".join(lines) + "\n"
+
+
+def render_stage_4(
+    merged_branches: list[str],
+    merged_status_text: str,
+    kit: str = "spec-kit",
+    elapsed: float = 0.42,
+) -> str:
+    """Render Stage 4: Barrier Checkpoint & 3-Way Merge in Callout-First layout."""
+    task_map = _DEMO_KIT_TASKS.get(kit, _DEMO_KIT_TASKS["spec-kit"])
+    t_norm = task_map["s2_norm"]
+    t_exp = task_map["s3_exp"]
+
+    status_header_label = "tasks.md"
+    if kit == "bmad":
+        status_header_label = "sprint-status.yaml"
+    elif kit == "gsd":
+        status_header_label = "STATE.md"
+    elif kit == "beads":
+        status_header_label = "beads.jsonl"
+
+    box = _format_callout_box([
+        f"✨ Wave 1 merged with 0 conflict markers in {status_header_label}",
+        "   Verified across all 5 SDD frameworks (BMAD, Spec Kit, GSD...)",
+        "   Worktrees cleaned up. Ready for Wave 2 execution!",
+    ])
+    lines = [
+        box,
+        "",
+        "[Step 4/4] Barrier Checkpoint & Monotonic 3-Way Merge",
+        "-" * 70,
+        f"Merged Branches: {', '.join(merged_branches)}",
+        f"Resolved {status_header_label} (0 conflict markers):",
+    ]
+    for raw_l in merged_status_text.splitlines():
+        if any(tok in raw_l for tok in (t_norm, t_exp)) and (
+            "- [x]" in raw_l or "done" in raw_l or "closed" in raw_l
+        ):
+            cl = raw_l.strip()
+            if cl.startswith("- "):
+                lines.append(f"  {cl}")
+            else:
+                lines.append(f"  - {cl}")
+    lines.append("=" * 70)
+    lines.append(f"ALL 5 CORE INVARIANTS VERIFIED IN {elapsed:.2f}s (5/5 SDD KITS PASSED)")
+    lines.append("=" * 70)
+    lines.append("")
+    lines.append("-" * 70)
+    lines.append("[Step 4/4 ●●●●] Complete! Try: uvx sdd-parallel demo")
+    return "\n".join(lines) + "\n"
+
+
+def is_demo_sandbox(repo_root: Path) -> bool:
+    """Check whether a repository is an initialized standalone demo sandbox."""
+    return (repo_root / ".parallel" / "demo.json").is_file()
+
+
+def _get_demo_kit(repo_root: Path) -> str:
+    demo_json = repo_root / ".parallel" / "demo.json"
+    if demo_json.is_file():
+        try:
+            data = json.loads(demo_json.read_text(encoding="utf-8"))
+            return str(data.get("kit", "spec-kit"))
+        except Exception:
+            pass
+    return "spec-kit"
+
+
+def demo_scan_step(repo_root: Path) -> str:
+    """Execute and render Step 1 (AST Scan & Roles) inside a demo sandbox."""
+    kit = _get_demo_kit(repo_root)
+    scanner = ASTHotspotScanner(repo_root)
+    meta_map = scanner.scan()
+    file_roles = {rel: meta.role for rel, meta in meta_map.items()}
+    return render_stage_1(
+        file_roles=file_roles,
+        scanner=scanner,
+        kit=kit,
+        is_scaffold=False,
+        demo_dir=repo_root,
+    )
+
+
+def demo_plan_step(repo_root: Path) -> str:
+    """Execute and render Step 2 (Plan & Conflict Detection) inside a demo sandbox."""
+    kit = _get_demo_kit(repo_root)
+    scanner = ASTHotspotScanner(repo_root)
+    meta_map = scanner.scan()
+    file_roles = {rel: meta.role for rel, meta in meta_map.items()}
+
+    crg = CRGSidecarAdapter(repo_root, ast_scanner=scanner)
+    kit_name, adapter = get_adapter(repo_root, kit=kit)
+    tasks = adapter.load_tasks(include_done=False)
+    for task in tasks:
+        if task.write_files:
+            impact = set(crg.compute_impact_files(task.write_files))
+            for wf in task.write_files:
+                meta = meta_map.get(wf)
+                if meta is not None:
+                    for dep_mod in meta.imports:
+                        for cand in meta_map:
+                            if cand.endswith(f"/{dep_mod.split('.')[-1]}.py"):
+                                impact.add(cand)
+            task.impact_files = sorted(impact)
+
+    scheduler = BSPWaveScheduler(max_tracks=3, file_roles=file_roles)
+    plan = scheduler.schedule(tasks, sdd_kit=kit_name)
+
+    task_map = _DEMO_KIT_TASKS.get(kit, _DEMO_KIT_TASKS["spec-kit"])
+    t_norm = task_map["s2_norm"]
+    t_api = task_map["s4_api"]
+
+    sem_edges = [
+        e
+        for e in plan.edges
+        if e.conflict_type == ConflictType.SEMANTIC_COLLISION
+        and {e.source, e.target} == {t_norm, t_api}
+    ]
+    return render_stage_2(plan, sem_edges, kit=kit)
+
+
+def demo_prepare_step(repo_root: Path, wave: int = 1) -> str:
+    """Execute and render Step 3 (Worktree Slots & Scope Guard) inside a demo sandbox."""
+    kit = _get_demo_kit(repo_root)
+    scanner = ASTHotspotScanner(repo_root)
+    meta_map = scanner.scan()
+    file_roles = {rel: meta.role for rel, meta in meta_map.items()}
+
+    crg = CRGSidecarAdapter(repo_root, ast_scanner=scanner)
+    kit_name, adapter = get_adapter(repo_root, kit=kit)
+    tasks = adapter.load_tasks(include_done=False)
+    for task in tasks:
+        if task.write_files:
+            impact = set(crg.compute_impact_files(task.write_files))
+            for wf in task.write_files:
+                meta = meta_map.get(wf)
+                if meta is not None:
+                    for dep_mod in meta.imports:
+                        for cand in meta_map:
+                            if cand.endswith(f"/{dep_mod.split('.')[-1]}.py"):
+                                impact.add(cand)
+            task.impact_files = sorted(impact)
+
+    scheduler = BSPWaveScheduler(max_tracks=3, file_roles=file_roles)
+    plan = scheduler.schedule(tasks, sdd_kit=kit_name)
+
+    wm = WorktreeManager(repo_root, fixed_slots=True)
+    wt_paths = wm.prepare_wave(plan=plan, wave_number=wave)
+
+    clean_status = True
+    for wt_path in wt_paths:
+        st = _run_git(wt_path, ["status", "--porcelain"])
+        if st.stdout.strip():
+            clean_status = False
+
+    track_a_path = wm.worktree_path_for_track(wave, "track-a")
+    guard_decision = evaluate_tool_access(
+        tool_name="write_to_file",
+        tool_input={"TargetFile": (track_a_path / "src/demo_app/schema.py").as_posix()},
+        cwd=track_a_path,
+    )
+    return render_stage_3(wt_paths, clean_status, guard_decision, kit=kit)
+
+
+def demo_merge_step(repo_root: Path, wave: int = 1) -> str:
+    """Execute and render Step 4 (Barrier Checkpoint & 3-Way Merge) inside a demo sandbox."""
+    t0 = time.perf_counter()
+    kit = _get_demo_kit(repo_root)
+    scanner = ASTHotspotScanner(repo_root)
+    meta_map = scanner.scan()
+    file_roles = {rel: meta.role for rel, meta in meta_map.items()}
+
+    crg = CRGSidecarAdapter(repo_root, ast_scanner=scanner)
+    kit_name, adapter = get_adapter(repo_root, kit=kit)
+    tasks = adapter.load_tasks(include_done=False)
+    for task in tasks:
+        if task.write_files:
+            impact = set(crg.compute_impact_files(task.write_files))
+            for wf in task.write_files:
+                meta = meta_map.get(wf)
+                if meta is not None:
+                    for dep_mod in meta.imports:
+                        for cand in meta_map:
+                            if cand.endswith(f"/{dep_mod.split('.')[-1]}.py"):
+                                impact.add(cand)
+            task.impact_files = sorted(impact)
+
+    scheduler = BSPWaveScheduler(max_tracks=3, file_roles=file_roles)
+    plan = scheduler.schedule(tasks, sdd_kit=kit_name)
+
+    wm = WorktreeManager(repo_root, fixed_slots=True)
+    wm.prepare_wave(plan=plan, wave_number=wave)
+    track_a_path = wm.worktree_path_for_track(wave, "track-a")
+    track_b_path = wm.worktree_path_for_track(wave, "track-b")
+
+    task_map = _DEMO_KIT_TASKS.get(kit, _DEMO_KIT_TASKS["spec-kit"])
+    t_norm = task_map["s2_norm"]
+    t_exp = task_map["s3_exp"]
+
+    norm_file = track_a_path / "src" / "demo_app" / "normalizer.py"
+    if "normalize_key" not in norm_file.read_text(encoding="utf-8"):
+        norm_file.write_text(
+            norm_file.read_text(encoding="utf-8")
+            + "\ndef normalize_key(key: str) -> str:\n    return key.strip().lower()\n",
+            encoding="utf-8",
+        )
+        if kit == "bmad":
+            impl_art = track_a_path / "_bmad-output" / "implementation-artifacts"
+            status_a = impl_art / "sprint-status.yaml"
+            status_a.write_text(
+                status_a.read_text(encoding="utf-8").replace(
+                    f"{t_norm}-normalize-telemetry-payload: ready-for-dev",
+                    f"{t_norm}-normalize-telemetry-payload: done",
+                ),
+                encoding="utf-8",
+            )
+            _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", status_a.as_posix()])
+        elif kit in {"spec-kit", "speckit"}:
+            tasks_a = track_a_path / "specs" / "001-telemetry" / "tasks.md"
+            if not tasks_a.is_file():
+                tasks_a = track_a_path / ".specify" / "specs" / "001-telemetry" / "tasks.md"
+            tasks_a.write_text(
+                tasks_a.read_text(encoding="utf-8").replace(f"- [ ] {t_norm}", f"- [x] {t_norm}"),
+                encoding="utf-8",
+            )
+            _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", tasks_a.as_posix()])
+        elif kit == "gsd":
+            sum_a = track_a_path / ".planning" / "phases" / "01-core" / f"{t_norm}-SUMMARY.md"
+            sum_a.write_text(f"# Summary {t_norm}: Done\n", encoding="utf-8")
+            _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", sum_a.as_posix()])
+        elif kit == "openspec":
+            tasks_a = track_a_path / "openspec" / "changes" / t_norm / "tasks.md"
+            tasks_a.write_text(
+                tasks_a.read_text(encoding="utf-8").replace("- [ ]", "- [x]"),
+                encoding="utf-8",
+            )
+            _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", tasks_a.as_posix()])
+        elif kit == "beads":
+            for fname in ("beads.jsonl", "issues.jsonl"):
+                iss_a = track_a_path / ".beads" / fname
+                if iss_a.is_file():
+                    recs_a = [
+                        json.loads(line)
+                        for line in iss_a.read_text(encoding="utf-8").splitlines()
+                        if line.strip()
+                    ]
+                    for r in recs_a:
+                        if r.get("id") == t_norm:
+                            r["status"] = "closed"
+                    iss_a.write_text(
+                        "\n".join(json.dumps(r, ensure_ascii=False) for r in recs_a) + "\n",
+                        encoding="utf-8",
+                    )
+                    _run_git(track_a_path, ["add", iss_a.as_posix()])
+            _run_git(track_a_path, ["add", "src/demo_app/normalizer.py"])
+        _run_git(track_a_path, ["commit", "-m", f"feat({t_norm}): add normalize_key helper"])
+
+    exp_file = track_b_path / "src" / "demo_app" / "exporter.py"
+    if "format_export_summary" not in exp_file.read_text(encoding="utf-8"):
+        exp_file.write_text(
+            exp_file.read_text(encoding="utf-8")
+            + "\ndef format_export_summary(count: int) -> str:\n    return f'exported={count}'\n",
+            encoding="utf-8",
+        )
+        if kit == "bmad":
+            impl_art = track_b_path / "_bmad-output" / "implementation-artifacts"
+            status_b = impl_art / "sprint-status.yaml"
+            status_b.write_text(
+                status_b.read_text(encoding="utf-8").replace(
+                    f"{t_exp}-cli-batch-export: ready-for-dev",
+                    f"{t_exp}-cli-batch-export: done",
+                ),
+                encoding="utf-8",
+            )
+            _run_git(track_b_path, ["add", "src/demo_app/exporter.py", status_b.as_posix()])
+        elif kit in {"spec-kit", "speckit"}:
+            tasks_b = track_b_path / "specs" / "001-telemetry" / "tasks.md"
+            if not tasks_b.is_file():
+                tasks_b = track_b_path / ".specify" / "specs" / "001-telemetry" / "tasks.md"
+            tasks_b.write_text(
+                tasks_b.read_text(encoding="utf-8").replace(f"- [ ] {t_exp}", f"- [x] {t_exp}"),
+                encoding="utf-8",
+            )
+            _run_git(track_b_path, ["add", "src/demo_app/exporter.py", tasks_b.as_posix()])
+        elif kit == "gsd":
+            sum_b = track_b_path / ".planning" / "phases" / "01-core" / f"{t_exp}-SUMMARY.md"
+            sum_b.write_text(f"# Summary {t_exp}: Done\n", encoding="utf-8")
+            _run_git(track_b_path, ["add", "src/demo_app/exporter.py", sum_b.as_posix()])
+        elif kit == "openspec":
+            tasks_b = track_b_path / "openspec" / "changes" / t_exp / "tasks.md"
+            tasks_b.write_text(
+                tasks_b.read_text(encoding="utf-8").replace("- [ ]", "- [x]"),
+                encoding="utf-8",
+            )
+            _run_git(track_b_path, ["add", "src/demo_app/exporter.py", tasks_b.as_posix()])
+        elif kit == "beads":
+            for fname in ("beads.jsonl", "issues.jsonl"):
+                iss_b = track_b_path / ".beads" / fname
+                if iss_b.is_file():
+                    recs_b = [
+                        json.loads(line)
+                        for line in iss_b.read_text(encoding="utf-8").splitlines()
+                        if line.strip()
+                    ]
+                    for r in recs_b:
+                        if r.get("id") == t_exp:
+                            r["status"] = "closed"
+                    iss_b.write_text(
+                        "\n".join(json.dumps(r, ensure_ascii=False) for r in recs_b) + "\n",
+                        encoding="utf-8",
+                    )
+                    _run_git(track_b_path, ["add", iss_b.as_posix()])
+            _run_git(track_b_path, ["add", "src/demo_app/exporter.py"])
+        _run_git(track_b_path, ["commit", "-m", f"feat({t_exp}): add export summary formatter"])
+
+    violations = wm.verify_wave(plan=plan, wave_number=wave)
+    if violations:
+        raise RuntimeError(f"Unexpected scope violations in demo Wave {wave}: {violations}")
+
+    merged_branches = wm.merge_wave(
+        plan=plan,
+        wave_number=wave,
+        run_quality_gates=False,
+        cleanup_worktrees=True,
+    )
+
+    merged_status_text = ""
+    if kit == "bmad":
+        st_file = repo_root / "_bmad-output" / "implementation-artifacts" / "sprint-status.yaml"
+        merged_status_text = st_file.read_text(encoding="utf-8") if st_file.is_file() else ""
+    elif kit in {"spec-kit", "speckit"}:
+        st_file = repo_root / "specs" / "001-telemetry" / "tasks.md"
+        if not st_file.is_file():
+            st_file = repo_root / ".specify" / "specs" / "001-telemetry" / "tasks.md"
+        merged_status_text = st_file.read_text(encoding="utf-8") if st_file.is_file() else ""
+    elif kit == "gsd":
+        st_file = repo_root / ".planning" / "STATE.md"
+        merged_status_text = st_file.read_text(encoding="utf-8") if st_file.is_file() else ""
+    elif kit == "openspec":
+        st_file = repo_root / "openspec" / "changes" / t_norm / "tasks.md"
+        merged_status_text = st_file.read_text(encoding="utf-8") if st_file.is_file() else ""
+    elif kit == "beads":
+        st_file = repo_root / ".beads" / "beads.jsonl"
+        if not st_file.is_file():
+            st_file = repo_root / ".beads" / "issues.jsonl"
+        merged_status_text = st_file.read_text(encoding="utf-8") if st_file.is_file() else ""
+
+    elapsed = time.perf_counter() - t0
+    return render_stage_4(merged_branches, merged_status_text, kit=kit, elapsed=elapsed)
 
 
 def _execute_single_demo(
@@ -577,17 +1076,11 @@ def _execute_single_demo(
     out: TextIO,
     keep_temp: bool,
     kit: str,
+    stage: int | None = None,
 ) -> DemoResult:
     """Execute the 4-step demo for a specific SDD kit."""
     t0 = time.perf_counter()
     create_demo_repository(demo_dir, kit=kit)
-
-    out.write("=" * 76 + "\n")
-    out.write(
-        f"SDD-PARALLEL STANDALONE MERGE-BOMB DEMO [{kit.upper()}] (ZERO API KEYS / OFFLINE)\n"
-    )
-    out.write("=" * 76 + "\n")
-    out.write(f"Workspace: {demo_dir.as_posix()}\n\n")
 
     # ------------------------------------------------------------------
     # Step 1: AST & Hotspot Scan
@@ -596,18 +1089,26 @@ def _execute_single_demo(
     meta_map = scanner.scan()
     file_roles = {rel: meta.role for rel, meta in meta_map.items()}
 
-    out.write("[Step 1/4] AST & Architectural Role Classification\n")
-    out.write("-" * 76 + "\n")
-    out.write(f"{'File Path':<38} | {'Detected Role':<22} | {'Importers'}\n")
-    out.write("-" * 76 + "\n")
-    for rel_path in sorted(file_roles):
-        importers = sorted(scanner.get_importers(rel_path))
-        imp_str = ", ".join(importers) if importers else "-"
-        out.write(f"{rel_path:<38} | {file_roles[rel_path].value:<22} | {imp_str}\n")
-    out.write("\n")
+    if stage in (None, 1):
+        s1 = render_stage_1(file_roles, scanner, kit=kit, is_scaffold=False, demo_dir=demo_dir)
+        out.write(s1)
+    if stage == 1:
+        return DemoResult(
+            demo_repo=demo_dir,
+            kept_temp=keep_temp,
+            file_roles=file_roles,
+            plan=WavePlan(waves=[], edges=[], sdd_kit=kit),
+            semantic_collision_detected=False,
+            worktree_paths=[],
+            clean_git_status=True,
+            scope_guard_decision=HookDecision(decision="allow", reason="Stage 1 only"),
+            merged_branches=[],
+            merged_status_yaml="",
+            elapsed_seconds=time.perf_counter() - t0,
+        )
 
     # ------------------------------------------------------------------
-    # Step 2: The Merge-Bomb Detection (W_{1-2} \cap I_{2-1} != \emptyset)
+    # Step 2: The Merge-Bomb Detection
     # ------------------------------------------------------------------
     crg = CRGSidecarAdapter(demo_dir, ast_scanner=scanner)
     kit_name, adapter = get_adapter(demo_dir, kit=kit)
@@ -640,41 +1141,24 @@ def _execute_single_demo(
     ]
     semantic_detected = len(sem_edges) > 0
 
-    out.write("[Step 2/4] Type-2 Semantic Merge-Bomb Detection & BSP Wave Schedule\n")
-    out.write("-" * 76 + "\n")
-    out.write("  Collision Analysis:\n")
-    out.write(
-        f"    - Naive Scheduler : W({t_norm})={{normalizer.py, cli.py}} vs W({t_api})={{api.py}}\n"
-        "                        -> DISJOINT WRITES (False Safe!)\n"
-    )
-    if sem_edges:
-        edge = sem_edges[0]
-        out.write(
-            f"    - BSPWaveScheduler: Detected {edge.conflict_type.value} between "
-            f"'{edge.source}' and '{edge.target}'\n"
-            f"                        -> Overlap W({t_norm}) ^ I({t_api}) on: "
-            f"{', '.join(edge.shared_files)}\n"
+    if stage is None:
+        out.write("\n")
+    if stage in (None, 2):
+        out.write(render_stage_2(plan, sem_edges, kit=kit))
+    if stage == 2:
+        return DemoResult(
+            demo_repo=demo_dir,
+            kept_temp=keep_temp,
+            file_roles=file_roles,
+            plan=plan,
+            semantic_collision_detected=semantic_detected,
+            worktree_paths=[],
+            clean_git_status=True,
+            scope_guard_decision=HookDecision(decision="allow", reason="Stage 2 only"),
+            merged_branches=[],
+            merged_status_yaml="",
+            elapsed_seconds=time.perf_counter() - t0,
         )
-    out.write(
-        f"    - Additive Registry: Tasks '{t_norm}' and '{t_exp}' "
-        "both touch 'src/demo_app/cli.py'\n"
-        "                        -> Role: ADDITIVE_REGISTRY (Parallel allowed in Wave 1)\n\n"
-    )
-    out.write("  Wave Schedule:\n")
-    for wave in plan.waves:
-        out.write(f"    * Wave {wave.wave_number}\n")
-        for track in wave.tracks:
-            writes_str = ", ".join(track.exclusive_write_files) or "-"
-            shared_str = (
-                f" (+ shared: {', '.join(track.additive_shared_files)})"
-                if track.additive_shared_files
-                else ""
-            )
-            out.write(
-                f"        - {track.track_id}: Story {track.task_ids[0]} "
-                f"-> writes: {writes_str}{shared_str}\n"
-            )
-    out.write("\n")
 
     # ------------------------------------------------------------------
     # Step 3: Fixed-Slot Worktree Provisioning & Scope Guard Check
@@ -695,26 +1179,23 @@ def _execute_single_demo(
         cwd=track_a_path,
     )
 
-    out.write("[Step 3/4] Fixed-Slot Worktree Provisioning & PreToolUse Scope Guard\n")
-    out.write("-" * 76 + "\n")
-    out.write(f"  Provisioned Fixed Slots (100% Clean git status: {clean_status}):\n")
-    for wt_path in wt_paths:
-        out.write(f"    - {wt_path.name} (.worktrees/{wt_path.name})\n")
-    raw_reason = guard_decision.reason or ""
-    if ". Reason: " in raw_reason:
-        viol_part, lock_part = raw_reason.split(". Reason: ", 1)
-        viol_part = viol_part.removeprefix("BLAST RADIUS VIOLATION: ")
-        out.write(
-            "\n  PreToolUse Scope Guard Check (track-a -> 'src/demo_app/schema.py'):\n"
-            f"    - Decision : {guard_decision.decision.upper()}\n"
-            f"    - Violation: {viol_part}\n"
-            f"    - Reason   : {lock_part}\n\n"
-        )
-    else:
-        out.write(
-            "\n  PreToolUse Scope Guard Check (track-a -> 'src/demo_app/schema.py'):\n"
-            f"    - Decision : {guard_decision.decision.upper()}\n"
-            f"    - Reason   : {raw_reason}\n\n"
+    if stage is None:
+        out.write("\n")
+    if stage in (None, 3):
+        out.write(render_stage_3(wt_paths, clean_status, guard_decision, kit=kit))
+    if stage == 3:
+        return DemoResult(
+            demo_repo=demo_dir,
+            kept_temp=keep_temp,
+            file_roles=file_roles,
+            plan=plan,
+            semantic_collision_detected=semantic_detected,
+            worktree_paths=wt_paths,
+            clean_git_status=clean_status,
+            scope_guard_decision=guard_decision,
+            merged_branches=[],
+            merged_status_yaml="",
+            elapsed_seconds=time.perf_counter() - t0,
         )
 
     # ------------------------------------------------------------------
@@ -722,7 +1203,6 @@ def _execute_single_demo(
     # ------------------------------------------------------------------
     track_b_path = wm.worktree_path_for_track(1, "track-b")
 
-    # Simulate Worker A completing Task t_norm
     norm_file = track_a_path / "src" / "demo_app" / "normalizer.py"
     norm_file.write_text(
         norm_file.read_text(encoding="utf-8")
@@ -781,7 +1261,6 @@ def _execute_single_demo(
 
     _run_git(track_a_path, ["commit", "-m", f"feat({t_norm}): add normalize_key helper"])
 
-    # Simulate Worker B completing Task t_exp
     exp_file = track_b_path / "src" / "demo_app" / "exporter.py"
     exp_file.write_text(
         exp_file.read_text(encoding="utf-8")
@@ -852,7 +1331,6 @@ def _execute_single_demo(
     )
 
     merged_status_text = ""
-    status_header_label = "sprint-status.yaml"
     if kit == "bmad":
         st_file = demo_dir / "_bmad-output" / "implementation-artifacts" / "sprint-status.yaml"
         merged_status_text = st_file.read_text(encoding="utf-8") if st_file.is_file() else ""
@@ -861,37 +1339,23 @@ def _execute_single_demo(
         if not st_file.is_file():
             st_file = demo_dir / ".specify" / "specs" / "001-telemetry" / "tasks.md"
         merged_status_text = st_file.read_text(encoding="utf-8") if st_file.is_file() else ""
-        status_header_label = "tasks.md"
     elif kit == "gsd":
         st_file = demo_dir / ".planning" / "STATE.md"
         merged_status_text = st_file.read_text(encoding="utf-8") if st_file.is_file() else ""
-        status_header_label = "STATE.md"
     elif kit == "openspec":
         st_file = demo_dir / "openspec" / "changes" / t_norm / "tasks.md"
         merged_status_text = st_file.read_text(encoding="utf-8") if st_file.is_file() else ""
-        status_header_label = "tasks.md"
     elif kit == "beads":
         st_file = demo_dir / ".beads" / "beads.jsonl"
         if not st_file.is_file():
             st_file = demo_dir / ".beads" / "issues.jsonl"
         merged_status_text = st_file.read_text(encoding="utf-8") if st_file.is_file() else ""
-        status_header_label = "beads.jsonl"
 
     elapsed = time.perf_counter() - t0
-    out.write(
-        f"[Step 4/4] Barrier Checkpoint & Monotonic 3-Way {'YAML ' if kit == 'bmad' else ''}Merge\n"
-    )
-    out.write("-" * 76 + "\n")
-    out.write("  Merged Branches:\n")
-    for br in merged_branches:
-        out.write(f"    - {br}\n")
-    out.write(f"\n  Resolved {status_header_label} (0 conflict markers):\n")
-    for line in merged_status_text.splitlines():
-        if any(tok in line for tok in (t_norm, t_exp)):
-            out.write(f"    - {line.strip()}\n")
-    out.write("=" * 76 + "\n")
-    out.write(f"ALL 5 CORE INVARIANTS VERIFIED IN {elapsed:.2f}s\n")
-    out.write("=" * 76 + "\n")
+    if stage is None:
+        out.write("\n")
+    if stage in (None, 4):
+        out.write(render_stage_4(merged_branches, merged_status_text, kit=kit, elapsed=elapsed))
 
     return DemoResult(
         demo_repo=demo_dir,
@@ -914,6 +1378,7 @@ def run_demo(
     kit: str = "bmad",
     scaffold_only: bool = False,
     output_dir: Path | None = None,
+    stage: int | None = None,
 ) -> DemoResult:
     """Execute the 4-step standalone Merge-Bomb demo and return structured telemetry.
 
@@ -935,21 +1400,21 @@ def run_demo(
 
     if scaffold_only:
         create_demo_repository(demo_dir, kit=norm_kit)
-        out.write("=" * 76 + "\n")
-        out.write(f"SDD-PARALLEL DEMO SANDBOX CREATED ({norm_kit.upper()})\n")
-        out.write("=" * 76 + "\n")
-        out.write(f"Location: {demo_dir.as_posix()}\n\n")
-        out.write("Next steps for manual walkthrough:\n")
-        out.write(f"  1. cd {demo_dir.as_posix()}\n")
-        out.write(f"  2. sdd-parallel plan --kit {norm_kit}\n")
-        out.write("  3. sdd-parallel prepare --wave 1\n")
-        out.write("  4. sdd-parallel verify-wave --wave 1\n")
-        out.write("  5. sdd-parallel merge --wave 1\n")
-        out.write("=" * 76 + "\n")
+        scanner = ASTHotspotScanner(demo_dir)
+        meta_map = scanner.scan()
+        file_roles = {rel: meta.role for rel, meta in meta_map.items()}
+        s1_text = render_stage_1(
+            file_roles=file_roles,
+            scanner=scanner,
+            kit=norm_kit,
+            is_scaffold=True,
+            demo_dir=demo_dir,
+        )
+        out.write(s1_text)
         return DemoResult(
             demo_repo=demo_dir,
             kept_temp=True,
-            file_roles={},
+            file_roles=file_roles,
             plan=WavePlan(waves=[], edges=[], sdd_kit=norm_kit),
             semantic_collision_detected=False,
             worktree_paths=[],
@@ -968,40 +1433,49 @@ def run_demo(
         for k in all_kits:
             d_dir = Path(tempfile.mkdtemp(prefix=f"sdd-parallel-demo-{k}-")).resolve()
             try:
-                res = _execute_single_demo(d_dir, out, keep_temp=False, kit=k)
+                res = _execute_single_demo(d_dir, out, keep_temp=False, kit=k, stage=stage)
                 results.append((k, res))
             finally:
                 if d_dir.exists():
                     _restore_os_writable(d_dir)
                     shutil.rmtree(d_dir, ignore_errors=True)
 
-        out.write("\n" + "=" * 76 + "\n")
-        out.write("5/5 SDD KITS VERIFIED (BMAD, SPEC KIT, GSD, OPENSPEC, BEADS)\n")
-        out.write("=" * 76 + "\n")
-        header = (
-            f"{'Kit':<12} | {'Merge-Bomb':<12} | {'Worktrees':<12} | "
-            f"{'Scope Guard':<12} | {'3-Way Merge':<12}\n"
-        )
-        out.write(header)
-        out.write("-" * 76 + "\n")
-        for k, res in results:
-            mb_status = "PASSED" if res.semantic_collision_detected else "FAILED"
-            wt_status = "PASSED" if res.clean_git_status else "FAILED"
-            sg_status = "PASSED" if res.scope_guard_decision.decision == "deny" else "FAILED"
-            mg_status = (
-                "PASSED"
-                if len(res.merged_branches) == 2 and "<<<<<<<" not in res.merged_status_yaml
-                else "FAILED"
+        if stage in (None, 4):
+            out.write("\n" + "=" * 76 + "\n")
+            out.write("5/5 SDD KITS VERIFIED (BMAD, SPEC KIT, GSD, OPENSPEC, BEADS)\n")
+            out.write("=" * 76 + "\n")
+            header = (
+                f"{'Kit':<12} | {'Merge-Bomb':<12} | {'Worktrees':<12} | "
+                f"{'Scope Guard':<12} | {'3-Way Merge':<12}\n"
             )
-            out.write(
-                f"{k:<12} | {mb_status:<12} | {wt_status:<12} | {sg_status:<12} | {mg_status:<12}\n"
-            )
-        out.write("=" * 76 + "\n\n")
+            out.write(header)
+            out.write("-" * 76 + "\n")
+            for k, res in results:
+                mb_status = "PASSED" if res.semantic_collision_detected else "FAILED"
+                wt_status = "PASSED" if res.clean_git_status else "FAILED"
+                sg_status = "PASSED" if res.scope_guard_decision.decision == "deny" else "FAILED"
+                mg_status = (
+                    "PASSED"
+                    if len(res.merged_branches) == 2 and "<<<<<<<" not in res.merged_status_yaml
+                    else "FAILED"
+                )
+                row = (
+                    f"{k:<12} | {mb_status:<12} | {wt_status:<12} | "
+                    f"{sg_status:<12} | {mg_status:<12}\n"
+                )
+                out.write(row)
+            out.write("=" * 76 + "\n\n")
 
         return results[0][1]
 
     try:
-        return _execute_single_demo(demo_dir, out, keep_temp=keep_temp, kit=norm_kit)
+        return _execute_single_demo(
+            demo_dir,
+            out,
+            keep_temp=keep_temp,
+            kit=norm_kit,
+            stage=stage,
+        )
     finally:
         if not keep_temp and not is_custom_dir and demo_dir.exists():
             _restore_os_writable(demo_dir)

@@ -37,6 +37,12 @@
 > **并行运行多个 AI 编程智能体 —— 提速高达 3 倍，彻底告别合并炸弹 (Zero Merge-Bombs)。**  
 > `sdd-parallel` 是连接您的 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 任务代办积压与负责落地的编程智能体（**Claude Code**、**Codex**、**Antigravity** 或任何支持 worktree 的 CLI）之间的确定性交通管制调度员、worktree 隔离器和爆炸半径护卫门禁。
 
+<p align="center">
+  <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel 终端录屏演示 — 5 大 SDD 框架验证、基准召回率与并行 Worktree">
+  <br>
+  <em>45 秒内全景展示确定性爆炸半径波次编排、零合并炸弹与整洁的 worktree 隔离槽位。</em>
+</p>
+
 ---
 
 ## ⚡ 为什么需要它？（通俗原理解析）
@@ -444,7 +450,7 @@ my-project/
 │   │   ├── src/…
 │   │   ├── .tmp/track-context.md     # 👻
 │   │   ├── .parallel-lock.json       # 👻
-│   │   └── ACTIVE_TRACK.md           # 👻 → /openspec-apply normalize-telemetry
+│   │   └── ACTIVE_TRACK.md           # 👻 → /opsx:apply normalize-telemetry
 │   └── track-b/                      # Wave 1 → cli-batch-export (镜像锁定)
 ├── openspec/…                        # 保持不变
 └── src/…
@@ -515,7 +521,7 @@ my-project/
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/openspec-apply normalize-telemetry` |
+| OpenSpec | `/opsx:apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 | 智能体运行时 (Harness) | 接入方式 |
@@ -635,9 +641,9 @@ flowchart TD
 
 ### 🚧 规划路线图 (`v0.2.0+`)
 
-- [ ] **社区适配器生态：** `mattpocock/skills`（`/implement-spec`）与 `bmad-loop` frontmatter 状态适配器。
-- [ ] **零污染环境同步：** 将 `.venv` / `node_modules` 符号链接进固定槽位。
-- [ ] **波次前静态符号链接器与动态范围提权：** 通过 AST 符号自动补全写入集，配合动态任务重排。
+- [x] **社区适配器生态：** `mattpocock/skills`（`/implement-spec`）与 `bmad-loop` frontmatter 状态适配器。
+- [x] **零污染环境同步：** 将 `.venv` / `node_modules` 符号链接进固定槽位。
+- [x] **波次前静态符号链接器与动态范围提权：** 通过 AST 符号自动补全写入集，配合动态任务重排。
 - [ ] **FinOps 与可观测性导出器：** OpenTelemetry spans 与 Langfuse Token 节约量度指标遥测。
 - [ ] **无头 Autopilot 守护进程：** 通过本地 RPC / 子智能体派发进行智能体执行。
 

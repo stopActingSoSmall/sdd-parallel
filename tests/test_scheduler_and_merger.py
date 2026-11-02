@@ -930,3 +930,135 @@ def test_bmad_adapter_loads_sprint_status_with_utf8_bom(tmp_path: Path) -> None:
     )
     assert "1-1: in-progress" in merged
     assert "1-2: ready-for-dev" in merged
+
+
+def test_symbol_linker_auto_enriches_write_files(tmp_path: Path) -> None:
+    """DoD 1: Task mentioning symbol in spec without explicit write file
+    auto-links symbol's file."""
+    src = tmp_path / "src" / "demo"
+    src.mkdir(parents=True)
+    (src / "__init__.py").write_text("", encoding="utf-8")
+
+    # Define OrderProcessor and MAX_RETRY_LIMIT in order_service.py
+    (src / "order_service.py").write_text(
+        "MAX_RETRY_LIMIT = 5\n\nclass OrderProcessor:\n    def process(self): pass\n",
+        encoding="utf-8",
+    )
+    (src / "notifier.py").write_text(
+        "def send_notification(msg: str): pass\n",
+        encoding="utf-8",
+    )
+
+    scanner = ASTHotspotScanner(tmp_path)
+    scanner.scan()
+
+    # Verify symbol definitions indexed
+    syms = scanner.get_symbol_definitions()
+    assert "OrderProcessor" in syms
+    assert "src/demo/order_service.py" in syms["OrderProcessor"]
+    assert "MAX_RETRY_LIMIT" in syms
+    assert "src/demo/order_service.py" in syms["MAX_RETRY_LIMIT"]
+    assert "send_notification" in syms
+    assert "src/demo/notifier.py" in syms["send_notification"]
+
+    # Task mentioning OrderProcessor in description with empty write_files
+    task1 = TaskNode(
+        id="1-1",
+        title="Refactor processing logic",
+        description="We need to update OrderProcessor to handle failures with MAX_RETRY_LIMIT.",
+        write_files=[],
+    )
+    # Task mentioning send_notification in title
+    task2 = TaskNode(
+        id="1-2",
+        title="Call send_notification on error",
+        description="Notify administrators.",
+        write_files=[],
+    )
+
+    # Link tasks
+    added1 = scanner.link_task_symbols(task1)
+    assert added1 == ["src/demo/order_service.py"]
+    assert task1.write_files == ["src/demo/order_service.py"]
+
+    added2 = scanner.link_task_symbols(task2)
+    assert added2 == ["src/demo/notifier.py"]
+    assert task2.write_files == ["src/demo/notifier.py"]
+
+    # Verify BSPWaveScheduler automatically links symbols if ast_scanner is provided
+    task3 = TaskNode(
+        id="1-3",
+        title="Batch process",
+        description="Call OrderProcessor for batch processing.",
+        write_files=[],
+    )
+    scheduler = BSPWaveScheduler(max_tracks=2, ast_scanner=scanner)
+    plan = scheduler.schedule([task3])
+    assert "src/demo/order_service.py" in task3.write_files
+    assert len(plan.waves) == 1
+
+
+def test_contract_and_schema_globs_spine_separation() -> None:
+    """DoD 2: Contract and schema globs (migrations, schemas, proto) enforce
+    Spine Lock & separation."""
+    scheduler = BSPWaveScheduler(max_tracks=3)
+
+    # 1. Schemas directory
+    assert scheduler.get_file_role("src/schemas/user.py") == FileRole.SPINE
+    assert scheduler.get_file_role("schemas/order.json") == FileRole.SPINE
+
+    # 2. Migrations directory and alembic
+    assert scheduler.get_file_role("src/migrations/0001_init.py") == FileRole.SPINE
+    assert scheduler.get_file_role("migrations/env.py") == FileRole.SPINE
+    assert scheduler.get_file_role("alembic/versions/1234_add_col.py") == FileRole.SPINE
+
+    # 3. Proto and OpenAPI contracts
+    assert scheduler.get_file_role("contracts/order.proto") == FileRole.SPINE
+    assert scheduler.get_file_role("openapi.json") == FileRole.SPINE
+    assert scheduler.get_file_role("docs/openapi.yaml") == FileRole.SPINE
+
+    # 4. Standard business logic is not Spine
+    assert scheduler.get_file_role("src/services/order.py") == FileRole.STANDARD
+    assert scheduler.get_file_role("src/views/user_view.py") == FileRole.STANDARD
+
+    # Verify tasks modifying shared schema/migration files are separated into consecutive waves
+    task_schema_1 = TaskNode(
+        id="1-1",
+        title="Update User Schema",
+        write_files=["src/schemas/user.py"],
+    )
+    task_schema_2 = TaskNode(
+        id="1-2",
+        title="Add Tenant to User Schema",
+        write_files=["src/schemas/user.py"],
+    )
+    plan_schema = scheduler.schedule([task_schema_1, task_schema_2])
+    assert len(plan_schema.waves) == 2
+    assert "src/schemas/user.py" in plan_schema.spine_files
+    assert any(
+        e.conflict_type == ConflictType.SPINE_ORDER
+        and "src/schemas/user.py" in e.shared_files
+        for e in plan_schema.edges
+    )
+
+    # Verify migrations are separated across waves
+    task_mig_1 = TaskNode(
+        id="2-1",
+        title="Init Migration",
+        write_files=["src/migrations/0001_initial.py"],
+    )
+    task_mig_2 = TaskNode(
+        id="2-2",
+        title="Add Index Migration",
+        write_files=["src/migrations/0001_initial.py"],
+    )
+    plan_mig = scheduler.schedule([task_mig_1, task_mig_2])
+    assert len(plan_mig.waves) == 2
+    assert "src/migrations/0001_initial.py" in plan_mig.spine_files
+
+
+def test_contract_globs_custom_override() -> None:
+    """Verify user file_roles override contract glob Spine Lock."""
+    custom_roles = {"src/schemas/user.py": FileRole.STANDARD}
+    scheduler = BSPWaveScheduler(max_tracks=2, file_roles=custom_roles)
+    assert scheduler.get_file_role("src/schemas/user.py") == FileRole.STANDARD

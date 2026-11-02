@@ -163,3 +163,33 @@ def test_cli_plan_default_artifacts_dir_polymorphic(tmp_path: Path) -> None:
 
     # Invariant: non-BMAD kits must not produce _bmad-output
     assert not (tmp_path / "_bmad-output").exists()
+
+
+def test_cli_bench_demo_execution() -> None:
+    """Verify sdd-parallel bench --demo runs under 2s with zero false negatives."""
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        exit_code = main(["bench", "--demo"])
+
+    assert exit_code == 0
+    output = buf.getvalue()
+    assert "SDD-PARALLEL HISTORICAL BENCHMARK & RETROSPECTIVE EVALUATION" in output
+    assert "False Negatives (FN) : 0" in output
+    assert "Recall    : 100.0%" in output
+
+
+def test_cli_inspect_execution(tmp_path: Path) -> None:
+    """Verify sdd-parallel inspect generates valid standalone HTML visualizer."""
+    out_html = tmp_path / "wave_inspector.html"
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        exit_code = main(["inspect", "--repo", str(tmp_path), "--output", str(out_html)])
+
+    assert exit_code == 0
+    assert out_html.is_file()
+    assert "[SDD-Parallel] Wave Inspector generated at:" in buf.getvalue()
+    content = out_html.read_text(encoding="utf-8")
+    assert "<!DOCTYPE html>" in content
+    assert "SDD-Parallel Wave Inspector" in content
+
+

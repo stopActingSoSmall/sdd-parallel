@@ -1,7 +1,7 @@
 """Command-line interface for sdd-parallel.
 
 Subcommands: plan, prepare, claim-track, verify-wave, merge, merge-status,
-check-lock, install-plugin, autopilot, abort-wave, rollback-wave, run-guide, demo.
+check-lock, install-plugin, autopilot, abort-wave, rollback-wave, run-guide, demo, bench, inspect.
 """
 
 from __future__ import annotations
@@ -12,12 +12,25 @@ import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from sdd_parallel.adapters import diagnose_multi_kit_coexistence, get_adapter
 from sdd_parallel.ast_scanner import ASTHotspotScanner
 from sdd_parallel.autopilot import AutopilotLauncher
+from sdd_parallel.benchmark import (
+    render_benchmark_report,
+    run_demo_benchmark,
+    run_git_benchmark,
+)
 from sdd_parallel.crg_sidecar import CRGSidecarAdapter
-from sdd_parallel.demo import run_demo
+from sdd_parallel.demo import (
+    demo_merge_step,
+    demo_plan_step,
+    demo_prepare_step,
+    demo_scan_step,
+    is_demo_sandbox,
+    run_demo,
+)
 from sdd_parallel.hooks.blast_radius_guard import evaluate_tool_access
 from sdd_parallel.models import TaskNode, WavePlan
 from sdd_parallel.plugin_installer import install_plugin
@@ -297,6 +310,92 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Target directory for the demo repository (implies --keep-temp)",
     )
+    p_demo.add_argument(
+        "--stage",
+        type=int,
+        choices=[1, 2, 3, 4],
+        default=None,
+        help="Execute only a specific stage (1..4) in Callout-First layout",
+    )
+
+    # bench
+    p_bench = sub.add_parser(
+        "bench",
+        help="Run retrospective benchmark & confusion matrix on git history or synthetic demo",
+    )
+    p_bench.add_argument("--repo", type=Path, default=Path.cwd(), help="Target repository root")
+    p_bench.add_argument(
+        "--since",
+        type=str,
+        default=None,
+        help="Historical git ref / commit to evaluate from (e.g. HEAD~10, tag, commit)",
+    )
+    p_bench.add_argument(
+        "--until",
+        type=str,
+        default="HEAD",
+        help="Target git ref / commit to evaluate until (default: HEAD)",
+    )
+    p_bench.add_argument(
+        "--kit",
+        type=str,
+        default="auto",
+        help="SDD kit adapter (auto, bmad, spec-kit, gsd, openspec, beads)",
+    )
+    p_bench.add_argument(
+        "--demo",
+        action="store_true",
+        help="Run benchmark on synthetic demo repository (<2s offline showcase)",
+    )
+    p_bench.add_argument(
+        "--max-tracks",
+        type=int,
+        default=3,
+        help="Max parallel tracks per wave",
+    )
+    p_bench.add_argument(
+        "--format",
+        type=str,
+        choices=["text", "json"],
+        default="text",
+        help="Output format (text or json)",
+    )
+    p_bench.add_argument(
+        "--output-file",
+        type=Path,
+        default=None,
+        help="Optional path to write benchmark report",
+    )
+
+    # inspect
+    p_inspect = sub.add_parser(
+        "inspect",
+        help="Generate and view interactive HTML Wave Inspector for wave plans",
+    )
+    p_inspect.add_argument("--repo", type=Path, default=Path.cwd(), help="Target repository root")
+    p_inspect.add_argument(
+        "--plan",
+        type=Path,
+        default=None,
+        help="Path to wave-plan.json (defaults to .parallel/wave-plan.json or auto-generated)",
+    )
+    p_inspect.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Path to output HTML file (defaults to .parallel/wave-inspector.html)",
+    )
+    p_inspect.add_argument(
+        "--open",
+        action="store_true",
+        help="Open generated Wave Inspector HTML in default web browser",
+    )
+    p_inspect.add_argument(
+        "--kit",
+        type=str,
+        default="auto",
+        help="SDD kit adapter if generating plan on the fly",
+    )
 
     return parser
 
@@ -385,7 +484,11 @@ def _compute_repo_plan(
             task.impact_files = sorted(crg.compute_impact_files(task.write_files))
 
     blockers = adapter.check_wave_zero_blockers()
-    scheduler = BSPWaveScheduler(max_tracks=max_tracks, file_roles=file_roles)
+    scheduler = BSPWaveScheduler(
+        max_tracks=max_tracks,
+        file_roles=file_roles,
+        ast_scanner=scanner,
+    )
     plan = scheduler.schedule(tasks, sdd_kit=kit_name, wave_zero_blockers=blockers)
     return scheduler, tasks, plan
 
@@ -396,6 +499,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "plan":
         repo_root: Path = args.repo.resolve()
+        if is_demo_sandbox(repo_root):
+            plan_out = demo_plan_step(repo_root)
+            print(plan_out, end="")
+            return 0
         scheduler, tasks, plan = _compute_repo_plan(
             repo_root=repo_root,
             max_tracks=args.max_tracks,
@@ -436,6 +543,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "prepare":
         repo_root = args.repo.resolve()
+        if is_demo_sandbox(repo_root):
+            prep_out = demo_prepare_step(repo_root, wave=args.wave)
+            print(prep_out, end="")
+            return 0
         _scheduler, _tasks, plan = _compute_repo_plan(
             repo_root=repo_root,
             max_tracks=args.max_tracks,
@@ -532,13 +643,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+        out_payload: dict[str, Any] = {
+            "wave": args.wave,
+            "compliant": len(violations) == 0,
+            "violations": violations,
+        }
+        if getattr(wm, "last_escalations", None):
+            out_payload["escalations"] = wm.last_escalations
         print(
             json.dumps(
-                {
-                    "wave": args.wave,
-                    "compliant": len(violations) == 0,
-                    "violations": violations,
-                },
+                out_payload,
                 indent=2,
                 ensure_ascii=False,
             )
@@ -547,6 +661,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "merge":
         repo_root = args.repo.resolve()
+        if is_demo_sandbox(repo_root):
+            merge_out = demo_merge_step(repo_root, wave=args.wave)
+            print(merge_out, end="")
+            return 0
         _scheduler, _tasks, plan = _compute_repo_plan(
             repo_root=repo_root,
             max_tracks=args.max_tracks,
@@ -725,12 +843,61 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "demo":
+        cwd = Path.cwd().resolve()
+        if is_demo_sandbox(cwd) and not args.scaffold_only and args.output_dir is None:
+            if args.stage == 1:
+                print(demo_scan_step(cwd), end="")
+                return 0
+            if args.stage == 2:
+                print(demo_plan_step(cwd), end="")
+                return 0
+            if args.stage == 3:
+                print(demo_prepare_step(cwd, wave=1), end="")
+                return 0
+            if args.stage == 4:
+                print(demo_merge_step(cwd, wave=1), end="")
+                return 0
         run_demo(
             keep_temp=args.keep_temp,
             kit=args.kit,
             scaffold_only=args.scaffold_only,
             output_dir=args.output_dir,
+            stage=args.stage,
         )
+        return 0
+
+    if args.command == "bench":
+        if args.demo:
+            bench_res = run_demo_benchmark(
+                kit=args.kit if args.kit != "auto" else "bmad",
+                max_tracks=args.max_tracks,
+            )
+        else:
+            repo_root = args.repo.resolve()
+            bench_res = run_git_benchmark(
+                repo_root=repo_root,
+                since=args.since,
+                until=args.until,
+                kit=args.kit,
+                max_tracks=args.max_tracks,
+            )
+        report = render_benchmark_report(bench_res, format=args.format)
+        if args.output_file:
+            args.output_file.resolve().write_text(report, encoding="utf-8")
+        print(report)
+        return 0
+
+    if args.command == "inspect":
+        from sdd_parallel.inspector import inspect_plan
+
+        out_file = inspect_plan(
+            repo_root=args.repo.resolve(),
+            plan_path=args.plan.resolve() if args.plan else None,
+            output_path=args.output.resolve() if args.output else None,
+            open_browser=args.open,
+            kit=args.kit,
+        )
+        print(f"[SDD-Parallel] Wave Inspector generated at: {out_file}")
         return 0
 
     return 1

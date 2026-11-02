@@ -7,6 +7,7 @@ import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from sdd_parallel.models import EffortTier, TaskNode, TaskStatus, Wave, WaveTrack
 from sdd_parallel.status_merger import (
@@ -47,6 +48,12 @@ _IGNORED_DIRTY_PREFIXES = (
     ".tmp",
     "_bmad-output/parallel-artifacts",
     ".parallel-lock.json",
+    "_bmad-output/ultracode",
+    "_bmad-output/ucg",
+    ".ultracode",
+    ".ucg",
+    "ultracode-verdicts",
+    "_bmad-output/verdicts",
 )
 
 
@@ -102,12 +109,71 @@ class BMADAdapter:
                 return matches[0].relative_to(self.repo_root).as_posix()
         return candidate
 
+    def _find_stories_yaml(self) -> Path | None:
+        """Find stories.yaml in implementation-artifacts, planning-artifacts, or repo root."""
+        candidates = [
+            self.impl_dir / "stories.yaml",
+            self.plan_dir / "stories.yaml",
+            self.repo_root / "_bmad-output" / "stories.yaml",
+            self.repo_root / "stories.yaml",
+        ]
+        for c in candidates:
+            if c.is_file():
+                return c
+        return None
+
+    def _has_bmad_loop_config(self) -> bool:
+        """Check for existence of bmad-loop.toml or .bmad-loop.toml configuration."""
+        return (
+            (self.repo_root / "bmad-loop.toml").is_file()
+            or (self.repo_root / ".bmad-loop.toml").is_file()
+        )
+
+    def _get_bmad_loop_config(self) -> dict[str, Any]:
+        """Read and parse bmad-loop.toml or .bmad-loop.toml configuration."""
+        for cfg_path in (self.repo_root / "bmad-loop.toml", self.repo_root / ".bmad-loop.toml"):
+            if cfg_path.is_file():
+                try:
+                    import tomllib
+
+                    return tomllib.loads(cfg_path.read_text(encoding="utf-8-sig"))
+                except Exception:
+                    pass
+        return {}
+
+    def _find_ticket_files(self) -> list[Path]:
+        """Find markdown ticket/issue files in tickets/, stories/, or .scratch/."""
+        candidates: list[Path] = []
+        search_dirs = [
+            self.repo_root / "tickets",
+            self.repo_root / "stories",
+            self.impl_dir / "stories",
+            self.repo_root / ".scratch",
+        ]
+        for sdir in search_dirs:
+            if sdir.is_dir():
+                for p in sorted(sdir.rglob("*.md")):
+                    if (
+                        p.is_file()
+                        and p.name.lower() not in {"readme.md", "index.md", "summary.md"}
+                        and not p.name.startswith((".", "_"))
+                    ):
+                        candidates.append(p)
+        return candidates
+
+    def _has_ticket_files(self) -> bool:
+        return len(self._find_ticket_files()) > 0
+
     def detect(self) -> bool:
-        """Return True if the repository contains BMAD Method artifacts."""
+        """Return True if the repository contains BMAD Method artifacts, stories, or tickets."""
         return (
             self.sprint_status_path.is_file()
             or self.epics_path.is_file()
             or (self.repo_root / "_bmad").is_dir()
+            or self._find_stories_yaml() is not None
+            or self._has_bmad_loop_config()
+            or (self.repo_root / ".scratch").is_dir()
+            or (self.repo_root / "tickets").is_dir()
         )
 
     def get_epics_for_wave(self, wave: Wave) -> set[str]:
@@ -167,6 +233,8 @@ class BMADAdapter:
                     for pref in _IGNORED_DIRTY_PREFIXES
                 ):
                     continue
+                if ("ultracode" in path_part or "ucg" in path_part) and path_part.endswith(".json"):
+                    continue
                 dirty_lines.append(raw_line.strip())
 
             if dirty_lines:
@@ -198,6 +266,20 @@ class BMADAdapter:
                 )
 
         return blockers
+
+    def _get_spec_text(self, story_key: str, short_id: str) -> str:
+        """Return raw spec markdown text if present in implementation artifacts."""
+        if not self.impl_dir.is_dir():
+            return ""
+        candidates = list(self.impl_dir.glob(f"spec-{story_key}*.md"))
+        if not candidates:
+            candidates = list(self.impl_dir.glob(f"spec-{short_id}-*.md"))
+        if candidates:
+            try:
+                return candidates[0].read_text(encoding="utf-8-sig")
+            except Exception:
+                pass
+        return ""
 
     def _extract_spec_files_and_deps(
         self, story_key: str, short_id: str
@@ -419,15 +501,299 @@ class BMADAdapter:
 
         return hints
 
-    def load_tasks(
+    @staticmethod
+    def _parse_frontmatter_dict(text: str) -> dict[str, Any]:
+        """Extract YAML frontmatter dictionary from markdown text."""
+        stripped = text.lstrip("\ufeff").strip()
+        m = re.match(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", stripped, re.DOTALL)
+        if not m:
+            return {}
+        raw_yaml = m.group(1)
+        try:
+            from ruamel.yaml import YAML
+
+            yaml = YAML(typ="safe")
+            loaded = yaml.load(raw_yaml)
+            if isinstance(loaded, dict):
+                return {str(k).lower(): v for k, v in loaded.items()}
+        except Exception:
+            pass
+        data: dict[str, Any] = {}
+        for line in raw_yaml.splitlines():
+            sline = line.strip()
+            if ":" in sline and not sline.startswith("#"):
+                k, v = sline.split(":", 1)
+                data[k.strip().lower()] = v.strip().strip("\"'")
+        return data
+
+    @staticmethod
+    def _normalize_status(val: str) -> TaskStatus:
+        """Normalize raw status strings with support for underscores and synonyms."""
+        norm = val.strip().lower().replace("_", "-")
+        if norm in {"in-progress", "active", "doing", "wip"}:
+            return TaskStatus.IN_PROGRESS
+        if norm in {"ready-for-dev", "ready"}:
+            return TaskStatus.READY_FOR_DEV
+        if norm in {"done", "completed", "complete", "merged"}:
+            return TaskStatus.DONE
+        return TaskStatus.from_raw(norm)
+
+    def _load_ticket_nodes(self, include_done: bool = False) -> list[TaskNode]:
+        """Load tasks from ticket files in tickets/, stories/, or .scratch/."""
+        ticket_files = self._find_ticket_files()
+        tasks: list[TaskNode] = []
+        for tf in ticket_files:
+            text = tf.read_text(encoding="utf-8-sig")
+            fm = self._parse_frontmatter_dict(text)
+
+            raw_id = fm.get("id") or tf.stem
+            ticket_id = str(raw_id).strip()
+
+            raw_title = fm.get("title")
+            if not raw_title:
+                for line in text.splitlines():
+                    sline = line.strip()
+                    if sline.startswith("# "):
+                        raw_title = sline[2:].strip()
+                        break
+            if raw_title:
+                title = str(raw_title).strip()
+            else:
+                title = ticket_id.replace("-", " ").capitalize()
+
+            raw_status = fm.get("status")
+            if raw_status:
+                status = self._normalize_status(str(raw_status))
+            else:
+                total_items = 0
+                done_items = 0
+                for line in text.splitlines():
+                    m = re.match(r"^\s*[-*]\s*\[([ xX])\]\s*(.+)$", line)
+                    if m:
+                        total_items += 1
+                        if m.group(1).lower() == "x":
+                            done_items += 1
+                if total_items > 0 and done_items == total_items:
+                    status = TaskStatus.DONE
+                elif done_items > 0:
+                    status = TaskStatus.IN_PROGRESS
+                else:
+                    status = TaskStatus.READY_FOR_DEV
+
+            if status == TaskStatus.DONE and not include_done:
+                continue
+
+            write_files: list[str] = []
+            fm_files = fm.get("files") or fm.get("write_files") or fm.get("affected_areas")
+            if isinstance(fm_files, list):
+                for f in fm_files:
+                    clean_f = str(f).replace("\\", "/").strip()
+                    resolved = self._resolve_short_module(clean_f)
+                    target = resolved if resolved else clean_f
+                    if target.startswith("src/") and target not in write_files:
+                        write_files.append(target)
+            elif isinstance(fm_files, str):
+                for part in re.split(r"[,; ]+", fm_files):
+                    clean_f = part.strip().strip("`'\"")
+                    if clean_f:
+                        resolved = self._resolve_short_module(clean_f)
+                        target = resolved if resolved else clean_f
+                        if target.startswith("src/") and target not in write_files:
+                            write_files.append(target)
+
+            for m_full in _FILE_PATH_RE.finditer(text):
+                fp = m_full.group(1)
+                if fp.startswith("src/") and fp not in write_files:
+                    write_files.append(fp)
+            for m_short in _SHORT_MOD_RE.finditer(text):
+                resolved = self._resolve_short_module(m_short.group(1))
+                if resolved.startswith("src/") and resolved not in write_files:
+                    write_files.append(resolved)
+
+            depends_on: list[str] = []
+            fm_deps = fm.get("depends_on") or fm.get("dependencies") or fm.get("requires")
+            if isinstance(fm_deps, list):
+                for d in fm_deps:
+                    d_str = str(d).strip().strip("`'\"")
+                    if d_str and d_str != ticket_id and d_str not in depends_on:
+                        depends_on.append(d_str)
+            elif isinstance(fm_deps, str):
+                for part in re.split(r"[,; ]+", fm_deps):
+                    d_str = part.strip().strip("`'\"")
+                    if d_str and d_str != ticket_id and d_str not in depends_on:
+                        depends_on.append(d_str)
+
+            for dep_m in _DEP_REF_RE.finditer(text):
+                dep_id = f"{dep_m.group(1)}-{dep_m.group(2)}"
+                if dep_id != ticket_id and dep_id not in depends_on:
+                    depends_on.append(dep_id)
+
+            raw_eff = fm.get("effort")
+            if isinstance(raw_eff, str):
+                eff_lower = raw_eff.lower()
+                if eff_lower == "low":
+                    effort = EffortTier.LOW
+                elif eff_lower == "high":
+                    effort = EffortTier.HIGH
+                else:
+                    effort = EffortTier.MEDIUM
+            else:
+                if len(write_files) >= 5 or (
+                    len(write_files) >= 3 and any("schema" in f for f in write_files)
+                ):
+                    effort = EffortTier.HIGH
+                elif len(write_files) <= 1:
+                    effort = EffortTier.LOW
+                else:
+                    effort = EffortTier.MEDIUM
+
+            epic_id = "epic-tickets"
+            try:
+                rel_parts = tf.relative_to(self.repo_root).parts
+                if ".scratch" in rel_parts:
+                    idx = rel_parts.index(".scratch")
+                    if len(rel_parts) > idx + 1:
+                        epic_id = f"epic-{rel_parts[idx + 1]}"
+            except Exception:
+                pass
+            if epic_id == "epic-tickets" and "-" in ticket_id:
+                prefix = ticket_id.split("-")[0]
+                if prefix.isdigit():
+                    epic_id = f"epic-{prefix}"
+
+            tasks.append(
+                TaskNode(
+                    id=ticket_id,
+                    title=title,
+                    epic_id=epic_id,
+                    status=status,
+                    effort=effort,
+                    write_files=write_files,
+                    depends_on=depends_on,
+                    description=text,
+                )
+            )
+        return tasks
+
+    def _load_from_stories_yaml(
+        self,
+        stories_yaml_path: Path,
+        include_done: bool = False,
+        plan_source: str = "auto",
+    ) -> list[TaskNode]:
+        """Load BMAD stories from stories.yaml (BMAD v7 / bmad-loop)."""
+        text = stories_yaml_path.read_text(encoding="utf-8-sig")
+        yaml_dict: dict[str, Any] = {}
+        try:
+            from ruamel.yaml import YAML
+
+            yaml = YAML(typ="safe")
+            loaded = yaml.load(text)
+            if isinstance(loaded, dict):
+                yaml_dict = loaded
+        except Exception:
+            yaml_dict = _extract_status_map(text)
+
+        stories_entry = yaml_dict.get("stories") or yaml_dict.get("development_status")
+        raw_items: dict[str, Any] = {}
+        if isinstance(stories_entry, dict):
+            raw_items = stories_entry
+        elif isinstance(stories_entry, list):
+            for it in stories_entry:
+                if isinstance(it, dict) and "id" in it:
+                    raw_items[str(it["id"])] = it
+        else:
+            raw_items = yaml_dict
+
+        hints_map = self._parse_epics_and_planning_hints()
+        tasks: list[TaskNode] = []
+
+        for key, val in raw_items.items():
+            if not isinstance(key, str) or key in {"last_updated", "version"}:
+                continue
+
+            clean_val: dict[str, Any] = {}
+            if isinstance(val, dict):
+                clean_val = val
+                raw_status = str(clean_val.get("status", "ready-for-dev"))
+            else:
+                raw_status = str(val)
+
+            match = _STORY_KEY_RE.match(key)
+            if match:
+                epic_num, story_num, slug = match.groups()
+                short_id = f"{epic_num}-{story_num}"
+                epic_id = f"epic-{epic_num}"
+            else:
+                short_id = key
+                epic_id = "epic-1"
+                slug = key
+
+            status = self._normalize_status(raw_status)
+            if status == TaskStatus.DONE and not include_done:
+                continue
+
+            hint = hints_map.get(short_id, _StoryHints())
+            title = clean_val.get("title") or hint.title or slug.replace("-", " ").capitalize()
+
+            write_files: list[str] = []
+            val_files = clean_val.get("files") or clean_val.get("affected_areas")
+            if isinstance(val_files, list):
+                for f in val_files:
+                    res = self._resolve_short_module(str(f))
+                    tf = res if res else str(f)
+                    if tf.startswith("src/") and tf not in write_files:
+                        write_files.append(tf)
+
+            spec_files, spec_deps, spec_notes = self._extract_spec_files_and_deps(key, short_id)
+            if not write_files:
+                write_files = spec_files if spec_files else list(hint.files)
+
+            val_deps = clean_val.get("depends_on", [])
+            dep_list = [str(d) for d in val_deps] if isinstance(val_deps, list) else []
+            depends_on = list(dict.fromkeys([
+                *dep_list,
+                *hint.depends_on,
+                *spec_deps,
+            ]))
+
+            effort = EffortTier.MEDIUM
+            val_eff = clean_val.get("effort")
+            if isinstance(val_eff, str):
+                try:
+                    effort = EffortTier(val_eff.lower())
+                except ValueError:
+                    pass
+            elif hint.effort is not None:
+                effort = hint.effort
+            elif len(write_files) >= 5:
+                effort = EffortTier.HIGH
+            elif len(write_files) <= 1:
+                effort = EffortTier.LOW
+
+            spec_text = self._get_spec_text(key, short_id)
+            tasks.append(
+                TaskNode(
+                    id=short_id,
+                    title=str(title),
+                    epic_id=epic_id,
+                    status=status,
+                    effort=effort,
+                    write_files=write_files,
+                    depends_on=depends_on,
+                    shared_function_notes=spec_notes,
+                    description=spec_text,
+                )
+            )
+
+        return tasks
+
+    def _load_from_sprint_status(
         self,
         include_done: bool = False,
         plan_source: str = "auto",
     ) -> list[TaskNode]:
         """Load BMAD stories from sprint-status.yaml and enrich from specs/epics."""
-        if not self.sprint_status_path.is_file():
-            return []
-
         status_map = _extract_status_map(self.sprint_status_path.read_text(encoding="utf-8-sig"))
         hints_map = self._parse_epics_and_planning_hints()
         tasks: list[TaskNode] = []
@@ -437,13 +803,20 @@ class BMADAdapter:
             if not match:
                 continue
             epic_num, story_num, slug = match.groups()
-            status = TaskStatus.from_raw(raw_status)
+            short_id = f"{epic_num}-{story_num}"
+            spec_text = self._get_spec_text(key, short_id)
+            fm = self._parse_frontmatter_dict(spec_text) if spec_text else {}
+
+            fm_status = fm.get("status")
+            if fm_status:
+                status = self._normalize_status(str(fm_status))
+            else:
+                status = self._normalize_status(raw_status)
             if status == TaskStatus.DONE and not include_done:
                 continue
 
-            short_id = f"{epic_num}-{story_num}"
             hint = hints_map.get(short_id, _StoryHints())
-            title = hint.title or slug.replace("-", " ").capitalize()
+            title = fm.get("title") or hint.title or slug.replace("-", " ").capitalize()
 
             if plan_source == "plan" and hint.files:
                 write_files = list(hint.files)
@@ -460,7 +833,28 @@ class BMADAdapter:
                     depends_on = list(dict.fromkeys([*hint.depends_on, *spec_deps]))
                     shared_function_notes = spec_notes
 
-            if hint.effort is not None:
+            fm_files = fm.get("files") or fm.get("write_files")
+            if isinstance(fm_files, list):
+                for f in fm_files:
+                    clean_f = str(f).replace("\\", "/").strip()
+                    res = self._resolve_short_module(clean_f)
+                    tf = res if res else clean_f
+                    if tf.startswith("src/") and tf not in write_files:
+                        write_files.append(tf)
+
+            fm_deps = fm.get("depends_on") or fm.get("dependencies")
+            if isinstance(fm_deps, list):
+                for d in fm_deps:
+                    d_str = str(d).strip().strip("`'\"")
+                    if d_str and d_str != short_id and d_str not in depends_on:
+                        depends_on.append(d_str)
+
+            if fm.get("effort"):
+                try:
+                    effort = EffortTier(str(fm["effort"]).lower())
+                except ValueError:
+                    effort = EffortTier.MEDIUM
+            elif hint.effort is not None:
                 effort = hint.effort
             else:
                 effort = EffortTier.MEDIUM
@@ -476,24 +870,61 @@ class BMADAdapter:
             tasks.append(
                 TaskNode(
                     id=short_id,
-                    title=title,
+                    title=str(title),
                     epic_id=f"epic-{epic_num}",
                     status=status,
                     effort=effort,
                     write_files=write_files,
                     depends_on=depends_on,
                     shared_function_notes=shared_function_notes,
+                    description=spec_text,
                 )
             )
 
         return tasks
+
+    def load_tasks(
+        self,
+        include_done: bool = False,
+        plan_source: str = "auto",
+    ) -> list[TaskNode]:
+        """Load BMAD stories from sprint-status.yaml, stories.yaml, or ticket files."""
+        # 1. Classical sprint-status.yaml
+        if self.sprint_status_path.is_file():
+            return self._load_from_sprint_status(include_done=include_done, plan_source=plan_source)
+
+        # 2. bmad-loop.toml with [stories] source = "tickets" OR ticket files
+        loop_cfg = self._get_bmad_loop_config()
+        stories_cfg = loop_cfg.get("stories", {})
+        source_cfg = stories_cfg.get("source") if isinstance(stories_cfg, dict) else None
+
+        if source_cfg == "tickets" or self._has_ticket_files():
+            ticket_tasks = self._load_ticket_nodes(include_done=include_done)
+            if ticket_tasks:
+                return ticket_tasks
+
+        # 3. stories.yaml
+        stories_yaml = self._find_stories_yaml()
+        if stories_yaml is not None:
+            return self._load_from_stories_yaml(
+                stories_yaml,
+                include_done=include_done,
+                plan_source=plan_source,
+            )
+
+        # 4. Fallback: ticket files
+        ticket_tasks = self._load_ticket_nodes(include_done=include_done)
+        if ticket_tasks:
+            return ticket_tasks
+
+        return []
 
     def reset_tasks_status(
         self,
         task_ids: Sequence[str],
         target_status: str = "ready-for-dev",
     ) -> None:
-        """Reset task statuses in sprint-status.yaml to target_status and delete generated specs."""
+        """Reset task statuses in sprint-status.yaml, stories.yaml, or ticket files."""
         target_set = set(task_ids)
         if self.sprint_status_path.is_file():
             lines = self.sprint_status_path.read_text(encoding="utf-8-sig").splitlines()
@@ -522,6 +953,35 @@ class BMADAdapter:
                             continue
                 new_lines.append(line)
             self.sprint_status_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+        stories_yaml = self._find_stories_yaml()
+        if stories_yaml is not None and stories_yaml.is_file():
+            text = stories_yaml.read_text(encoding="utf-8-sig")
+            new_lines = []
+            for line in text.splitlines():
+                modified_line = line
+                for tid in target_set:
+                    if tid in line and ":" in line:
+                        modified_line = re.sub(
+                            r":\s*[A-Za-z0-9_-]+",
+                            f": {target_status}",
+                            line,
+                            count=1,
+                        )
+                new_lines.append(modified_line)
+            stories_yaml.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+        for tf in self._find_ticket_files():
+            if tf.stem in target_set or any(tid in tf.name for tid in target_set):
+                lines = tf.read_text(encoding="utf-8-sig").splitlines()
+                t_lines = []
+                for line in lines:
+                    if line.strip().startswith("status:"):
+                        indent = line[: len(line) - len(line.lstrip())]
+                        line = f"{indent}status: {target_status}"
+                    line = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
+                    t_lines.append(line)
+                tf.write_text("\n".join(t_lines) + "\n", encoding="utf-8")
 
         if self.impl_dir.is_dir():
             for tid in target_set:
@@ -633,8 +1093,13 @@ class BMADAdapter:
         return violations
 
     def render_worker_command(self, track: WaveTrack) -> str:
-        """Render operator worker command for BMAD track."""
-        return f"`/bmad-build {track.task_ids[0]}`" if track.task_ids else "`/bmad-build`"
+        """Render operator worker command for BMAD or community ticket track."""
+        if not track.task_ids:
+            return "`/bmad-build`"
+        first_task = track.task_ids[0]
+        if (self.repo_root / ".scratch").is_dir() and not self.sprint_status_path.is_file():
+            return f"`/implement-spec {first_task}`"
+        return f"`/bmad-build {first_task}`"
 
     def default_artifacts_dir(self) -> Path:
         """Return default artifacts directory for BMAD."""
@@ -642,7 +1107,24 @@ class BMADAdapter:
 
     def get_status_files(self) -> list[str]:
         """Return relative paths of BMAD status files."""
-        try:
-            return [self.sprint_status_path.relative_to(self.repo_root).as_posix()]
-        except ValueError:
-            return ["_bmad-output/implementation-artifacts/sprint-status.yaml"]
+        files: list[str] = []
+        if self.sprint_status_path.is_file():
+            try:
+                files.append(self.sprint_status_path.relative_to(self.repo_root).as_posix())
+            except ValueError:
+                pass
+        stories_yaml = self._find_stories_yaml()
+        if stories_yaml and stories_yaml.is_file():
+            try:
+                rel = stories_yaml.relative_to(self.repo_root).as_posix()
+                if rel not in files:
+                    files.append(rel)
+            except ValueError:
+                pass
+        if not files:
+            files.append("_bmad-output/implementation-artifacts/sprint-status.yaml")
+        return files
+
+    def get_change_worktree(self, change_id: str) -> Path | None:
+        """Return Path to assigned worktree if supported by framework or None."""
+        return None

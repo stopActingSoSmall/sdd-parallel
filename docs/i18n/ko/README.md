@@ -37,6 +37,12 @@
 > **여러 AI 코딩 에이전트를 안전하게 병렬 실행 — 최대 3배 빠른 개발, 머지 충돌 폭탄(Merge-Bomb) 제로.**  
 > `sdd-parallel`은 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 백로그와 이를 구현하는 코딩 에이전트(**Claude Code**, **Codex**, **Antigravity** 및 worktree를 지원하는 모든 CLI) 사이에서 동작하는 결정론적 트래픽 컨트롤러이자 워크트리 격리기 및 영향 반경(Blast-Radius) 보호 하네스입니다.
 
+<p align="center">
+  <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel 터미널 스크린캐스트 — 5대 SDD 프레임워크 검증, 벤치마크 재현율 및 병렬 워크트리">
+  <br>
+  <em>45초 만에 확인하는 영향 반경 기반 결정론적 웨이브 플랜, 머지 폭탄 제로 및 격리된 클린 워크트리 슬롯.</em>
+</p>
+
 ---
 
 ## ⚡ 왜 이것이 필요한가? (쉽게 풀어쓴 설명)
@@ -444,7 +450,7 @@ my-project/
 │   │   ├── src/…
 │   │   ├── .tmp/track-context.md     # 👻
 │   │   ├── .parallel-lock.json       # 👻
-│   │   └── ACTIVE_TRACK.md           # 👻 → /openspec-apply normalize-telemetry
+│   │   └── ACTIVE_TRACK.md           # 👻 → /opsx:apply normalize-telemetry
 │   └── track-b/                      # Wave 1 → cli-batch-export (대칭 잠금 적용)
 ├── openspec/…                        # 원본 유지
 └── src/…
@@ -515,7 +521,7 @@ my-project/
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/openspec-apply normalize-telemetry` |
+| OpenSpec | `/opsx:apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 | 에이전트 하네스 | 연동 및 동작 방식 |
@@ -635,9 +641,9 @@ flowchart TD
 
 ### 🚧 `v0.2.0+` 로드맵 예정 항목
 
-- [ ] **커뮤니티 어댑터 확충:** `mattpocock/skills` (`/implement-spec`) 및 `bmad-loop` 프런트매터 상태 어댑터.
-- [ ] **환경 오염 제로 동기화:** 고정 슬롯 내 `.venv` / `node_modules` 심볼릭 링크 지원.
-- [ ] **웨이브 사전 정적 심볼 링커 및 스코프 에스컬레이션:** 동적 재스케줄링을 통한 AST 심볼 기반 쓰기 집합 자동 확장.
+- [x] **커뮤니티 어댑터 확충:** `mattpocock/skills` (`/implement-spec`) 및 `bmad-loop` 프런트매터 상태 어댑터.
+- [x] **환경 오염 제로 동기화:** 고정 슬롯 내 `.venv` / `node_modules` 심볼릭 링크 지원.
+- [x] **웨이브 사전 정적 심볼 링커 및 스코프 에스컬레이션:** 동적 재스케줄링을 통한 AST 심볼 기반 쓰기 집합 자동 확장.
 - [ ] **FinOps 및 가시성 익스포터:** OpenTelemetry 스팬 및 Langfuse 토큰 절감 텔레메트리 연동.
 - [ ] **헤드리스 오토파일럿 데몬:** 로컬 RPC / 서브에이전트 디스패치를 통한 에이전트 자율 실행.
 

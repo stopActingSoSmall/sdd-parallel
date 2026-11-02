@@ -37,6 +37,12 @@
 > **Execute múltiplos agentes de codificação por IA em paralelo — até 3x mais rápido, zero Merge-Bombs.**  
 > O `sdd-parallel` é o controlador de tráfego determinístico, isolador de worktrees e protetor de raio de impacto (blast radius) entre o seu backlog de **Spec Kit / BMAD / GSD / OpenSpec / Beads** e os agentes de IA (**Claude Code**, **Codex**, **Antigravity** ou qualquer CLI compatível com worktrees) que o implementam.
 
+<p align="center">
+  <img src="../../assets/demo.gif" width="100%" alt="Screencast de terminal do SDD-Parallel — verificação de 5 kits SDD, recall de benchmark e worktrees paralelas">
+  <br>
+  <em>Plano determinístico de ondas por raio de impacto, zero merge-bombs e slots de worktree limpos em menos de 45 segundos.</em>
+</p>
+
 ---
 
 ## ⚡ Por que isso existe? (Em bom português)
@@ -444,7 +450,7 @@ my-project/
 │   │   ├── src/…
 │   │   ├── .tmp/track-context.md     # 👻
 │   │   ├── .parallel-lock.json       # 👻
-│   │   └── ACTIVE_TRACK.md           # 👻 → /openspec-apply normalize-telemetry
+│   │   └── ACTIVE_TRACK.md           # 👻 → /opsx:apply normalize-telemetry
 │   └── track-b/                      # Onda 1 → cli-batch-export (bloqueios espelhados)
 ├── openspec/…                        # intocado
 └── src/…
@@ -515,7 +521,7 @@ Você mantém seu agente e seus prompts. Após `sdd-parallel prepare --wave 1`, 
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/openspec-apply normalize-telemetry` |
+| OpenSpec | `/opsx:apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 | Harness | Como ele se integra |
@@ -634,9 +640,9 @@ flowchart TD
 
 ### 🚧 Planejado para `v0.2.0+`
 
-- [ ] **Adaptadores da comunidade:** `mattpocock/skills` (`/implement-spec`) e adaptador de status frontmatter para `bmad-loop`.
-- [ ] **Sincronização de ambiente sem poluição:** symlinks de `.venv` / `node_modules` para dentro dos slots fixos.
-- [ ] **Linker estático de símbolos pré-onda e escalonamento de escopo:** expansão automática do conjunto de escrita via símbolos AST com reagendamento dinâmico.
+- [x] **Adaptadores da comunidade:** `mattpocock/skills` (`/implement-spec`) e adaptador de status frontmatter para `bmad-loop`.
+- [x] **Sincronização de ambiente sem poluição:** symlinks de `.venv` / `node_modules` para dentro dos slots fixos.
+- [x] **Linker estático de símbolos pré-onda e escalonamento de escopo:** expansão automática do conjunto de escrita via símbolos AST com reagendamento dinâmico.
 - [ ] **Exportadores de FinOps e observabilidade:** spans OpenTelemetry e telemetria de economia de tokens com Langfuse.
 - [ ] **Daemon de piloto automático headless:** execução de agentes via RPC local / despacho de subagentes.
 

@@ -17,8 +17,18 @@ from typing import Any
 
 from sdd_parallel.adapters import SDDAdapterProtocol, get_adapter
 from sdd_parallel.hooks.blast_radius_guard import _matches_any_glob
-from sdd_parallel.models import LockManifest, Wave, WavePlan, WaveTrack
+from sdd_parallel.models import (
+    EffortTier,
+    LockManifest,
+    TaskStatus,
+    Wave,
+    WavePlan,
+    WaveTrack,
+)
 from sdd_parallel.status_merger import get_status_merger
+
+_DEFAULT_SHARED_DIRS = (".venv", "node_modules", ".cache")
+_DEFAULT_SHARED_FILES = (".env", ".env.local")
 
 _EXCLUDE_ENTRIES = (
     "_bmad/custom/bmad-build.user.toml",
@@ -28,6 +38,14 @@ _EXCLUDE_ENTRIES = (
     ".parallel-lock.json",
     ".tmp/",
     "ACTIVE_TRACK.md",
+    ".venv",
+    ".venv/",
+    "node_modules",
+    "node_modules/",
+    ".cache",
+    ".cache/",
+    ".env",
+    ".env.local",
 )
 
 
@@ -38,36 +56,96 @@ def default_antigravity_worktrees_dir(project_name: str) -> Path:
     return Path.home() / ".gemini" / "antigravity" / "worktrees" / project_name
 
 
-def resolve_checkpoint_gates(repo_root: Path) -> list[str]:
-    """Resolve stack-agnostic checkpoint quality gates for repo_root."""
-    # Priority 1: .parallel-config.json
+def load_parallel_config(repo_root: Path) -> dict[str, Any]:
+    """Load configuration from pyproject.toml [tool.sdd-parallel] and .parallel-config.json."""
+    config: dict[str, Any] = {}
+
+    # Priority 2: [tool.sdd-parallel] in pyproject.toml
+    pyproject_file = repo_root / "pyproject.toml"
+    if pyproject_file.is_file():
+        try:
+            data = tomllib.loads(pyproject_file.read_text(encoding="utf-8-sig"))
+            sdd_conf = data.get("tool", {}).get("sdd-parallel", {})
+            if isinstance(sdd_conf, dict):
+                config.update(sdd_conf)
+        except Exception:
+            pass
+
+    # Priority 1: .parallel-config.json (overrides pyproject.toml)
     cfg_file = repo_root / ".parallel-config.json"
     if cfg_file.is_file():
         try:
             data = json.loads(cfg_file.read_text(encoding="utf-8-sig"))
-            if isinstance(data, dict) and "checkpoint_gates" in data:
-                gates = data["checkpoint_gates"]
-                if isinstance(gates, list):
-                    return [str(g) for g in gates]
+            if isinstance(data, dict):
+                for k, v in data.items():
+                    curr_hooks = config.get("hooks")
+                    if k == "hooks" and isinstance(v, dict) and isinstance(curr_hooks, dict):
+                        config["hooks"] = {**curr_hooks, **v}
+                    else:
+                        config[k] = v
         except Exception:
             pass
 
-    # Priority 2: [tool.sdd-parallel] in pyproject.toml
+    return config
+
+
+def compute_track_port(
+    track_id: str,
+    track_index: int = 1,
+    base_port: int = 8100,
+) -> int:
+    """Compute non-overlapping port for parallel track slot."""
+    norm = track_id.lower().strip()
+    if norm.startswith("track-"):
+        suffix = norm[6:]
+        if len(suffix) == 1 and suffix.isalpha():
+            offset = ord(suffix) - ord("a") + 1
+            return base_port + offset
+        if suffix.isdigit():
+            return base_port + int(suffix)
+    if track_index > 0:
+        return base_port + track_index
+    return base_port + 1
+
+
+def run_lifecycle_hook(
+    hook_name: str,
+    command: str,
+    cwd: Path,
+    env_vars: Mapping[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Execute a lifecycle hook command inside cwd with isolated env vars."""
+    env = os.environ.copy()
+    if env_vars:
+        env.update(env_vars)
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        env=env,
+        shell=True,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def resolve_checkpoint_gates(repo_root: Path) -> list[str]:
+    """Resolve stack-agnostic checkpoint quality gates for repo_root."""
+    cfg = load_parallel_config(repo_root)
+    gates = cfg.get("checkpoint_gates")
+    if isinstance(gates, list) and gates:
+        return [str(g) for g in gates]
+
+    # Priority 3: Polymorphic autodetect by stack markers
+    # Python (pyproject.toml or pytest.ini)
     pyproject_file = repo_root / "pyproject.toml"
     pyproject_data: dict[str, Any] = {}
     if pyproject_file.is_file():
         try:
             pyproject_data = tomllib.loads(pyproject_file.read_text(encoding="utf-8-sig"))
-            sdd_conf = pyproject_data.get("tool", {}).get("sdd-parallel", {})
-            if isinstance(sdd_conf, dict) and "checkpoint_gates" in sdd_conf:
-                gates = sdd_conf["checkpoint_gates"]
-                if isinstance(gates, list):
-                    return [str(g) for g in gates]
         except Exception:
             pass
 
-    # Priority 3: Polymorphic autodetect by stack markers
-    # Python (pyproject.toml or pytest.ini)
     pytest_ini = repo_root / "pytest.ini"
     if pyproject_file.is_file() or pytest_ini.is_file():
         tests_dir = repo_root / "tests"
@@ -132,20 +210,40 @@ def _is_no_tests_collected(gate_cmd: str, returncode: int, stdout: str, stderr: 
 
 
 def create_directory_link(target: Path, link: Path) -> None:
-    """Create a directory junction on Windows or a directory symlink on POSIX."""
+    """Create a directory junction on Windows or a relative directory symlink on POSIX."""
     target = target.resolve()
     link = link.resolve()
     link.parent.mkdir(parents=True, exist_ok=True)
-    if link.exists() or (hasattr(link, "is_junction") and link.is_junction()) or link.is_symlink():
+    is_junc = hasattr(link, "is_junction") and link.is_junction()
+    is_sym = link.is_symlink()
+    if is_junc or is_sym:
         remove_directory_link(link)
+    elif link.is_dir():
+        try:
+            link.rmdir()
+        except OSError:
+            return
 
     if sys.platform == "win32":
-        import _winapi
+        try:
+            import _winapi
 
-        # CreateJunction is only present in _winapi on Windows
-        getattr(_winapi, "CreateJunction")(str(target), str(link))
+            getattr(_winapi, "CreateJunction")(str(target), str(link))
+        except Exception:
+            res = subprocess.run(
+                ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if res.returncode != 0:
+                raise OSError(f"Failed to create junction from {target} to {link}: {res.stderr}")
     else:
-        os.symlink(str(target), str(link), target_is_directory=True)
+        try:
+            rel_target = os.path.relpath(target, link.parent)
+            os.symlink(rel_target, str(link), target_is_directory=True)
+        except (ValueError, OSError):
+            os.symlink(str(target), str(link), target_is_directory=True)
 
 
 def remove_directory_link(link: Path) -> None:
@@ -166,10 +264,80 @@ def remove_directory_link(link: Path) -> None:
             except OSError:
                 pass
         if is_sym:
-            link.unlink()
+            try:
+                link.unlink()
+                return
+            except OSError:
+                pass
+            try:
+                os.rmdir(link)
+                return
+            except OSError:
+                pass
     else:
         if is_sym:
             link.unlink()
+
+
+def sync_environment_file(target: Path, link: Path) -> None:
+    """Copy or symlink environment file (.env, .env.local) into worktree slot."""
+    target = target.resolve()
+    link = link.resolve()
+    if not target.is_file():
+        return
+    link.parent.mkdir(parents=True, exist_ok=True)
+    if link.is_symlink() or link.is_file():
+        try:
+            link.unlink()
+        except OSError:
+            pass
+    if sys.platform == "win32":
+        shutil.copy2(target, link)
+    else:
+        try:
+            rel_target = os.path.relpath(target, link.parent)
+            os.symlink(rel_target, str(link))
+        except (ValueError, OSError):
+            shutil.copy2(target, link)
+
+
+def sync_environment(
+    repo_root: Path,
+    worktree_path: Path,
+    config: Mapping[str, Any] | None = None,
+) -> list[str]:
+    """Sync dependencies (.venv, node_modules, .cache) and environment files into slot.
+
+    Returns list of relative paths that were synchronized.
+    """
+    root = repo_root.resolve()
+    wt = worktree_path.resolve()
+    if root == wt:
+        return []
+
+    cfg = dict(config or {})
+    shared_dirs = list(cfg.get("shared_dirs", _DEFAULT_SHARED_DIRS))
+    shared_files = list(cfg.get("shared_files", _DEFAULT_SHARED_FILES))
+
+    synced: list[str] = []
+
+    for d_name in shared_dirs:
+        norm_d = str(d_name).strip()
+        src_dir = root / norm_d
+        dst_dir = wt / norm_d
+        if src_dir.is_dir():
+            create_directory_link(src_dir, dst_dir)
+            synced.append(norm_d)
+
+    for f_name in shared_files:
+        norm_f = str(f_name).strip()
+        src_file = root / norm_f
+        dst_file = wt / norm_f
+        if src_file.is_file():
+            sync_environment_file(src_file, dst_file)
+            synced.append(norm_f)
+
+    return synced
 
 
 class LIFORollbackViolationError(RuntimeError):
@@ -275,6 +443,18 @@ class WorktreeManager:
             self.worktrees_dir = default_antigravity_worktrees_dir(self.repo_root.name).resolve()
         else:
             self.worktrees_dir = (self.repo_root / ".worktrees").resolve()
+        self._config: dict[str, Any] | None = None
+        self.last_escalations: list[dict[str, Any]] = []
+
+    def get_config(self) -> dict[str, Any]:
+        """Return cached parallel configuration for repo_root."""
+        if self._config is None:
+            self._config = load_parallel_config(self.repo_root)
+        return self._config
+
+    def sync_environment(self, worktree_path: Path) -> list[str]:
+        """Synchronize repository dependencies and environment into the given worktree."""
+        return sync_environment(self.repo_root, worktree_path, self.get_config())
 
     def worktree_path_for_track(self, wave_number: int, track_id: str) -> Path:
         """Resolve filesystem path for track worktree according to fixed_slots mode."""
@@ -355,6 +535,18 @@ class WorktreeManager:
 
         env_vars = adapter.get_track_env_vars(track)
 
+        # Dynamic port isolation
+        cfg = self.get_config()
+        base_port = int(cfg.get("base_port", 8100))
+        track_idx = 1
+        try:
+            track_idx = wave.tracks.index(track) + 1
+        except (ValueError, AttributeError):
+            pass
+        port = compute_track_port(track.track_id, track_index=track_idx, base_port=base_port)
+        if "PORT" not in env_vars:
+            env_vars["PORT"] = str(port)
+
         return LockManifest(
             wave_id=wave.wave_number,
             track_id=track.track_id,
@@ -434,6 +626,7 @@ class WorktreeManager:
         track: WaveTrack,
         lock: LockManifest,
         headless: bool = False,
+        extra_exclude_entries: Iterable[str] | None = None,
     ) -> None:
         """Write .tmp/track-context.md, .parallel-lock.json, BMAD overrides, and git exclude."""
         wt = worktree_path.resolve()
@@ -489,10 +682,28 @@ class WorktreeManager:
         (wt / "ACTIVE_TRACK.md").write_text("\n".join(hud_lines), encoding="utf-8")
 
         # 6. Register injected files in git info/exclude so `git status --porcelain` stays empty
-        self._update_git_exclude(wt)
+        self._update_git_exclude(wt, extra_entries=extra_exclude_entries)
 
-    def _update_git_exclude(self, worktree_path: Path) -> None:
-        """Append injected filenames to the worktree's git info/exclude."""
+    def _update_git_exclude(
+        self, worktree_path: Path, extra_entries: Iterable[str] | None = None
+    ) -> None:
+        """Append injected and synced filenames to git info/exclude targets."""
+        candidates = list(_EXCLUDE_ENTRIES)
+        if extra_entries:
+            for entry in extra_entries:
+                if entry not in candidates:
+                    candidates.append(entry)
+                if (
+                    not entry.endswith("/")
+                    and not entry.endswith(".md")
+                    and not entry.endswith(".json")
+                    and not entry.endswith(".toml")
+                ):
+                    slash_variant = f"{entry}/"
+                    if slash_variant not in candidates:
+                        candidates.append(slash_variant)
+
+        target_exclude_files: list[Path] = []
         try:
             proc = subprocess.run(
                 ["git", "rev-parse", "--git-path", "info/exclude"],
@@ -504,20 +715,39 @@ class WorktreeManager:
             if proc.returncode == 0 and proc.stdout.strip():
                 raw_path = Path(proc.stdout.strip())
                 exclude_path = raw_path if raw_path.is_absolute() else (worktree_path / raw_path)
-                exclude_path.parent.mkdir(parents=True, exist_ok=True)
+                target_exclude_files.append(exclude_path)
+        except OSError:
+            pass
+
+        try:
+            git_file_or_dir = worktree_path / ".git"
+            if git_file_or_dir.is_file():
+                content = git_file_or_dir.read_text(encoding="utf-8").strip()
+                if content.startswith("gitdir:"):
+                    raw_gitdir = content.split("gitdir:", 1)[1].strip()
+                    p_gitdir = Path(raw_gitdir)
+                    if not p_gitdir.is_absolute():
+                        p_gitdir = (worktree_path / p_gitdir).resolve()
+                    target_exclude_files.append(p_gitdir / "info" / "exclude")
+        except OSError:
+            pass
+
+        for ex_path in target_exclude_files:
+            try:
+                ex_path.parent.mkdir(parents=True, exist_ok=True)
                 existing = (
-                    exclude_path.read_text(encoding="utf-8") if exclude_path.is_file() else ""
+                    ex_path.read_text(encoding="utf-8") if ex_path.is_file() else ""
                 )
                 lines = set(existing.splitlines())
-                appended = [entry for entry in _EXCLUDE_ENTRIES if entry not in lines]
+                appended = [entry for entry in candidates if entry not in lines]
                 if appended:
-                    with exclude_path.open("a", encoding="utf-8") as fh:
+                    with ex_path.open("a", encoding="utf-8") as fh:
                         if existing and not existing.endswith("\n"):
                             fh.write("\n")
                         for entry in appended:
                             fh.write(f"{entry}\n")
-        except OSError:
-            pass
+            except OSError:
+                pass
 
     def prepare_wave(
         self,
@@ -577,6 +807,9 @@ class WorktreeManager:
                 if local_link.resolve() != wt_path.resolve():
                     create_directory_link(target=wt_path, link=local_link)
 
+            # Synchronize virtual environment, node_modules, and .env into slot
+            synced_items = self.sync_environment(wt_path)
+
             lock = self.build_lock_manifest(
                 wave=target_wave,
                 track=track,
@@ -591,7 +824,27 @@ class WorktreeManager:
                 track=track,
                 lock=lock,
                 headless=headless,
+                extra_exclude_entries=synced_items,
             )
+
+            # Lifecycle hook: post_provision
+            cfg = self.get_config()
+            hooks = cfg.get("hooks", {})
+            post_provision_cmd = str(hooks.get("post_provision", "")).strip()
+            if post_provision_cmd:
+                hook_res = run_lifecycle_hook(
+                    hook_name="post_provision",
+                    command=post_provision_cmd,
+                    cwd=wt_path,
+                    env_vars=lock.env_vars,
+                )
+                if hook_res.returncode != 0:
+                    err_out = (hook_res.stderr or hook_res.stdout).strip()
+                    raise RuntimeError(
+                        f"Lifecycle hook 'post_provision' failed in track '{track.track_id}' "
+                        f"with exit code {hook_res.returncode}:\n{err_out}"
+                    )
+
             _apply_os_readonly_locks(wt_path, lock)
         return created_paths
 
@@ -677,6 +930,12 @@ class WorktreeManager:
                 cleaned.append(p)
             else:
                 _restore_os_writable(p)
+                for shared_d in _DEFAULT_SHARED_DIRS:
+                    inner_link = p / shared_d
+                    if (
+                        hasattr(inner_link, "is_junction") and inner_link.is_junction()
+                    ) or inner_link.is_symlink():
+                        remove_directory_link(inner_link)
                 cmd = ["git", "worktree", "remove"]
                 if force:
                     cmd.append("--force")
@@ -712,22 +971,137 @@ class WorktreeManager:
         if target_track is None:
             raise ValueError(f"Track '{track_id}' not found in Wave {wave_number}")
 
+        wt_resolved = worktree_path.resolve()
+        synced_items = self.sync_environment(wt_resolved)
+
         _, adapter = get_adapter(self.repo_root, kit=plan.sdd_kit)
         lock = self.build_lock_manifest(
             wave=target_wave,
             track=target_track,
-            worktree_path=worktree_path,
+            worktree_path=wt_resolved,
             all_spine_files=plan.spine_files,
             adapter=adapter,
         )
         self.inject_track_boundary(
-            worktree_path=worktree_path,
+            worktree_path=wt_resolved,
             wave=target_wave,
             track=target_track,
             lock=lock,
             headless=headless,
+            extra_exclude_entries=synced_items,
         )
         return lock
+
+    def check_scope_escalations(
+        self,
+        wave_number: int,
+        plan: WavePlan | None = None,
+    ) -> list[dict[str, Any]]:
+        """Collect pending scope escalation requests (.tmp/scope-escalation.json) for wave."""
+        escalations: list[dict[str, Any]] = []
+        target_wave = None
+        if plan is not None:
+            target_wave = next((w for w in plan.waves if w.wave_number == wave_number), None)
+
+        paths_to_check: list[Path] = [self.repo_root / ".tmp" / "scope-escalation.json"]
+        if target_wave is not None:
+            for track in target_wave.tracks:
+                paths_to_check.append(
+                    self.worktree_path_for_track(wave_number, track.track_id)
+                    / ".tmp"
+                    / "scope-escalation.json"
+                )
+                paths_to_check.append(
+                    self.worktrees_dir
+                    / f"wave-{wave_number}-{track.track_id}"
+                    / ".tmp"
+                    / "scope-escalation.json"
+                )
+
+        seen: set[tuple[str, str]] = set()
+        for esc_path in paths_to_check:
+            if not esc_path.is_file():
+                continue
+            try:
+                raw = json.loads(esc_path.read_text(encoding="utf-8"))
+                items = raw if isinstance(raw, list) else [raw]
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    sid = str(item.get("story_id", "")).strip()
+                    req_file = str(item.get("requested_file", "")).replace("\\", "/").strip()
+                    if (sid, req_file) not in seen and (sid or req_file):
+                        seen.add((sid, req_file))
+                        escalations.append(item)
+            except Exception:
+                continue
+
+        return escalations
+
+    def defer_escalated_task(
+        self,
+        plan: WavePlan,
+        story_id: str,
+        requested_file: str,
+        current_wave: int,
+    ) -> WavePlan:
+        """Defer an escalated task to Wave K+1 and add requested_file to its write scope."""
+        norm_file = requested_file.replace("\\", "/").strip()
+        next_wave_num = current_wave + 1
+
+        curr_wave = next((w for w in plan.waves if w.wave_number == current_wave), None)
+        effort = EffortTier.MEDIUM
+        if curr_wave is not None:
+            for trk in curr_wave.tracks:
+                if story_id in trk.task_ids:
+                    trk.task_ids.remove(story_id)
+                    effort = trk.effort
+                    break
+
+        next_wave = next((w for w in plan.waves if w.wave_number == next_wave_num), None)
+        if next_wave is None:
+            new_track = WaveTrack(
+                track_id="track-a",
+                task_ids=[story_id] if story_id else [],
+                effort=effort,
+                exclusive_write_files=[norm_file] if norm_file else [],
+            )
+            next_wave = Wave(
+                wave_number=next_wave_num,
+                tracks=[new_track],
+                checkpoint_gates=list(curr_wave.checkpoint_gates) if curr_wave else [],
+            )
+            plan.waves.append(next_wave)
+        else:
+            placed = False
+            for trk in next_wave.tracks:
+                if len(trk.task_ids) < 3:
+                    if story_id and story_id not in trk.task_ids:
+                        trk.task_ids.append(story_id)
+                    if norm_file and norm_file not in trk.exclusive_write_files:
+                        trk.exclusive_write_files.append(norm_file)
+                    placed = True
+                    break
+            if not placed:
+                idx = len(next_wave.tracks)
+                letter = chr(ord("a") + idx) if idx < 26 else str(idx + 1)
+                new_track = WaveTrack(
+                    track_id=f"track-{letter}",
+                    task_ids=[story_id] if story_id else [],
+                    effort=effort,
+                    exclusive_write_files=[norm_file] if norm_file else [],
+                )
+                next_wave.tracks.append(new_track)
+
+        p_file = self.repo_root / ".parallel" / "wave-plan.json"
+        if p_file.is_file() or (self.repo_root / ".parallel").is_dir():
+            p_file.parent.mkdir(parents=True, exist_ok=True)
+            p_file.write_text(
+                json.dumps(plan.to_dict(), indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
+        return plan
 
     def verify_wave(self, plan: WavePlan, wave_number: int) -> list[str]:
         """Verify that generated story specs and worktree files do not violate locks."""
@@ -735,7 +1109,46 @@ class WorktreeManager:
         if target_wave is None:
             raise ValueError(f"Wave {wave_number} not found in plan")
 
+        self.last_escalations = []
+        escalations = self.check_scope_escalations(wave_number, plan)
+        escalated_stories: set[str] = set()
+        escalated_files: set[str] = set()
+
+        if escalations:
+            for esc in escalations:
+                sid = str(esc.get("story_id", "")).strip()
+                req_file = str(esc.get("requested_file", "")).replace("\\", "/").strip()
+                if sid:
+                    escalated_stories.add(sid)
+                if req_file:
+                    escalated_files.add(req_file)
+                self.defer_escalated_task(
+                    plan=plan,
+                    story_id=sid,
+                    requested_file=req_file,
+                    current_wave=wave_number,
+                )
+                self.last_escalations.append(
+                    {
+                        "story_id": sid,
+                        "requested_file": req_file,
+                        "status": TaskStatus.ESCALATED_DEFERRED.value,
+                        "deferred_to_wave": wave_number + 1,
+                    }
+                )
+            if self.last_escalations:
+                esc_hist = self.repo_root / ".parallel" / "escalations.json"
+                esc_hist.parent.mkdir(parents=True, exist_ok=True)
+                esc_hist.write_text(
+                    json.dumps(self.last_escalations, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+
         violations: list[str] = []
+        cfg = self.get_config()
+        hooks = cfg.get("hooks", {})
+        pre_verify_cmd = str(hooks.get("pre_verify", "")).strip()
+
         for track in target_wave.tracks:
             candidate_path = self.worktree_path_for_track(wave_number, track.track_id)
             if not candidate_path.is_dir():
@@ -751,6 +1164,22 @@ class WorktreeManager:
                 all_spine_files=plan.spine_files,
                 adapter=adapter,
             )
+
+            # 0. Lifecycle hook: pre_verify
+            if pre_verify_cmd and probe_root.is_dir():
+                hook_res = run_lifecycle_hook(
+                    hook_name="pre_verify",
+                    command=pre_verify_cmd,
+                    cwd=probe_root,
+                    env_vars=lock.env_vars,
+                )
+                if hook_res.returncode != 0:
+                    err_out = (hook_res.stderr or hook_res.stdout).strip()
+                    violations.append(
+                        f"Wave {wave_number} / {track.track_id}: lifecycle hook 'pre_verify' "
+                        f"failed with exit code {hook_res.returncode}:\n{err_out}"
+                    )
+
             # 1. Spec code-map / task check
             violations.extend(
                 adapter.verify_track_spec_scope(
@@ -777,13 +1206,30 @@ class WorktreeManager:
                         norm_f = raw_file.replace("\\", "/")
                         ignored_prefixes = (
                             ".tmp/",
+                            ".parallel/",
+                            ".worktrees/",
                             "_bmad/custom/",
                             ".pytest_cache/",
                             "__pycache__/",
+                            ".venv/",
+                            "node_modules/",
+                            ".cache/",
                         )
                         if norm_f.startswith(ignored_prefixes):
                             continue
-                        if norm_f in {".parallel-lock.json", "ACTIVE_TRACK.md"}:
+                        if norm_f in {
+                            ".worktrees",
+                            ".worktrees/",
+                            ".parallel",
+                            ".parallel/",
+                            ".parallel-lock.json",
+                            "ACTIVE_TRACK.md",
+                            ".env",
+                            ".env.local",
+                            ".venv",
+                            "node_modules",
+                            ".cache",
+                        }:
                             continue
                         if norm_f in lock.forbidden_files:
                             violations.append(
@@ -835,13 +1281,30 @@ class WorktreeManager:
                             continue
                         diff_ignored = (
                             ".tmp/",
+                            ".parallel/",
+                            ".worktrees/",
                             "_bmad/custom/",
                             ".pytest_cache/",
                             "__pycache__/",
+                            ".venv/",
+                            "node_modules/",
+                            ".cache/",
                         )
                         if norm_d.startswith(diff_ignored):
                             continue
-                        if norm_d in {".parallel-lock.json", "ACTIVE_TRACK.md"}:
+                        if norm_d in {
+                            ".worktrees",
+                            ".worktrees/",
+                            ".parallel",
+                            ".parallel/",
+                            ".parallel-lock.json",
+                            "ACTIVE_TRACK.md",
+                            ".env",
+                            ".env.local",
+                            ".venv",
+                            "node_modules",
+                            ".cache",
+                        }:
                             continue
                         if norm_d in lock.forbidden_files:
                             violations.append(
@@ -857,6 +1320,21 @@ class WorktreeManager:
                                 f"Wave {wave_number} / {track.track_id}: committed file '{norm_d}' "
                                 "is outside declared Allowed Write Scope"
                             )
+
+        if escalated_files or escalated_stories:
+            filtered_violations: list[str] = []
+            for v in violations:
+                is_esc = any(
+                    f"'{ef}'" in v or f" {ef}" in v or v.endswith(f"/{ef}")
+                    for ef in escalated_files
+                ) or any(
+                    f"story {es}" in v or f"'{es}'" in v
+                    for es in escalated_stories
+                )
+                if not is_esc:
+                    filtered_violations.append(v)
+            violations = filtered_violations
+
         return violations
 
     def merge_wave(
@@ -1104,6 +1582,12 @@ class WorktreeManager:
                         )
                         remove_directory_link(local_link)
                     if wt_path.exists():
+                        for shared_d in _DEFAULT_SHARED_DIRS:
+                            inner_link = wt_path / shared_d
+                            if (
+                                hasattr(inner_link, "is_junction") and inner_link.is_junction()
+                            ) or inner_link.is_symlink():
+                                remove_directory_link(inner_link)
                         subprocess.run(
                             ["git", "worktree", "remove", "--force", str(wt_path)],
                             cwd=self.repo_root,

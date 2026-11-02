@@ -8,6 +8,7 @@ import re
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -97,6 +98,50 @@ class HookDecision:
         return payload
 
 
+def record_scope_escalation(
+    target_dir: Path,
+    story_id: str,
+    requested_file: str,
+    reason: str,
+) -> Path:
+    """Record a scope escalation request to .tmp/scope-escalation.json."""
+    norm_file = requested_file.replace("\\", "/").lstrip("./")
+    tmp_dir = target_dir if target_dir.name == ".tmp" else target_dir / ".tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    esc_path = tmp_dir / "scope-escalation.json"
+
+    entry: dict[str, Any] = {
+        "story_id": story_id,
+        "requested_file": norm_file,
+        "reason": reason,
+        "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+    entries: list[dict[str, Any]] = []
+    if esc_path.is_file():
+        try:
+            raw = json.loads(esc_path.read_text(encoding="utf-8"))
+            if isinstance(raw, list):
+                entries.extend(raw)
+            elif isinstance(raw, dict):
+                entries.append(raw)
+        except Exception:
+            pass
+
+    if not any(
+        e.get("story_id") == story_id and e.get("requested_file") == norm_file
+        for e in entries
+    ):
+        entries.append(entry)
+
+    payload_data = entries if len(entries) > 1 else entries[0]
+    esc_path.write_text(
+        json.dumps(payload_data, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return esc_path
+
+
 def find_lock_manifest(start_path: Path) -> tuple[Path, LockManifest] | None:
     """Walk upward from start_path to locate .parallel-lock.json."""
     curr = start_path.resolve()
@@ -124,7 +169,11 @@ def _matches_any_glob(rel_posix: str, globs: list[str]) -> bool:
     return False
 
 
-def _evaluate_command_access(cmd_str: str, base_dir: Path) -> HookDecision:
+def _evaluate_command_access(
+    cmd_str: str,
+    base_dir: Path,
+    record_escalation: bool = False,
+) -> HookDecision:
     """Evaluate whether a shell command attempts to modify protected or out-of-scope files."""
     found = find_lock_manifest(base_dir)
     if found is None:
@@ -148,13 +197,19 @@ def _evaluate_command_access(cmd_str: str, base_dir: Path) -> HookDecision:
             or norm_cmd.endswith(f" {fname}")
         )
         if in_cmd and has_write_indicator:
-            return HookDecision(
-                decision="deny",
-                reason=(
-                    f"BLAST RADIUS VIOLATION (Terminal Guard): Command attempts to modify "
-                    f"forbidden file '{norm_forbid}' (locked: {reason})."
-                ),
+            deny_reason = (
+                f"BLAST RADIUS VIOLATION (Terminal Guard): Command attempts to modify "
+                f"forbidden file '{norm_forbid}' (locked: {reason})."
             )
+            if record_escalation:
+                sid = lock.stories[0] if lock.stories else ""
+                record_scope_escalation(
+                    target_dir=worktree_root,
+                    story_id=sid,
+                    requested_file=norm_forbid,
+                    reason=deny_reason,
+                )
+            return HookDecision(decision="deny", reason=deny_reason)
 
     # Check 2: Redirections (e.g. echo 'foo' > path or >> path)
     redirect_matches = re.findall(r"(?:>>|>)\s*([^\s;&|\'\"]+)", cmd_str)
@@ -183,22 +238,34 @@ def _evaluate_command_access(cmd_str: str, base_dir: Path) -> HookDecision:
             )
 
         if rel_posix in lock.forbidden_files:
-            return HookDecision(
-                decision="deny",
-                reason=(
-                    f"BLAST RADIUS VIOLATION (Terminal Guard): Target '{rel_posix}' is forbidden "
-                    f"({lock.forbidden_files[rel_posix]})."
-                ),
+            deny_reason = (
+                f"BLAST RADIUS VIOLATION (Terminal Guard): Target '{rel_posix}' is forbidden "
+                f"({lock.forbidden_files[rel_posix]})."
             )
+            if record_escalation:
+                sid = lock.stories[0] if lock.stories else ""
+                record_scope_escalation(
+                    target_dir=worktree_root,
+                    story_id=sid,
+                    requested_file=rel_posix,
+                    reason=deny_reason,
+                )
+            return HookDecision(decision="deny", reason=deny_reason)
 
         if lock.allowed_write_globs and not _matches_any_glob(rel_posix, lock.allowed_write_globs):
-            return HookDecision(
-                decision="deny",
-                reason=(
-                    f"BLAST RADIUS VIOLATION (Terminal Guard): Target '{rel_posix}' is outside "
-                    "declared Allowed Write Scope."
-                ),
+            deny_reason = (
+                f"BLAST RADIUS VIOLATION (Terminal Guard): Target '{rel_posix}' is outside "
+                "declared Allowed Write Scope."
             )
+            if record_escalation:
+                sid = lock.stories[0] if lock.stories else ""
+                record_scope_escalation(
+                    target_dir=worktree_root,
+                    story_id=sid,
+                    requested_file=rel_posix,
+                    reason=deny_reason,
+                )
+            return HookDecision(decision="deny", reason=deny_reason)
 
     return HookDecision(decision="allow")
 
@@ -207,6 +274,7 @@ def evaluate_tool_access(
     tool_name: str,
     tool_input: Mapping[str, Any],
     cwd: Path | None = None,
+    record_escalation: bool = False,
 ) -> HookDecision:
     """Evaluate whether a tool invocation violates the active worktree's blast-radius lock."""
     base_dir = (cwd or Path.cwd()).resolve()
@@ -220,7 +288,7 @@ def evaluate_tool_access(
                 break
         if not cmd_str:
             return HookDecision(decision="allow")
-        return _evaluate_command_access(cmd_str, base_dir)
+        return _evaluate_command_access(cmd_str, base_dir, record_escalation=record_escalation)
 
     if tool_name not in _WRITE_TOOLS:
         return HookDecision(decision="allow")
@@ -261,25 +329,37 @@ def evaluate_tool_access(
     # 1. Explicit forbidden check
     if rel_posix in lock.forbidden_files:
         lock_reason = lock.forbidden_files[rel_posix]
-        return HookDecision(
-            decision="deny",
-            reason=(
-                f"BLAST RADIUS VIOLATION: File '{rel_posix}' cannot be modified by "
-                f"Wave {lock.wave_id} / {lock.track_id} (stories {lock.stories}). "
-                f"Reason: {lock_reason}."
-            ),
+        deny_reason = (
+            f"BLAST RADIUS VIOLATION: File '{rel_posix}' cannot be modified by "
+            f"Wave {lock.wave_id} / {lock.track_id} (stories {lock.stories}). "
+            f"Reason: {lock_reason}."
         )
+        if record_escalation:
+            sid = lock.stories[0] if lock.stories else ""
+            record_scope_escalation(
+                target_dir=worktree_root,
+                story_id=sid,
+                requested_file=rel_posix,
+                reason=deny_reason,
+            )
+        return HookDecision(decision="deny", reason=deny_reason)
 
     # 2. Allowed glob check
     if lock.allowed_write_globs and not _matches_any_glob(rel_posix, lock.allowed_write_globs):
-        return HookDecision(
-            decision="deny",
-            reason=(
-                f"BLAST RADIUS VIOLATION: File '{rel_posix}' is outside the declared "
-                f"Allowed Write Scope of Wave {lock.wave_id} / {lock.track_id}. "
-                "Update .parallel-lock.json only after verifying zero collision with siblings."
-            ),
+        deny_reason = (
+            f"BLAST RADIUS VIOLATION: File '{rel_posix}' is outside the declared "
+            f"Allowed Write Scope of Wave {lock.wave_id} / {lock.track_id}. "
+            "Update .parallel-lock.json only after verifying zero collision with siblings."
         )
+        if record_escalation:
+            sid = lock.stories[0] if lock.stories else ""
+            record_scope_escalation(
+                target_dir=worktree_root,
+                story_id=sid,
+                requested_file=rel_posix,
+                reason=deny_reason,
+            )
+        return HookDecision(decision="deny", reason=deny_reason)
 
     if rel_posix in lock.additive_shared_files:
         return HookDecision(

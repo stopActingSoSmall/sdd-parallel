@@ -37,6 +37,12 @@
 > **複数の AI コーディングエージェントを安全に並行実行 — 最大 3 倍高速化、マージボム（Merge-Bomb）はゼロ。**  
 > `sdd-parallel` は、**Spec Kit / BMAD / GSD / OpenSpec / Beads** のバックログと、それを実装するコーディングエージェント（**Claude Code**、**Codex**、**Antigravity**、または任意の worktree 対応 CLI）の間に立つ、決定論的トラフィックコントローラ、worktree 隔離レイヤ、および影響半径（Blast-Radius）ガードです。
 
+<p align="center">
+  <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel ターミナルスクリーンキャスト — 5大 SDD キット検証、ベンチマーク再現率、並行 worktree">
+  <br>
+  <em>影響半径に基づく決定論的ウェーブ計画、マージボムゼロ、クリーンな worktree スロットを 45 秒で実演。</em>
+</p>
+
 ---
 
 ## ⚡ なぜこれが必要なのか？（平易な解説）
@@ -444,7 +450,7 @@ my-project/
 │   │   ├── src/…
 │   │   ├── .tmp/track-context.md     # 👻
 │   │   ├── .parallel-lock.json       # 👻
-│   │   └── ACTIVE_TRACK.md           # 👻 → /openspec-apply normalize-telemetry
+│   │   └── ACTIVE_TRACK.md           # 👻 → /opsx:apply normalize-telemetry
 │   └── track-b/                      # Wave 1 → cli-batch-export（ミラーロック）
 ├── openspec/…                        # 未変更
 └── src/…
@@ -515,7 +521,7 @@ my-project/
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/openspec-apply normalize-telemetry` |
+| OpenSpec | `/opsx:apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 | ハーネス | 連携方法 |
@@ -634,9 +640,9 @@ flowchart TD
 
 ### 🚧 `v0.2.0+` ロードマップ
 
-- [ ] **コミュニティアダプター：** `mattpocock/skills`（`/implement-spec`）および `bmad-loop` フロントマターステータスアダプター。
-- [ ] **汚染ゼロの環境同期：** 固定スロットへの `.venv` / `node_modules` のシンボリックリンク共有。
-- [ ] **ウェーブ実行前の静的シンボルリンカー ＆ スコープエスカレーション：** AST シンボル解析による書き込みセットの動的拡張と自動リスケジューリング。
+- [x] **コミュニティアダプター：** `mattpocock/skills`（`/implement-spec`）および `bmad-loop` フロントマターステータスアダプター。
+- [x] **汚染ゼロの環境同期：** 固定スロットへの `.venv` / `node_modules` のシンボリックリンク共有。
+- [x] **ウェーブ実行前の静的シンボルリンカー ＆ スコープエスカレーション：** AST シンボル解析による書き込みセットの動的拡張と自動リスケジューリング。
 - [ ] **FinOps ＆ 可観測性エクスポーター：** OpenTelemetry スパンおよび Langfuse トークン削減テレメトリの出力。
 - [ ] **ヘッドレス・オートパイロットデーモン：** ローカル RPC / サブエージェントディスパッチによるエージェント自動実行。
 

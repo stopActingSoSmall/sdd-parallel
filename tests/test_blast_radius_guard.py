@@ -10,9 +10,18 @@ from typing import Any
 
 from sdd_parallel.hooks.blast_radius_guard import (
     evaluate_tool_access,
+    record_scope_escalation,
     run_stdin_hook,
 )
-from sdd_parallel.models import LockManifest, TaskNode
+from sdd_parallel.models import (
+    EffortTier,
+    LockManifest,
+    TaskNode,
+    TaskStatus,
+    Wave,
+    WavePlan,
+    WaveTrack,
+)
 from sdd_parallel.scheduler import BSPWaveScheduler
 from sdd_parallel.worktree import WorktreeManager
 
@@ -352,3 +361,122 @@ def test_terminal_guard_denies_redirection_outside_allowed_scope(tmp_path: Path)
         cwd=wt_root,
     )
     assert d_test.decision == "allow"
+
+
+def test_record_scope_escalation_helper(tmp_path: Path) -> None:
+    """Verify record_scope_escalation creates and appends valid JSON requests."""
+    esc_file = record_scope_escalation(
+        target_dir=tmp_path,
+        story_id="15-3",
+        requested_file="src/common/types.py",
+        reason="Required new dataclass definition for API payload",
+    )
+    assert esc_file.is_file()
+    data = json.loads(esc_file.read_text(encoding="utf-8"))
+    assert data["story_id"] == "15-3"
+    assert data["requested_file"] == "src/common/types.py"
+    assert "Required new dataclass" in data["reason"]
+    assert "timestamp" in data
+
+    # Append second escalation
+    record_scope_escalation(
+        target_dir=tmp_path,
+        story_id="15-4",
+        requested_file="src/db/models.py",
+        reason="Required new ORM table definition",
+    )
+    data2 = json.loads(esc_file.read_text(encoding="utf-8"))
+    assert isinstance(data2, list)
+    assert len(data2) == 2
+    assert data2[1]["story_id"] == "15-4"
+
+
+def test_evaluate_tool_access_auto_records_scope_escalation(tmp_path: Path) -> None:
+    """Verify denied file modification automatically writes .tmp/scope-escalation.json."""
+    wt_root = tmp_path / "wt-a"
+    _setup_worktree_lock(wt_root)
+    forbidden_target = wt_root / "src/agentlens/canonical/manifest.py"
+
+    decision = evaluate_tool_access(
+        tool_name="replace_file_content",
+        tool_input={"TargetFile": str(forbidden_target)},
+        cwd=wt_root,
+        record_escalation=True,
+    )
+    assert decision.decision == "deny"
+
+    esc_file = wt_root / ".tmp" / "scope-escalation.json"
+    assert esc_file.is_file()
+    esc_data = json.loads(esc_file.read_text(encoding="utf-8"))
+    assert esc_data["story_id"] == "11-2"
+    assert esc_data["requested_file"] == "src/agentlens/canonical/manifest.py"
+    assert "BLAST RADIUS VIOLATION" in esc_data["reason"]
+
+
+def test_verify_wave_handles_scope_escalation_and_defers_to_next_wave(tmp_path: Path) -> None:
+    """DoD 3: Creation of .tmp/scope-escalation.json is handled by verify-wave
+    and defers task to Wave K+1."""
+    # 1. Initialize git repo
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+
+    # Initial commit
+    (tmp_path / "README.md").write_text("# Test Repo\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True)
+
+    wm = WorktreeManager(repo_root=tmp_path, fixed_slots=True)
+
+    # 2. Setup 2-track Wave 1
+    track_a = WaveTrack(
+        track_id="track-a",
+        task_ids=["11-1"],
+        effort=EffortTier.LOW,
+        exclusive_write_files=["src/pkg/a.py"],
+    )
+    track_b = WaveTrack(
+        track_id="track-b",
+        task_ids=["11-2"],
+        effort=EffortTier.MEDIUM,
+        exclusive_write_files=["src/pkg/b.py"],
+    )
+    wave_1 = Wave(wave_number=1, tracks=[track_a, track_b])
+    plan = WavePlan(
+        sdd_kit="bmad",
+        waves=[wave_1],
+        edges=[],
+    )
+
+    # 3. Simulate escalation in track-b slot: requesting src/common/types.py
+    wt_b = wm.worktree_path_for_track(1, "track-b")
+    wt_b.mkdir(parents=True, exist_ok=True)
+    record_scope_escalation(
+        target_dir=wt_b,
+        story_id="11-2",
+        requested_file="src/common/types.py",
+        reason="Required new dataclass definition for API payload",
+    )
+
+    # 4. Run verify_wave
+    violations = wm.verify_wave(plan=plan, wave_number=1)
+
+    # Violations must be empty (escalated task does not crash or fail wave)
+    assert violations == []
+
+    # Escalation was captured
+    assert len(wm.last_escalations) == 1
+    esc_item = wm.last_escalations[0]
+    assert esc_item["story_id"] == "11-2"
+    assert esc_item["requested_file"] == "src/common/types.py"
+    assert esc_item["status"] == TaskStatus.ESCALATED_DEFERRED.value
+    assert esc_item["deferred_to_wave"] == 2
+
+    # Verify task 11-2 removed from Wave 1 and scheduled into Wave 2
+    assert "11-2" not in wave_1.tracks[1].task_ids
+    assert len(plan.waves) == 2
+    wave_2 = plan.waves[1]
+    assert wave_2.wave_number == 2
+    assert any("11-2" in trk.task_ids for trk in wave_2.tracks)
+    target_trk = next(trk for trk in wave_2.tracks if "11-2" in trk.task_ids)
+    assert "src/common/types.py" in target_trk.exclusive_write_files

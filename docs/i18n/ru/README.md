@@ -37,6 +37,12 @@
 > **Параллельный запуск нескольких ИИ-агентов программирования — до 3x быстрее, без Merge-Bombs.**  
 > `sdd-parallel` — это детерминированный регулировщик, изолятор worktree и защитник blast radius между бэклогом ваших спецификаций (**Spec Kit / BMAD / GSD / OpenSpec / Beads**) и кодинг-агентами (**Claude Code**, **Codex**, **Antigravity** или любым CLI с поддержкой worktree), которые его реализуют.
 
+<p align="center">
+  <img src="../../assets/demo.gif" width="100%" alt="Терминальный скринкаст SDD-Parallel — верификация 5 SDD-китов, бэктест и параллельные worktrees">
+  <br>
+  <em>Детерминированный расчёт волн blast-radius, ноль merge-bombs и чистые слоты worktree за 45 секунд.</em>
+</p>
+
 ---
 
 ## ⚡ Зачем это нужно? (Простыми словами)
@@ -444,7 +450,7 @@ my-project/
 │   │   ├── src/…
 │   │   ├── .tmp/track-context.md     # 👻
 │   │   ├── .parallel-lock.json       # 👻
-│   │   └── ACTIVE_TRACK.md           # 👻 → /openspec-apply normalize-telemetry
+│   │   └── ACTIVE_TRACK.md           # 👻 → /opsx:apply normalize-telemetry
 │   └── track-b/                      # Волна 1 → cli-batch-export (зеркальные блокировки)
 ├── openspec/…                        # не затронуто
 └── src/…
@@ -515,7 +521,7 @@ my-project/
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/openspec-apply normalize-telemetry` |
+| OpenSpec | `/opsx:apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 | Харнесс | Как подключается |
@@ -640,9 +646,9 @@ flowchart TD
 
 ### 🚧 Запланировано в `v0.2.0+`
 
-- [ ] **Комьюнити-адаптеры:** `mattpocock/skills` (`/implement-spec`) и адаптер frontmatter-статусов `bmad-loop`.
-- [ ] **Синхронизация окружения Zero-Pollution:** симлинки `.venv` / `node_modules` в фиксированные слоты.
-- [ ] **Статический линковщик символов и эскалация скоупа:** автоматическое расширение набора файлов на запись по AST-символам с динамическим перепланированием волн.
+- [x] **Комьюнити-адаптеры:** `mattpocock/skills` (`/implement-spec`) и адаптер frontmatter-статусов `bmad-loop`.
+- [x] **Синхронизация окружения Zero-Pollution:** симлинки `.venv` / `node_modules` в фиксированные слоты.
+- [x] **Статический линковщик символов и эскалация скоупа:** автоматическое расширение набора файлов на запись по AST-символам с динамическим перепланированием волн.
 - [ ] **Экспортёры FinOps и наблюдаемости:** трейсы OpenTelemetry и телеметрия экономии токенов Langfuse.
 - [ ] **Headless демон автопилота:** исполнение агентов через локальный RPC / диспетчеризацию субагентов.
 

@@ -118,3 +118,93 @@ def test_demo_canonical_task_ids_across_all_five_kits() -> None:
         assert res.semantic_collision_detected is True
         assert res.scope_guard_decision.decision == "deny"
         assert len(res.merged_branches) == 2
+
+
+def test_demo_callout_first_layout_and_line_budget() -> None:
+    """Verify ADR-0008 Callout-First layout, Unicode box, and <= 16 line budget per stage."""
+    for stage in (1, 2, 3, 4):
+        buf = io.StringIO()
+        res = run_demo(keep_temp=False, output=buf, kit="spec-kit", stage=stage)
+        out = buf.getvalue()
+
+        # Unicode callout box check
+        assert "┌─" in out
+        assert "└─" in out
+
+        # Line budget check: must fit in 1280x720 without vertical scrolling
+        lines = out.splitlines()
+        assert len(lines) <= 18, f"Stage {stage} exceeded 18 lines: {len(lines)}"
+
+        # Sanitization check: no workstation paths leaked
+        assert "C:\\Users" not in out
+        assert "C:/Users" not in out
+
+        if stage == 1:
+            assert "⚠️  HIDDEN LINK FOUND" in out
+            assert "[Step 1/4]" in out
+            assert "[Step 1/4 ●○○○] Next: sdd-parallel plan ..." in out
+        elif stage == 2:
+            assert "❌ Standard Worktrees" in out
+            assert "✅ SDD-Parallel Plan" in out
+            assert "[Step 2/4]" in out
+            assert "[Step 2/4 ●●○○] Next: sdd-parallel prepare --wave 1 ..." in out
+            assert res.semantic_collision_detected is True
+        elif stage == 3:
+            assert "🔒 Fixed-slot worktrees" in out
+            assert "[Step 3/4]" in out
+            assert "[Step 3/4 ●●●○] Next: sdd-parallel merge --wave 1 ..." in out
+            assert res.scope_guard_decision.decision == "deny"
+        elif stage == 4:
+            assert "✨ Wave 1 merged" in out
+            assert "[Step 4/4]" in out
+            assert "[Step 4/4 ●●●●] Complete! Try: uvx sdd-parallel demo" in out
+            assert "- - [" not in out
+            assert "- [x]" in out
+
+
+def test_demo_sandbox_cli_lifecycle_commands(tmp_path: Path, capsys, monkeypatch) -> None:
+    """Verify real CLI commands in demo sandbox: scaffold-only -> plan -> prepare -> merge."""
+    demo_dir = tmp_path / "sandbox-cli-demo"
+
+    # 1. scaffold-only
+    rc_scaffold = main(
+        ["demo", "--kit", "spec-kit", "--scaffold-only", "--output-dir", str(demo_dir)]
+    )
+    assert rc_scaffold == 0
+    cap_scaffold = capsys.readouterr()
+    assert "⚠️  HIDDEN LINK FOUND" in cap_scaffold.out
+    assert "[Step 1/4]" in cap_scaffold.out
+
+    # 1b. inside demo_dir: demo --stage 1 reuses sandbox
+    monkeypatch.chdir(demo_dir)
+    rc_stage1 = main(["demo", "--stage", "1"])
+    assert rc_stage1 == 0
+    cap_stage1 = capsys.readouterr()
+    assert "⚠️  HIDDEN LINK FOUND" in cap_stage1.out
+    assert "[Step 1/4 ●○○○] Next: sdd-parallel plan ..." in cap_stage1.out
+
+    # 2. plan
+    rc_plan = main(["plan", "--repo", str(demo_dir)])
+    assert rc_plan == 0
+    cap_plan = capsys.readouterr()
+    assert "❌ Standard Worktrees" in cap_plan.out
+    assert "[Step 2/4]" in cap_plan.out
+    assert "[Step 2/4 ●●○○] Next: sdd-parallel prepare --wave 1 ..." in cap_plan.out
+
+    # 3. prepare --wave 1
+    rc_prepare = main(["prepare", "--wave", "1", "--repo", str(demo_dir)])
+    assert rc_prepare == 0
+    cap_prepare = capsys.readouterr()
+    assert "🔒 Fixed-slot worktrees" in cap_prepare.out
+    assert "[Step 3/4]" in cap_prepare.out
+    assert "[Step 3/4 ●●●○] Next: sdd-parallel merge --wave 1 ..." in cap_prepare.out
+
+    # 4. merge --wave 1
+    rc_merge = main(["merge", "--wave", "1", "--repo", str(demo_dir)])
+    assert rc_merge == 0
+    cap_merge = capsys.readouterr()
+    assert "✨ Wave 1 merged" in cap_merge.out
+    assert "[Step 4/4]" in cap_merge.out
+    assert "[Step 4/4 ●●●●] Complete! Try: uvx sdd-parallel demo" in cap_merge.out
+    assert "- [x] T002" in cap_merge.out
+

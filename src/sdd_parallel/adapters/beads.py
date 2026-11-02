@@ -196,6 +196,9 @@ class BeadsAdapter:
                 or "beads"
             )
 
+            desc = str(
+                record.get("description") or record.get("body") or record.get("text") or title
+            )
             tasks.append(
                 TaskNode(
                     id=tid,
@@ -205,6 +208,7 @@ class BeadsAdapter:
                     effort=effort,
                     write_files=write_files,
                     depends_on=depends_on,
+                    description=desc,
                 )
             )
 
@@ -330,3 +334,7 @@ class BeadsAdapter:
     def get_status_files(self) -> list[str]:
         """Return relative paths of Beads status files."""
         return [".beads/beads.jsonl", ".beads/issues.jsonl"]
+
+    def get_change_worktree(self, change_id: str) -> Path | None:
+        """Return Path to assigned worktree if supported by framework or None."""
+        return None

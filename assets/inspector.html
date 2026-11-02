@@ -1,0 +1,1277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SDD-Parallel Wave Inspector</title>
+  <style>
+    :root {
+      --bg-canvas: #0d1117;
+      --bg-card: #161b22;
+      --bg-header: #1c2128;
+      --border-color: #30363d;
+      --border-muted: #21262d;
+      --text-main: #e6edf3;
+      --text-muted: #8b949e;
+      --accent-blue: #58a6ff;
+      --accent-green: #3fb950;
+      --accent-amber: #d29922;
+      --accent-red: #f85149;
+      --accent-purple: #bc8cff;
+      --accent-cyan: #39c5bb;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background-color: var(--bg-canvas);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.5;
+      padding-bottom: 60px;
+    }
+    a {
+      color: var(--accent-blue);
+      text-decoration: none;
+    }
+    header {
+      background: var(--bg-header);
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: #fff;
+      font-size: 16px;
+    }
+    .brand-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+    }
+    .kit-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      background: rgba(88, 166, 255, 0.15);
+      border: 1px solid var(--accent-blue);
+      color: var(--accent-blue);
+      border-radius: 12px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .stats-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .stat-pill {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .stat-val {
+      font-weight: 700;
+      color: var(--accent-blue);
+      font-family: var(--font-mono);
+    }
+    .toolbar {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-color);
+      padding: 12px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .tab-group {
+      display: flex;
+      gap: 6px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease-in-out;
+    }
+    .tab-btn:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .tab-btn.active {
+      background: rgba(88, 166, 255, 0.15);
+      border-color: var(--accent-blue);
+      color: var(--accent-blue);
+    }
+    .btn {
+      background: #21262d;
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .btn:hover {
+      background: #30363d;
+      border-color: var(--text-muted);
+    }
+    .btn-primary {
+      background: #238636;
+      border-color: #2ea043;
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: #2ea043;
+    }
+    .search-input {
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      width: 240px;
+    }
+    .search-input:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+    }
+    main {
+      max-width: 1440px;
+      margin: 24px auto;
+      padding: 0 24px;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    /* Waves Layout */
+    .wave-container {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .wave-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+    .wave-header {
+      background: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid var(--border-color);
+      padding: 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .wave-title {
+      font-size: 16px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .barrier-pill {
+      background: rgba(63, 185, 80, 0.15);
+      border: 1px solid var(--accent-green);
+      color: var(--accent-green);
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+    }
+    .checkpoint-gates {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .gate-badge {
+      background: #21262d;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 11px;
+    }
+    .tracks-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 16px;
+      padding: 20px;
+    }
+    .track-card {
+      background: #0d1117;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .track-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-muted);
+      padding-bottom: 10px;
+    }
+    .track-id {
+      font-size: 15px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: var(--accent-blue);
+    }
+    .effort-badge {
+      font-size: 10px;
+      text-transform: uppercase;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-family: var(--font-mono);
+    }
+    .effort-high {
+      background: rgba(248, 81, 73, 0.15);
+      border: 1px solid var(--accent-red);
+      color: var(--accent-red);
+    }
+    .effort-medium {
+      background: rgba(210, 153, 34, 0.15);
+      border: 1px solid var(--accent-amber);
+      color: var(--accent-amber);
+    }
+    .effort-low {
+      background: rgba(63, 185, 80, 0.15);
+      border: 1px solid var(--accent-green);
+      color: var(--accent-green);
+    }
+    .story-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-muted);
+      border-radius: 6px;
+      padding: 10px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .story-card:hover {
+      border-color: var(--accent-blue);
+    }
+    .story-id {
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: var(--accent-cyan);
+    }
+    .file-box {
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .file-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .file-pill {
+      font-family: var(--font-mono);
+      background: #1c2128;
+      border: 1px solid var(--border-muted);
+      border-radius: 4px;
+      padding: 2px 6px;
+      color: var(--text-main);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .file-pill.exclusive {
+      border-left: 3px solid var(--accent-green);
+    }
+    .file-pill.shared {
+      border-left: 3px solid var(--accent-purple);
+    }
+    /* Graph View */
+    .graph-view-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 20px;
+      overflow-x: auto;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 16px;
+      padding: 10px 14px;
+      background: #0d1117;
+      border: 1px solid var(--border-muted);
+      border-radius: 6px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .legend-color {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+    }
+    .svg-canvas {
+      width: 100%;
+      min-height: 480px;
+      background: #090d13;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+    }
+    /* Table View */
+    .table-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+    th {
+      background: #21262d;
+      color: var(--text-muted);
+      font-weight: 600;
+      padding: 12px 16px;
+      font-size: 12px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-muted);
+      font-size: 13px;
+    }
+    tr:last-child td {
+      border-bottom: none;
+    }
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .edge-type-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+    }
+    .edge-direct {
+      background: rgba(248, 81, 73, 0.15);
+      color: var(--accent-red);
+      border: 1px solid var(--accent-red);
+    }
+    .edge-semantic {
+      background: rgba(210, 153, 34, 0.15);
+      color: var(--accent-amber);
+      border: 1px solid var(--accent-amber);
+    }
+    .edge-spine {
+      background: rgba(188, 140, 255, 0.15);
+      color: var(--accent-purple);
+      border: 1px solid var(--accent-purple);
+    }
+    .edge-explicit {
+      background: rgba(88, 166, 255, 0.15);
+      color: var(--accent-blue);
+      border: 1px solid var(--accent-blue);
+    }
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(3px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+    }
+    .modal-backdrop.open {
+      display: flex;
+    }
+    .modal-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 80vh;
+      overflow-y: auto;
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 12px;
+    }
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent-cyan);
+    }
+    .close-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 20px;
+      cursor: pointer;
+    }
+    .close-btn:hover {
+      color: var(--text-main);
+    }
+    .drop-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(14, 165, 233, 0.2);
+      border: 4px dashed var(--accent-blue);
+      z-index: 300;
+      pointer-events: none;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--accent-blue);
+    }
+    .drop-overlay.active {
+      display: flex;
+    }
+  </style>
+</head>
+<body>
+  <div id="drop-overlay" class="drop-overlay">Drop wave-plan.json here to inspect</div>
+
+  <header>
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <div>
+        <div class="brand-title">SDD-Parallel Wave Inspector</div>
+        <div style="font-size: 11px; color: var(--text-muted);">Deterministic Multi-Track Wave Visualizer</div>
+      </div>
+      <span id="kit-badge" class="kit-badge">KIT: AUTO</span>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat-pill"><span>🌊 Waves:</span> <span id="stat-waves" class="stat-val">0</span></div>
+      <div class="stat-pill"><span>🛤️ Tracks:</span> <span id="stat-tracks" class="stat-val">0</span></div>
+      <div class="stat-pill"><span>📋 Tasks:</span> <span id="stat-tasks" class="stat-val">0</span></div>
+      <div class="stat-pill"><span>⚡ Conflicts:</span> <span id="stat-conflicts" class="stat-val">0</span></div>
+      <div class="stat-pill"><span>🔒 Spine Files:</span> <span id="stat-spine" class="stat-val">0</span></div>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="tab-group">
+      <button class="tab-btn active" data-tab="tab-waves">🌊 Waves &amp; Tracks</button>
+      <button class="tab-btn" data-tab="tab-graph">📊 Conflict DAG</button>
+      <button class="tab-btn" data-tab="tab-matrix">⚡ Conflict Matrix</button>
+      <button class="tab-btn" data-tab="tab-roles">🔒 Architectural Roles</button>
+    </div>
+
+    <div style="display: flex; gap: 10px; align-items: center;">
+      <input type="text" id="search-input" class="search-input" placeholder="Search tasks or files...">
+      <input type="file" id="file-picker" accept=".json" style="display: none;">
+      <button class="btn" id="btn-load-file">📂 Open JSON</button>
+      <button class="btn" id="btn-load-demo">🧪 Demo Plan</button>
+    </div>
+  </div>
+
+  <main>
+    <!-- TAB 1: Waves & Tracks -->
+    <div id="tab-waves" class="tab-content active">
+      <div id="waves-container" class="wave-container">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+
+    <!-- TAB 2: DAG Graph -->
+    <div id="tab-graph" class="tab-content">
+      <div class="graph-view-card">
+        <div class="legend">
+          <div class="legend-item">
+            <div class="legend-color" style="background: var(--accent-red);"></div>
+            <span>Direct Collision ($W_A \cap W_B \neq \emptyset$)</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: var(--accent-amber);"></div>
+            <span>Semantic Collision ($W_A \cap I_B \neq \emptyset$)</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: var(--accent-purple);"></div>
+            <span>Spine Lock Order</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: var(--accent-blue);"></div>
+            <span>Explicit Dependency</span>
+          </div>
+        </div>
+        <svg id="dag-svg" class="svg-canvas" viewBox="0 0 1100 520"></svg>
+      </div>
+    </div>
+
+    <!-- TAB 3: Conflict Matrix -->
+    <div id="tab-matrix" class="tab-content">
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>Source Task</th>
+              <th>Target Task</th>
+              <th>Conflict Type</th>
+              <th>Shared / Impact Files</th>
+              <th>Invariant Reason</th>
+            </tr>
+          </thead>
+          <tbody id="matrix-tbody">
+            <!-- Rendered by JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 4: Architectural Roles -->
+    <div id="tab-roles" class="tab-content">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px;">
+        <div class="table-card" style="padding: 20px;">
+          <h3 style="margin-bottom: 12px; color: var(--accent-purple); font-size: 15px;">🔒 Spine Lock Files (Contract Schemas)</h3>
+          <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 16px;">
+            High fan-in contract schemas, migrations, and core definitions. Modifications are strictly serialized across waves.
+          </p>
+          <ul id="spine-files-list" style="list-style: none; display: flex; flex-direction: column; gap: 8px;"></ul>
+        </div>
+
+        <div class="table-card" style="padding: 20px;">
+          <h3 style="margin-bottom: 12px; color: var(--accent-blue); font-size: 15px;">🔀 Additive Registries (Append-Only)</h3>
+          <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 16px;">
+            Router, CLI decorator registries, and plugin tables. Parallel safe via additive merge resolution.
+          </p>
+          <ul id="additive-files-list" style="list-style: none; display: flex; flex-direction: column; gap: 8px;"></ul>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Modal for Story Details -->
+  <div id="story-modal" class="modal-backdrop">
+    <div class="modal-box">
+      <div class="modal-header">
+        <div id="modal-task-id" class="modal-title">Task Details</div>
+        <button class="close-btn" id="modal-close">&times;</button>
+      </div>
+      <div id="modal-body" style="display: flex; flex-direction: column; gap: 12px;"></div>
+    </div>
+  </div>
+
+  <script id="wave-plan-data" type="application/json">
+{
+  "sdd_kit": "spec-kit",
+  "wave_zero_blockers": [],
+  "spine_files": [
+    "src/demo_app/schema.py"
+  ],
+  "additive_registries": [
+    "src/demo_app/cli.py",
+    "src/demo_app/__init__.py"
+  ],
+  "waves": [
+    {
+      "wave_number": 1,
+      "checkpoint_gates": [
+        "uv run pytest",
+        "uv run ruff check src/ tests/",
+        "uv run mypy --strict src/"
+      ],
+      "tracks": [
+        {
+          "track_id": "track-a",
+          "task_ids": [
+            "T002"
+          ],
+          "effort": "high",
+          "exclusive_write_files": [
+            "src/demo_app/normalizer.py"
+          ],
+          "additive_shared_files": [
+            "src/demo_app/cli.py"
+          ],
+          "function_scope_notes": {
+            "src/demo_app/cli.py": "register_normalizer_command"
+          }
+        },
+        {
+          "track_id": "track-b",
+          "task_ids": [
+            "T003"
+          ],
+          "effort": "medium",
+          "exclusive_write_files": [
+            "src/demo_app/exporter.py"
+          ],
+          "additive_shared_files": [
+            "src/demo_app/cli.py"
+          ],
+          "function_scope_notes": {
+            "src/demo_app/cli.py": "register_export_command"
+          }
+        }
+      ]
+    },
+    {
+      "wave_number": 2,
+      "checkpoint_gates": [
+        "uv run pytest",
+        "uv run ruff check src/ tests/",
+        "uv run mypy --strict src/"
+      ],
+      "tracks": [
+        {
+          "track_id": "track-a",
+          "task_ids": [
+            "T001"
+          ],
+          "effort": "medium",
+          "exclusive_write_files": [
+            "src/demo_app/schema.py"
+          ],
+          "additive_shared_files": [],
+          "function_scope_notes": {}
+        },
+        {
+          "track_id": "track-b",
+          "task_ids": [
+            "T004"
+          ],
+          "effort": "high",
+          "exclusive_write_files": [
+            "src/demo_app/api.py"
+          ],
+          "additive_shared_files": [],
+          "function_scope_notes": {}
+        }
+      ]
+    },
+    {
+      "wave_number": 3,
+      "checkpoint_gates": [
+        "uv run pytest"
+      ],
+      "tracks": [
+        {
+          "track_id": "track-a",
+          "task_ids": [
+            "T005"
+          ],
+          "effort": "low",
+          "exclusive_write_files": [
+            "src/demo_app/schema.py"
+          ],
+          "additive_shared_files": [],
+          "function_scope_notes": {}
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "source": "T002",
+      "target": "T004",
+      "conflict_type": "semantic_collision",
+      "reason": "Type-2 semantic collision: W(T002)={normalizer.py} intersects I(T004)={api.py} via AST import",
+      "shared_files": [
+        "src/demo_app/api.py"
+      ],
+      "directed": true
+    },
+    {
+      "source": "T001",
+      "target": "T005",
+      "conflict_type": "spine_order",
+      "reason": "Serialized access to spine contract schema: src/demo_app/schema.py",
+      "shared_files": [
+        "src/demo_app/schema.py"
+      ],
+      "directed": true
+    },
+    {
+      "source": "T002",
+      "target": "T001",
+      "conflict_type": "explicit_dep",
+      "reason": "Explicit roadmap dependency declared in tasks.md",
+      "shared_files": [],
+      "directed": true
+    },
+    {
+      "source": "T001",
+      "target": "T002",
+      "conflict_type": "direct_collision",
+      "reason": "Mutual exclusivity on shared specification documents",
+      "shared_files": [
+        "specs/001-telemetry/tasks.md"
+      ],
+      "directed": true
+    }
+  ]
+}
+  </script>
+
+  <script>
+    let activePlan = null;
+
+    function init() {
+      const scriptEl = document.getElementById('wave-plan-data');
+      if (scriptEl && scriptEl.textContent.trim()) {
+        try {
+          activePlan = JSON.parse(scriptEl.textContent.trim());
+          render(activePlan);
+        } catch (e) {
+          console.error("Failed to parse initial wave plan:", e);
+        }
+      }
+
+      setupEvents();
+    }
+
+    function setupEvents() {
+      // Tabs
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+          document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+          btn.classList.add('active');
+          const target = document.getElementById(btn.dataset.tab);
+          if (target) target.classList.add('active');
+        });
+      });
+
+      // Search
+      const searchInput = document.getElementById('search-input');
+      searchInput.addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase().trim();
+        filterTasks(term);
+      });
+
+      // Load File
+      const filePicker = document.getElementById('file-picker');
+      document.getElementById('btn-load-file').addEventListener('click', () => filePicker.click());
+      filePicker.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          try {
+            activePlan = JSON.parse(evt.target.result);
+            render(activePlan);
+          } catch (err) {
+            alert("Error parsing JSON file: " + err.message);
+          }
+        };
+        reader.readAsText(file);
+      });
+
+      // Demo Plan button
+      document.getElementById('btn-load-demo').addEventListener('click', () => {
+        const initial = JSON.parse(document.getElementById('wave-plan-data').textContent.trim());
+        activePlan = initial;
+        render(activePlan);
+      });
+
+      // Drag and drop
+      const overlay = document.getElementById('drop-overlay');
+      window.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        overlay.classList.add('active');
+      });
+      window.addEventListener('dragleave', (e) => {
+        if (e.relatedTarget === null) overlay.classList.remove('active');
+      });
+      window.addEventListener('drop', (e) => {
+        e.preventDefault();
+        overlay.classList.remove('active');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          const file = e.dataTransfer.files[0];
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            try {
+              activePlan = JSON.parse(evt.target.result);
+              render(activePlan);
+            } catch (err) {
+              alert("Error parsing JSON file: " + err.message);
+            }
+          };
+          reader.readAsText(file);
+        }
+      });
+
+      // Modal close
+      document.getElementById('modal-close').addEventListener('click', () => {
+        document.getElementById('story-modal').classList.remove('open');
+      });
+      document.getElementById('story-modal').addEventListener('click', (e) => {
+        if (e.target.id === 'story-modal') {
+          document.getElementById('story-modal').classList.remove('open');
+        }
+      });
+    }
+
+    function render(plan) {
+      if (!plan) return;
+
+      // Stats
+      document.getElementById('kit-badge').textContent = "KIT: " + (plan.sdd_kit || "AUTO").toUpperCase();
+      const waves = plan.waves || [];
+      const edges = plan.edges || [];
+      const spineFiles = plan.spine_files || [];
+      const additiveFiles = plan.additive_registries || [];
+
+      let totalTracks = 0;
+      let totalTasks = 0;
+      waves.forEach(w => {
+        totalTracks += (w.tracks || []).length;
+        (w.tracks || []).forEach(t => {
+          totalTasks += (t.task_ids || []).length;
+        });
+      });
+
+      document.getElementById('stat-waves').textContent = waves.length;
+      document.getElementById('stat-tracks').textContent = totalTracks;
+      document.getElementById('stat-tasks').textContent = totalTasks;
+      document.getElementById('stat-conflicts').textContent = edges.length;
+      document.getElementById('stat-spine').textContent = spineFiles.length;
+
+      renderWaves(waves);
+      renderDAG(waves, edges);
+      renderMatrix(edges);
+      renderRoles(spineFiles, additiveFiles);
+    }
+
+    function renderWaves(waves) {
+      const container = document.getElementById('waves-container');
+      container.innerHTML = "";
+
+      if (waves.length === 0) {
+        container.innerHTML = `<div style="text-align: center; padding: 40px; color: var(--text-muted);">No waves scheduled.</div>`;
+        return;
+      }
+
+      waves.forEach(w => {
+        const card = document.createElement('div');
+        card.className = "wave-card";
+
+        const gates = (w.checkpoint_gates || []).map(g => `<span class="gate-badge">${escapeHtml(g)}</span>`).join(" ");
+
+        card.innerHTML = `
+          <div class="wave-header">
+            <div class="wave-title">
+              <span>Wave ${w.wave_number}</span>
+              <span class="barrier-pill">Barrier Checkpoint</span>
+            </div>
+            <div class="checkpoint-gates">
+              <span>Gates:</span>
+              ${gates || '<span class="gate-badge">uv run pytest</span>'}
+            </div>
+          </div>
+          <div class="tracks-grid">
+            ${(w.tracks || []).map(t => renderTrackHtml(t, w.wave_number)).join("")}
+          </div>
+        `;
+
+        container.appendChild(card);
+      });
+
+      // Hook click on story cards
+      container.querySelectorAll('.story-card').forEach(card => {
+        card.addEventListener('click', () => {
+          showStoryDetails(card.dataset.taskId, card.dataset.trackId, card.dataset.waveNum);
+        });
+      });
+    }
+
+    function renderTrackHtml(track, waveNum) {
+      const effortClass = "effort-" + (track.effort || "medium").toLowerCase();
+      const storiesHtml = (track.task_ids || []).map(tid => `
+        <div class="story-card" data-task-id="${escapeHtml(tid)}" data-track-id="${escapeHtml(track.track_id)}" data-wave-num="${waveNum}">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span class="story-id">📋 ${escapeHtml(tid)}</span>
+            <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">Slot: ${escapeHtml(track.track_id)}</span>
+          </div>
+        </div>
+      `).join("");
+
+      const writeFiles = (track.exclusive_write_files || []).map(f => `
+        <div class="file-pill exclusive" title="${escapeHtml(f)}">✍️ ${escapeHtml(f)}</div>
+      `).join("");
+
+      const sharedFiles = (track.additive_shared_files || []).map(f => `
+        <div class="file-pill shared" title="${escapeHtml(f)}">🔀 ${escapeHtml(f)}</div>
+      `).join("");
+
+      return `
+        <div class="track-card">
+          <div class="track-header">
+            <div class="track-id">🛤️ ${escapeHtml(track.track_id)}</div>
+            <span class="effort-badge ${effortClass}">${escapeHtml(track.effort || "medium")} tier</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            ${storiesHtml}
+          </div>
+          <div class="file-box">
+            <div class="file-label">Exclusive Write Scope:</div>
+            ${writeFiles || '<span style="color: var(--text-muted); font-style: italic;">None</span>'}
+          </div>
+          ${sharedFiles ? `
+          <div class="file-box">
+            <div class="file-label">Additive Shared Registries:</div>
+            ${sharedFiles}
+          </div>
+          ` : ""}
+        </div>
+      `;
+    }
+
+    function renderDAG(waves, edges) {
+      const svg = document.getElementById('dag-svg');
+      svg.innerHTML = `
+        <defs>
+          <marker id="arr-direct" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <polygon points="0 0, 8 4, 0 8" fill="#f85149" />
+          </marker>
+          <marker id="arr-semantic" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <polygon points="0 0, 8 4, 0 8" fill="#d29922" />
+          </marker>
+          <marker id="arr-spine" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <polygon points="0 0, 8 4, 0 8" fill="#bc8cff" />
+          </marker>
+          <marker id="arr-explicit" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <polygon points="0 0, 8 4, 0 8" fill="#58a6ff" />
+          </marker>
+        </defs>
+      `;
+
+      const nodeCoords = {};
+      const colWidth = 320;
+      const startX = 60;
+      let maxWave = waves.length || 1;
+
+      // Layout nodes
+      waves.forEach((w, wIdx) => {
+        const x = startX + wIdx * colWidth;
+        const tracks = w.tracks || [];
+        tracks.forEach((t, tIdx) => {
+          const y = 80 + tIdx * 140;
+          const tasks = t.task_ids || [];
+          tasks.forEach(tid => {
+            nodeCoords[tid] = { x: x + 80, y: y + 40, wave: w.wave_number, track: t.track_id };
+          });
+        });
+      });
+
+      // Render edges
+      edges.forEach(e => {
+        const src = nodeCoords[e.source];
+        const dst = nodeCoords[e.target];
+        if (!src || !dst) return;
+
+        let stroke = "#58a6ff";
+        let marker = "arr-explicit";
+        if (e.conflict_type === "direct_collision") {
+          stroke = "#f85149";
+          marker = "arr-direct";
+        } else if (e.conflict_type === "semantic_collision") {
+          stroke = "#d29922";
+          marker = "arr-semantic";
+        } else if (e.conflict_type === "spine_order") {
+          stroke = "#bc8cff";
+          marker = "arr-spine";
+        }
+
+        const dx = dst.x - src.x;
+        const cx1 = src.x + dx * 0.5;
+        const cy1 = src.y;
+        const cx2 = dst.x - dx * 0.5;
+        const cy2 = dst.y;
+
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", `M ${src.x} ${src.y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${dst.x} ${dst.y}`);
+        path.setAttribute("fill", "none");
+        path.setAttribute("stroke", stroke);
+        path.setAttribute("stroke-width", "2");
+        path.setAttribute("stroke-dasharray", e.conflict_type === "semantic_collision" ? "4,4" : "none");
+        path.setAttribute("marker-end", `url(#${marker})`);
+        path.setAttribute("opacity", "0.85");
+
+        const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        title.textContent = `${e.source} -> ${e.target} (${e.conflict_type}): ${e.reason}`;
+        path.appendChild(title);
+
+        svg.appendChild(path);
+      });
+
+      // Render wave column labels & barriers
+      waves.forEach((w, wIdx) => {
+        const x = startX + wIdx * colWidth;
+        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        label.setAttribute("x", x + 80);
+        label.setAttribute("y", 35);
+        label.setAttribute("fill", "#8b949e");
+        label.setAttribute("font-size", "14");
+        label.setAttribute("font-weight", "700");
+        label.setAttribute("text-anchor", "middle");
+        label.textContent = `WAVE ${w.wave_number}`;
+        svg.appendChild(label);
+      });
+
+      // Render nodes
+      Object.keys(nodeCoords).forEach(tid => {
+        const coord = nodeCoords[tid];
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.setAttribute("transform", `translate(${coord.x - 70}, ${coord.y - 25})`);
+        g.style.cursor = "pointer";
+
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("width", "140");
+        rect.setAttribute("height", "50");
+        rect.setAttribute("rx", "6");
+        rect.setAttribute("fill", "#161b22");
+        rect.setAttribute("stroke", "#30363d");
+        rect.setAttribute("stroke-width", "1.5");
+
+        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.setAttribute("x", "70");
+        text.setAttribute("y", "25");
+        text.setAttribute("fill", "#39c5bb");
+        text.setAttribute("font-size", "13");
+        text.setAttribute("font-weight", "bold");
+        text.setAttribute("font-family", "ui-monospace, monospace");
+        text.setAttribute("text-anchor", "middle");
+        text.textContent = tid;
+
+        const sub = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        sub.setAttribute("x", "70");
+        sub.setAttribute("y", "40");
+        sub.setAttribute("fill", "#8b949e");
+        sub.setAttribute("font-size", "10");
+        sub.setAttribute("text-anchor", "middle");
+        sub.textContent = coord.track;
+
+        g.appendChild(rect);
+        g.appendChild(text);
+        g.appendChild(sub);
+
+        g.addEventListener('click', () => {
+          showStoryDetails(tid, coord.track, coord.wave);
+        });
+
+        svg.appendChild(g);
+      });
+
+      const reqWidth = Math.max(1000, startX + maxWave * colWidth);
+      svg.setAttribute("viewBox", `0 0 ${reqWidth} 480`);
+    }
+
+    function renderMatrix(edges) {
+      const tbody = document.getElementById('matrix-tbody');
+      tbody.innerHTML = "";
+
+      if (edges.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No conflict edges detected. Fully parallelizable!</td></tr>`;
+        return;
+      }
+
+      edges.forEach(e => {
+        const tr = document.createElement('tr');
+        let badgeClass = "edge-explicit";
+        if (e.conflict_type === "direct_collision") badgeClass = "edge-direct";
+        else if (e.conflict_type === "semantic_collision") badgeClass = "edge-semantic";
+        else if (e.conflict_type === "spine_order") badgeClass = "edge-spine";
+
+        const filesHtml = (e.shared_files || []).map(f => `<span class="file-pill">${escapeHtml(f)}</span>`).join(" ");
+
+        tr.innerHTML = `
+          <td style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-cyan);">${escapeHtml(e.source)}</td>
+          <td style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-blue);">${escapeHtml(e.target)}</td>
+          <td><span class="edge-type-pill ${badgeClass}">${escapeHtml(e.conflict_type)}</span></td>
+          <td>${filesHtml || '<span style="color: var(--text-muted);">-</span>'}</td>
+          <td style="color: var(--text-muted); font-size: 12px;">${escapeHtml(e.reason)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderRoles(spineFiles, additiveFiles) {
+      const spineList = document.getElementById('spine-files-list');
+      spineList.innerHTML = "";
+      if (spineFiles.length === 0) {
+        spineList.innerHTML = `<li style="color: var(--text-muted); font-style: italic;">No spine files identified.</li>`;
+      } else {
+        spineFiles.forEach(f => {
+          const li = document.createElement('li');
+          li.className = "file-pill";
+          li.style.borderLeft = "3px solid var(--accent-purple)";
+          li.textContent = "🔒 " + f;
+          spineList.appendChild(li);
+        });
+      }
+
+      const addList = document.getElementById('additive-files-list');
+      addList.innerHTML = "";
+      if (additiveFiles.length === 0) {
+        addList.innerHTML = `<li style="color: var(--text-muted); font-style: italic;">No additive registries identified.</li>`;
+      } else {
+        additiveFiles.forEach(f => {
+          const li = document.createElement('li');
+          li.className = "file-pill";
+          li.style.borderLeft = "3px solid var(--accent-blue)";
+          li.textContent = "🔀 " + f;
+          addList.appendChild(li);
+        });
+      }
+    }
+
+    function showStoryDetails(taskId, trackId, waveNum) {
+      const modal = document.getElementById('story-modal');
+      document.getElementById('modal-task-id').textContent = `Task Specification: ${taskId}`;
+
+      const body = document.getElementById('modal-body');
+      let trackInfo = null;
+      if (activePlan && activePlan.waves) {
+        activePlan.waves.forEach(w => {
+          (w.tracks || []).forEach(t => {
+            if ((t.task_ids || []).includes(taskId)) trackInfo = t;
+          });
+        });
+      }
+
+      const writes = trackInfo ? (trackInfo.exclusive_write_files || []).join(", ") : "-";
+      const shared = trackInfo ? (trackInfo.additive_shared_files || []).join(", ") : "-";
+
+      body.innerHTML = `
+        <div style="display: flex; gap: 10px; margin-bottom: 8px;">
+          <span class="stat-pill">Wave: <strong style="color: var(--accent-blue);">${waveNum || "-"}</strong></span>
+          <span class="stat-pill">Slot: <strong style="color: var(--accent-cyan);">${trackId || "-"}</strong></span>
+          <span class="stat-pill">Effort: <strong style="color: var(--accent-amber);">${trackInfo ? trackInfo.effort : "medium"}</strong></span>
+        </div>
+        <div class="file-box">
+          <div class="file-label">Exclusive Write Files (Blast Radius Boundary):</div>
+          <div class="file-pill exclusive">${escapeHtml(writes) || "None"}</div>
+        </div>
+        <div class="file-box">
+          <div class="file-label">Additive Shared Files:</div>
+          <div class="file-pill shared">${escapeHtml(shared) || "None"}</div>
+        </div>
+        <div class="file-box" style="margin-top: 8px;">
+          <div class="file-label">Related Conflict Constraints:</div>
+          <ul style="list-style: square; padding-left: 20px; font-size: 12px; color: var(--text-muted);">
+            ${getRelatedConflictsHtml(taskId)}
+          </ul>
+        </div>
+      `;
+
+      modal.classList.add('open');
+    }
+
+    function getRelatedConflictsHtml(taskId) {
+      if (!activePlan || !activePlan.edges) return "<li>No active conflicts.</li>";
+      const related = activePlan.edges.filter(e => e.source === taskId || e.target === taskId);
+      if (related.length === 0) return "<li>No active conflicts or dependencies.</li>";
+      return related.map(e => `
+        <li>
+          <strong>${e.source} &rarr; ${e.target}</strong> [${e.conflict_type}]: ${escapeHtml(e.reason)}
+        </li>
+      `).join("");
+    }
+
+    function filterTasks(term) {
+      document.querySelectorAll('.story-card').forEach(card => {
+        const tid = card.dataset.taskId.toLowerCase();
+        const matches = !term || tid.includes(term);
+        card.style.display = matches ? "block" : "none";
+      });
+    }
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

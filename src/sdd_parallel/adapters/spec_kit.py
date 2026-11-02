@@ -244,6 +244,7 @@ class SpecKitAdapter:
                     effort=effort,
                     write_files=write_files,
                     depends_on=depends_on,
+                    description=desc.strip(),
                 )
                 tasks.append(task_node)
                 current_task = task_node
@@ -499,3 +500,7 @@ class SpecKitAdapter:
                     except ValueError:
                         pass
         return status_files
+
+    def get_change_worktree(self, change_id: str) -> Path | None:
+        """Return Path to assigned worktree if supported by framework or None."""
+        return None
