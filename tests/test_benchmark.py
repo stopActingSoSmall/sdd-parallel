@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 from contextlib import redirect_stdout
 from pathlib import Path
+
+import pytest
 
 from sdd_parallel.benchmark import (
     HistoricalBenchmarkResult,
@@ -47,6 +50,13 @@ def test_demo_benchmark_across_all_five_sdd_kits() -> None:
 def test_run_git_benchmark_direct() -> None:
     """Verify direct invocation of run_git_benchmark."""
     repo_root = Path(__file__).resolve().parent.parent
+    check = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD~2"],
+        cwd=repo_root,
+        capture_output=True,
+    )
+    if check.returncode != 0:
+        pytest.skip("Insufficient git commit depth (shallow clone)")
     res = run_git_benchmark(repo_root, since="HEAD~2")
     assert isinstance(res, HistoricalBenchmarkResult)
     assert res.is_demo is False
@@ -103,6 +113,13 @@ def test_cli_bench_demo_command_json() -> None:
 def test_cli_bench_git_range_on_current_repo() -> None:
     """Verify CLI `sdd-parallel bench --since HEAD~3` executes on git history."""
     repo_root = Path(__file__).resolve().parent.parent
+    check = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD~3"],
+        cwd=repo_root,
+        capture_output=True,
+    )
+    if check.returncode != 0:
+        pytest.skip("Insufficient git commit depth (shallow clone)")
     buf = io.StringIO()
     with redirect_stdout(buf):
         exit_code = main(["bench", "--repo", str(repo_root), "--since", "HEAD~3"])

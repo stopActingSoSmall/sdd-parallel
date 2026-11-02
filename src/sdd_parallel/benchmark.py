@@ -337,7 +337,7 @@ def run_git_benchmark(
             commit_msg = parts[1] if len(parts) > 1 else ""
             diff_proc = _run_git(
                 resolved_root,
-                ["diff-tree", "--no-commit-id", "--name-only", "-r", commit_hash],
+                ["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", commit_hash],
             )
             files = [
                 f.strip().replace("\\", "/")
