@@ -40,8 +40,10 @@
 <p align="center">
   <img src="docs/assets/demo.gif" width="100%" alt="SDD-Parallel Terminal Screencast — 5-Kit Verification, Bench Recall and Parallel Worktrees">
   <br>
-  <em>Deterministic blast-radius wave plan, zero merge-bombs and clean worktree slots in under 45 seconds.</em>
+  <em>Deterministic blast-radius wave plan, zero merge-bombs and clean worktree slots in under 28 seconds.</em>
 </p>
+
+Prefer to read at your own pace? See the [4-step annotated breakdown below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough).
 
 ---
 
@@ -85,14 +87,23 @@ The demo scaffolds a throwaway repo with 5 tasks and 6 Python modules, runs the 
 #### `[Step 1/4]` AST & Role Classification
 
 ```text
-File Path                              | Detected Role          | Importers
-----------------------------------------------------------------------------
-src/demo_app/__init__.py               | additive_registry      | -
-src/demo_app/api.py                    | standard               | -
-src/demo_app/cli.py                    | additive_registry      | -
-src/demo_app/exporter.py               | standard               | -
-src/demo_app/normalizer.py             | standard               | src/demo_app/api.py
-src/demo_app/schema.py                 | spine                  | -
+┌────────────────────────────────────────────────────────────────────┐
+│ ⚠️  HIDDEN LINK FOUND: api.py (T004) imports normalizer.py (T002)   │
+│    Standard worktrees run them in parallel and crash on merge.     │
+│    SDD-Parallel AST scanner catches semantic imports upfront.      │
+└────────────────────────────────────────────────────────────────────┘
+
+[Step 1/4] AST & Architectural Role Classification
+File Path                              | Detected Role      | Importers
+----------------------------------------------------------------------
+src/demo_app/api.py                    | standard           | -
+src/demo_app/cli.py                    | additive_registry  | -
+src/demo_app/exporter.py               | standard           | -
+src/demo_app/normalizer.py             | standard           | src/demo_app/api.py
+src/demo_app/schema.py                 | spine              | -
+
+----------------------------------------------------------------------
+[Step 1/4 ●○○○] Next: sdd-parallel plan ...
 ```
 
 No configuration, no hardcoded paths: the scanner marks `schema.py` as the **`spine`** (everything depends on it → serialize), `cli.py` as an **`additive_registry`** (append-only command registration → safe to share), and records that `api.py` imports `normalizer.py`.
@@ -100,15 +111,23 @@ No configuration, no hardcoded paths: the scanner marks `schema.py` as the **`sp
 #### `[Step 2/4]` Catching the Hidden Type-2 Merge-Bomb
 
 ```text
-  Collision Analysis:
-    - Naive Scheduler : W(T002)={normalizer.py, cli.py} vs W(T004)={api.py}
-                        -> DISJOINT WRITES (False Safe!)
-    - BSPWaveScheduler: Detected semantic_collision between 'T002' and 'T004'
-                        -> Overlap W(T002) ^ I(T004) on: src/demo_app/api.py
-  Wave Schedule:
-    * Wave 1  track-a: T002 (normalizer.py + shared cli.py) | track-b: T003 (exporter.py + shared cli.py)
-    * Wave 2  track-a: T001 (schema.py)                     | track-b: T004 (api.py)
-    * Wave 3  track-a: T005 (schema.py)
+┌────────────────────────────────────────────────────────────────────┐
+│ ❌ Standard Worktrees: T002 + T004 in parallel -> CRASH ON MERGE   │
+│ ✅ SDD-Parallel Plan : Split into Wave 1 -> Wave 2                 │
+│    Hidden import resolved sequentially, cli.py merged safely!      │
+└────────────────────────────────────────────────────────────────────┘
+
+[Step 2/4] Type-2 Semantic Collision Detection & BSP Wave Schedule
+Collision Analysis:
+  - Hidden Link Found: api.py (T004) imports normalizer.py (T002)
+  - Additive Registry: T002 and T003 extend cli.py (Wave 1 Safe)
+Wave Schedule:
+  * Wave 1: [track-a: T002] [track-b: T003] (parallel independent)
+  * Wave 2: [track-a: T001] [track-b: T004] (runs after Wave 1 normalizer)
+  * Wave 3: [track-a: T005] (schema migration barrier)
+
+----------------------------------------------------------------------
+[Step 2/4 ●●○○] Next: sdd-parallel prepare --wave 1 ...
 ```
 
 Both `T002` and `T004` carry a hand-written `[P]` tag in `tasks.md`, and their write sets are disjoint (`normalizer.py ≠ api.py`), so a file-locking scheduler would run them together. `BSPWaveScheduler` sees that `T002`'s writes land inside `T004`'s impact set and moves `T004` to **Wave 2**, where it builds on the already-merged `normalizer.py`. Meanwhile `T002` and `T003` both write `cli.py` and still run in parallel, because it is an additive registry.
@@ -116,14 +135,23 @@ Both `T002` and `T004` carry a hand-written `[P]` tag in `tasks.md`, and their w
 #### `[Step 3/4]` Clean Fixed Slots & Scope Guard Interception
 
 ```text
-  Provisioned Fixed Slots (100% Clean git status: True):
-    - track-a (.worktrees/track-a)
-    - track-b (.worktrees/track-b)
+┌────────────────────────────────────────────────────────────────────┐
+│ 🔒 Fixed-slot worktrees (.worktrees/track-a, track-b)              │
+│    PreToolUse Scope Guard prevents rogue writes across slots       │
+│    track-a attempt to edit schema.py -> DENY (Spine-Lock)!         │
+└────────────────────────────────────────────────────────────────────┘
 
-  PreToolUse Scope Guard Check (track-a -> 'src/demo_app/schema.py'):
-    - Decision : DENY
-    - Violation: File 'src/demo_app/schema.py' cannot be modified by Wave 1 / track-a (stories ['T002'])
-    - Reason   : Locked by Spine Chain invariant.
+[Step 3/4] Fixed-Slot Worktree Provisioning & PreToolUse Scope Guard
+----------------------------------------------------------------------
+Provisioned Fixed Slots (100% Clean git status: True):
+  - track-a (.worktrees/track-a)
+  - track-b (.worktrees/track-b)
+PreToolUse Scope Guard Check (track-a -> 'src/demo_app/schema.py'):
+  - Decision : DENY
+  - Reason   : Locked by Spine Chain invariant.
+
+----------------------------------------------------------------------
+[Step 3/4 ●●●○] Next: sdd-parallel merge --wave 1 ...
 ```
 
 Injected boundary files (`ACTIVE_TRACK.md`, `.parallel-lock.json`, `.tmp/track-context.md`) are masked via the worktree's `info/exclude`, so `git status --porcelain` stays empty. When the `track-a` agent reaches for `schema.py`, the write is denied before it touches disk.
@@ -131,13 +159,24 @@ Injected boundary files (`ACTIVE_TRACK.md`, `.parallel-lock.json`, `.tmp/track-c
 #### `[Step 4/4]` Barrier Checkpoint & Zero-Conflict 3-Way Merge
 
 ```text
-  Merged Branches:
-    - parallel/track-a
-    - parallel/track-b
-  Resolved tasks.md (0 conflict markers):
-    - - [ ] T001 [US1] Upgrade schema in `src/demo_app/schema.py` (depends on T002)
-    - - [x] T002 [P] [US1] Normalize `src/demo_app/normalizer.py`, `src/demo_app/cli.py`
-    - - [x] T003 [P] [US1] Export `src/demo_app/exporter.py`, `src/demo_app/cli.py`
+┌────────────────────────────────────────────────────────────────────┐
+│ ✨ Wave 1 merged with 0 conflict markers in tasks.md               │
+│    Verified across all 5 SDD frameworks (BMAD, Spec Kit, GSD...)   │
+│    Worktrees cleaned up. Ready for Wave 2 execution!               │
+└────────────────────────────────────────────────────────────────────┘
+
+[Step 4/4] Barrier Checkpoint & Monotonic 3-Way Merge
+----------------------------------------------------------------------
+Merged Branches: parallel/track-a, parallel/track-b
+Resolved tasks.md (0 conflict markers):
+  - [x] T002 [P] [US1] Normalize `src/demo_app/normalizer.py`, `src/demo_app/cli.py`
+  - [x] T003 [P] [US1] Export `src/demo_app/exporter.py`, `src/demo_app/cli.py`
+======================================================================
+ALL 5 CORE INVARIANTS VERIFIED IN 0.38s (5/5 SDD KITS PASSED)
+======================================================================
+
+----------------------------------------------------------------------
+[Step 4/4 ●●●●] Complete! Try: uvx sdd-parallel demo
 ```
 
 Both branches edited the same `tasks.md`. The status merger resolves each line monotonically (`[ ] < [x]`, `backlog < … < done`), so the result has no `<<<<<<<` markers. The same logic covers `sprint-status.yaml`, `STATE.md`, and `.beads/*.jsonl`.

@@ -23,7 +23,14 @@ from sdd_parallel.benchmark import (
     run_git_benchmark,
 )
 from sdd_parallel.crg_sidecar import CRGSidecarAdapter
-from sdd_parallel.demo import run_demo
+from sdd_parallel.demo import (
+    demo_merge_step,
+    demo_plan_step,
+    demo_prepare_step,
+    demo_scan_step,
+    is_demo_sandbox,
+    run_demo,
+)
 from sdd_parallel.hooks.blast_radius_guard import evaluate_tool_access
 from sdd_parallel.models import TaskNode, WavePlan
 from sdd_parallel.plugin_installer import install_plugin
@@ -303,6 +310,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Target directory for the demo repository (implies --keep-temp)",
     )
+    p_demo.add_argument(
+        "--stage",
+        type=int,
+        choices=[1, 2, 3, 4],
+        default=None,
+        help="Execute only a specific stage (1..4) in Callout-First layout",
+    )
 
     # bench
     p_bench = sub.add_parser(
@@ -485,6 +499,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "plan":
         repo_root: Path = args.repo.resolve()
+        if is_demo_sandbox(repo_root):
+            plan_out = demo_plan_step(repo_root)
+            print(plan_out, end="")
+            return 0
         scheduler, tasks, plan = _compute_repo_plan(
             repo_root=repo_root,
             max_tracks=args.max_tracks,
@@ -525,6 +543,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "prepare":
         repo_root = args.repo.resolve()
+        if is_demo_sandbox(repo_root):
+            prep_out = demo_prepare_step(repo_root, wave=args.wave)
+            print(prep_out, end="")
+            return 0
         _scheduler, _tasks, plan = _compute_repo_plan(
             repo_root=repo_root,
             max_tracks=args.max_tracks,
@@ -639,6 +661,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "merge":
         repo_root = args.repo.resolve()
+        if is_demo_sandbox(repo_root):
+            merge_out = demo_merge_step(repo_root, wave=args.wave)
+            print(merge_out, end="")
+            return 0
         _scheduler, _tasks, plan = _compute_repo_plan(
             repo_root=repo_root,
             max_tracks=args.max_tracks,
@@ -817,11 +843,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "demo":
+        cwd = Path.cwd().resolve()
+        if is_demo_sandbox(cwd) and not args.scaffold_only and args.output_dir is None:
+            if args.stage == 1:
+                print(demo_scan_step(cwd), end="")
+                return 0
+            if args.stage == 2:
+                print(demo_plan_step(cwd), end="")
+                return 0
+            if args.stage == 3:
+                print(demo_prepare_step(cwd, wave=1), end="")
+                return 0
+            if args.stage == 4:
+                print(demo_merge_step(cwd, wave=1), end="")
+                return 0
         run_demo(
             keep_temp=args.keep_temp,
             kit=args.kit,
             scaffold_only=args.scaffold_only,
             output_dir=args.output_dir,
+            stage=args.stage,
         )
         return 0
 

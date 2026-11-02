@@ -1,4 +1,4 @@
-# VHS Tape for sdd-parallel Terminal Screencast
+# VHS Tape for sdd-parallel Terminal Screencast (ADR-0008 Callout-First Paged Storyboard)
 # Syntax and options: https://github.com/charmbracelet/vhs
 
 Output assets/demo.gif
@@ -15,30 +15,50 @@ Set Framerate 30
 Set PlaybackSpeed 1.0
 Set TypingSpeed 35ms
 
-# Scene 1: Standalone 5-Kit SDD Verification (<4 sec, zero API keys)
-Type "sdd-parallel demo --kit all"
-Sleep 500ms
-Enter
-Sleep 12s
-
-# Scene 2: Historical Benchmark Evaluation (100% Conflict Recall, 0 FN)
-Type "sdd-parallel bench --demo"
-Sleep 500ms
-Enter
-Sleep 10s
-
-# Scene 3: Clean Worktree Provisioning & Blast-Radius Wave Scheduling
+# Setup: Scaffold sandbox silently in background
+Hide
 Type "sdd-parallel demo --kit spec-kit --scaffold-only --output-dir /tmp/sdd-demo && cd /tmp/sdd-demo"
+Enter
+Sleep 1s
+Type "clear"
+Enter
+Show
+
+# Screen 1: AST Scan & Hidden Dependency Trap
+Type "sdd-parallel demo --stage 1"
 Sleep 500ms
 Enter
-Sleep 4s
+Sleep 6.5s
 
+Hide
+Type "clear"
+Enter
+Show
+
+# Screen 2: sdd-parallel plan — Naive Crash vs Wave 1 / Wave 2 Split
 Type "sdd-parallel plan"
 Sleep 500ms
 Enter
-Sleep 7s
+Sleep 6.5s
 
+Hide
+Type "clear"
+Enter
+Show
+
+# Screen 3: sdd-parallel prepare --wave 1 — Clean Worktrees & Scope Guard DENY
 Type "sdd-parallel prepare --wave 1"
 Sleep 500ms
 Enter
-Sleep 7s
+Sleep 6.5s
+
+Hide
+Type "clear"
+Enter
+Show
+
+# Screen 4: sdd-parallel merge --wave 1 — Conflict-Free tasks.md Merge & 5-Kit Callout
+Type "sdd-parallel merge --wave 1"
+Sleep 500ms
+Enter
+Sleep 6.5s
