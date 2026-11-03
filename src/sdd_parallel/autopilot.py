@@ -72,8 +72,13 @@ class AutopilotLauncher:
             worker_cmd = f"/bmad-build {' '.join(track.task_ids)}"
 
         stories = ", ".join(track.task_ids)
+        mode_prefix = (
+            f"[EXECUTION_MODE: {track.execution_mode}] "
+            if track.execution_mode and track.execution_mode != "NORMAL"
+            else ""
+        )
         return (
-            f"Working directory: {wt_path.as_posix()}. "
+            f"{mode_prefix}Working directory: {wt_path.as_posix()}. "
             f"Read .tmp/track-context.md and .parallel-lock.json first. "
             f"Execute Wave {wave_number} / {track.track_id} stories ({stories}) "
             f"using `{worker_cmd}` strictly within the allowed write scope."
@@ -102,7 +107,10 @@ class AutopilotLauncher:
             else:
                 wt_path = self.worktrees_dir / f"wave-{wave_number}-{track.track_id}"
                 slot_name = f"wave-{wave_number}-{track.track_id}"
-            model_id = self.resolve_model_for_effort(h_norm, track.effort)
+            if track.model_override and track.model_override.strip():
+                model_id = track.model_override.strip()
+            else:
+                model_id = self.resolve_model_for_effort(h_norm, track.effort)
             stories_str = ", ".join(track.task_ids)
             title = f"Wave {wave_number} ({track.track_id}): {stories_str}"
             prompt = self._build_track_prompt(
@@ -143,6 +151,7 @@ class AutopilotLauncher:
                     "track_id": track.track_id,
                     "stories": list(track.task_ids),
                     "effort": track.effort.value,
+                    "execution_mode": track.execution_mode,
                     "harness": h_norm,
                     "model": model_id,
                     "worktree": wt_path.as_posix(),

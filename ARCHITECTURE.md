@@ -304,19 +304,29 @@ The autonomous command `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,bea
 
 | Command | Purpose | Key Flags and Options |
 | :--- | :--- | :--- |
-| `plan` | Compute conflict DAG and generate parallel wave plan | `--repo <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--plan-source <auto\|plan\|specs>`, `--include-done`, `--dry-run` |
-| `prepare` | Provision fixed track slots and boundary locks for Wave K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run` |
+| `plan` | Compute conflict DAG and generate parallel wave plan | `--repo <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--plan-source <auto\|plan\|specs>`, `--include-done`, `--dry-run`, `--routing-file <path>` |
+| `prepare` | Provision fixed track slots and boundary locks for Wave K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run`, `--routing-file <path>` |
 | `claim-track` | Attach boundary locks to an existing external worktree | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
-| `run-guide` | Display formatted operator run-guide matrix for Wave K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout` |
-| `verify-wave` | Audit worktree diffs and lock compliance against merge-base | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | Barrier checkpoint merge with 3-way status merge and gates | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `run-guide` | Display formatted operator run-guide matrix for Wave K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
+| `verify-wave` | Audit worktree diffs, lock compliance, and record barrier manifest | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
+| `merge` | Barrier checkpoint merge with 3-way status merge, gates, and manifest | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | Standalone 3-way deterministic merge for sprint-status.yaml | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | Inspect file modification permission via active hook logic | `--file <path>`, `--tool <name>` (outputs formatted JSON with `indent=2`) |
 | `install-plugin` | Package and install portable Antigravity plugin | `--target-dir <path>` (defaults to `~/.gemini/config/plugins/sdd-parallel`) |
-| `autopilot` | Generate or execute Multi-Conversation Autopilot commands | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--harness <antigravity\|claude-code\|codex>`, `--antigravity-layout`, `--execute` |
+| `autopilot` | Generate or execute Multi-Conversation Autopilot commands | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--harness <antigravity\|claude-code\|codex>`, `--antigravity-layout`, `--execute`, `--routing-file <path>` |
 | `abort-wave` | Abort wave before merge and clean parallel branches | `--repo <path>`, `--wave <K>`, `--dynamic-worktrees` |
 | `rollback-wave` | Atomic LIFO rollback of integrated wave with backup branch | `--repo <path>`, `--wave <K>`, `--to-commit <hash>`, `--save-backup` / `--no-backup`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
 | `demo` | Run standalone 5-second Merge-Bomb offline demonstration | `--kit <bmad\|spec-kit\|gsd\|openspec\|beads\|all>`, `--keep-temp`, `--scaffold-only`, `--output-dir <path>` |
+| `bench` | Run retrospective backtest on commit history or demo repo | `--repo <path>`, `--since <rev>`, `--until <rev>`, `--demo`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--format <text\|json>` |
+| `inspect` | Generate and view standalone offline HTML Wave Inspector | `--repo <path>`, `--plan <path>`, `--output <path>`, `--open`, `--kit <auto\|kit>` |
+
+### 4.11. Modular Dark Software Factory Boundaries, Execution Manifest & Cognitive Router (ADR-0009)
+
+In accordance with `ADR-0009`, `sdd-parallel` strictly adheres to narrow-waist LEGO boundaries within the Dark Software Factory ecosystem:
+1. **Zero LLM & Zero FinOps Bloat in Core:** The engine contains no model rate tables, USD token price formulas, or network clients for OpenTelemetry / Langfuse. Actual token counts and subscription quota buckets are parsed downstream by `AgentLens` directly from native harness transcripts (`transcript.jsonl`).
+2. **Deterministic Structural Signals (`TaskStructuralSignals`):** Each `TaskNode` in `wave-plan.json` is enriched with AST complexity facts (`files_count`, `max_fan_in`, `touches_spine`, `ast_loc`, `conflict_degree`) consumable by external System-1 Cognitive Routers (`Cloudflare Clef`, `Jev`, `Clairic`, `GLiClass ONNX`).
+3. **Narrow-Waist Routing Contract (`--routing-file`):** External routers override `(effort, model, execution_mode)` via `--routing-file <routing-overrides.json>` without embedding ML models into `sdd-parallel`.
+4. **Execution & Correlation Manifest:** At wave verification and barrier merge checkpoints (strictly before slot resetting), the orchestrator records `.parallel/wave-<K>-manifest.json` and `.parallel/run-manifest.json`, capturing Git facts (`commit_sha`, changed files), runner session metadata (`session_id`), and prevented conflicts (`PreventedConflictEntry`) for downstream analytics.
 
 ---
 

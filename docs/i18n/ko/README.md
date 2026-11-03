@@ -607,18 +607,18 @@ flowchart TD
 | 명령어 | 설명 |
 | :--- | :--- |
 | `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp] [--scaffold-only] [--output-dir DIR]` | 5개 SDD 키트 중 하나를 대상으로 오프라인 머지 폭탄 데모를 실행하거나 대화형 샌드박스를 스캐폴딩합니다. |
-| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR]` | 로드맵과 코드 의존성 그래프를 분석하여 `execution-plan-parallel.md` 및 `wave-plan.json`을 생성합니다. |
-| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run]` | 슬롯(`track-a`, `track-b`, …)을 프로비저닝하고, OS 파일 잠금을 적용하며, 경계 컨텍스트를 주입합니다. |
+| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR] [--routing-file FILE]` | 로드맵과 코드 의존성 그래프를 분석하여 `execution-plan-parallel.md` 및 `wave-plan.json`을 생성합니다. |
+| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run] [--routing-file FILE]` | 슬롯(`track-a`, `track-b`, …)을 프로비저닝하고, OS 파일 잠금을 적용하며, 경계 컨텍스트를 주입합니다. |
 | `sdd-parallel claim-track --wave K --track <id> --worktree <path> [--repo REPO] [--max-tracks N] [--kit KIT] [--headless]` | 이미 존재하는 외부 worktree에 경계 잠금 매니페스트를 연결합니다. |
-| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout]` | 각 트랙별 네이티브 실행 명령어가 포함된 오퍼레이터 실행 가이드를 출력합니다. |
-| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | 슬롯의 수정 사항을 `.parallel-lock.json` 및 `merge-base` 대비 멀티 커밋 diff 기준으로 감사(audit)합니다. |
-| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | 배리어 병합: 3-way 상태 병합, git merge, 퀄리티 게이트 검증 및 트랜잭션 자동 롤백을 수행합니다. |
+| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout] [--routing-file FILE]` | 각 트랙별 네이티브 실행 명령어가 포함된 오퍼레이터 실행 가이드를 출력합니다. |
+| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | 슬롯의 수정 사항을 `.parallel-lock.json` 및 `merge-base` 대비 멀티 커밋 diff 기준으로 감사하고 매니페스트를 저장합니다. |
+| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | 배리어 병합: 3-way 상태 병합, git merge, 퀄리티 게이트 검증, 트랜잭션 자동 롤백 및 매니페스트 저장. |
 | `sdd-parallel abort-wave --wave K [--repo REPO] [--dynamic-worktrees]` | 병합되지 않은 웨이브를 중단합니다: 슬롯을 초기화하고 임시 parallel 브랜치를 삭제합니다. |
 | `sdd-parallel rollback-wave --wave K [--repo REPO] [--dynamic-worktrees] [--to-commit COMMIT] [--save-backup] [--no-backup] [--kit KIT]` | 병합된 웨이브를 안전 백업 브랜치 생성 및 SDD 작업 상태 원복과 함께 LIFO 순서로 되돌립니다. |
 | `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | `sprint-status.yaml`을 위한 저수준 결정론적 3-way 상태 병합을 수행합니다. |
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | 특정 파일의 쓰기 시도가 활성 worktree 잠금 매니페스트에 위배되는지 확인합니다. |
 | `sdd-parallel install-plugin [--target-dir DIR]` | 이식형 Antigravity 플러그인을 패키징하고 설치합니다. |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute]` | 모델 노력도 라우팅(Model Effort Routing)이 적용된 멀티 윈도우 오토파일럿 실행 명령을 생성하거나 실행합니다. |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]` | 모델 노력도 라우팅(Model Effort Routing)이 적용된 멀티 윈도우 오토파일럿 실행 명령을 생성하거나 실행합니다. |
 
 </details>
 
@@ -644,8 +644,8 @@ flowchart TD
 - [x] **커뮤니티 어댑터 확충:** `mattpocock/skills` (`/implement-spec`) 및 `bmad-loop` 프런트매터 상태 어댑터.
 - [x] **환경 오염 제로 동기화:** 고정 슬롯 내 `.venv` / `node_modules` 심볼릭 링크 지원.
 - [x] **웨이브 사전 정적 심볼 링커 및 스코프 에스컬레이션:** 동적 재스케줄링을 통한 AST 심볼 기반 쓰기 집합 자동 확장.
-- [ ] **FinOps 및 가시성 익스포터:** OpenTelemetry 스팬 및 Langfuse 토큰 절감 텔레메트리 연동.
-- [ ] **헤드리스 오토파일럿 데몬:** 로컬 RPC / 서브에이전트 디스패치를 통한 에이전트 자율 실행.
+- [x] **실행 매니페스트 및 인지 라우터 계약:** 결정론적 `.parallel/run-manifest.json`, AST 구조적 신호 (`TaskStructuralSignals`) 및 `--routing-file` 계약 (`ADR-0009`).
+- [ ] **공식 Depth-0 웨이브 러너 (`agy` CLI / SDK):** `TrackExecutionPolicy`를 통한 병렬 헤드리스 트랙 실행.
 
 ---
 

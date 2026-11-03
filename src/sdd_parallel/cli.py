@@ -32,6 +32,12 @@ from sdd_parallel.demo import (
     run_demo,
 )
 from sdd_parallel.hooks.blast_radius_guard import evaluate_tool_access
+from sdd_parallel.manifest import (
+    apply_routing_overrides,
+    harvest_wave_manifest,
+    load_routing_overrides,
+    save_wave_manifest,
+)
 from sdd_parallel.models import TaskNode, WavePlan
 from sdd_parallel.plugin_installer import install_plugin
 from sdd_parallel.scheduler import BSPWaveScheduler
@@ -86,6 +92,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional custom output directory for execution-plan-parallel.md and wave-plan.json",
     )
+    p_plan.add_argument(
+        "--routing-file",
+        type=Path,
+        default=None,
+        help="Optional path to routing-overrides.json from external Cognitive Router",
+    )
 
     # prepare
     p_prep = sub.add_parser("prepare", help="Provision git worktrees and inject boundary locks")
@@ -94,6 +106,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_prep.add_argument("--max-tracks", type=int, default=3, help="Max parallel tracks per wave")
     p_prep.add_argument("--kit", type=str, default="auto", help="SDD kit adapter")
     p_prep.add_argument("--headless", action="store_true", help="Enable Silent File-State Handoff")
+    p_prep.add_argument(
+        "--routing-file",
+        type=Path,
+        default=None,
+        help="Optional path to routing-overrides.json from external Cognitive Router",
+    )
     p_prep.add_argument(
         "--antigravity-layout",
         action="store_true",
@@ -223,6 +241,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Execute the generated launch commands via subprocess",
     )
+    p_auto.add_argument(
+        "--routing-file",
+        type=Path,
+        default=None,
+        help="Optional path to routing-overrides.json from external Cognitive Router",
+    )
 
     # abort-wave
     p_abort = sub.add_parser(
@@ -277,6 +301,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--antigravity-layout",
         action="store_true",
         help="Show paths in ~/.gemini/antigravity/worktrees/<Project>/<track>",
+    )
+    p_guide.add_argument(
+        "--routing-file",
+        type=Path,
+        default=None,
+        help="Optional path to routing-overrides.json from external Cognitive Router",
     )
 
     # demo
@@ -471,6 +501,7 @@ def _compute_repo_plan(
     include_done: bool = False,
     kit: str = "auto",
     plan_source: str = "auto",
+    routing_file: Path | None = None,
 ) -> tuple[BSPWaveScheduler, list[TaskNode], WavePlan]:
     kit_name, adapter = get_adapter(repo_root, kit=kit)
     scanner = ASTHotspotScanner(repo_root)
@@ -488,8 +519,12 @@ def _compute_repo_plan(
         max_tracks=max_tracks,
         file_roles=file_roles,
         ast_scanner=scanner,
+        repo_root=repo_root,
     )
     plan = scheduler.schedule(tasks, sdd_kit=kit_name, wave_zero_blockers=blockers)
+    if routing_file is not None:
+        overrides = load_routing_overrides(routing_file)
+        plan = apply_routing_overrides(plan, overrides)
     return scheduler, tasks, plan
 
 
@@ -509,6 +544,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             include_done=args.include_done,
             kit=args.kit,
             plan_source=args.plan_source,
+            routing_file=getattr(args, "routing_file", None),
         )
         md_text = scheduler.render_markdown_plan(plan, tasks)
         if not args.dry_run:
@@ -551,6 +587,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             repo_root=repo_root,
             max_tracks=args.max_tracks,
             kit=args.kit,
+            routing_file=getattr(args, "routing_file", None),
         )
         target_wave = next((w for w in plan.waves if w.wave_number == args.wave), None)
         if target_wave is None:
@@ -606,6 +643,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             repo_root=repo_root,
             max_tracks=args.max_tracks,
             kit=args.kit,
+            routing_file=getattr(args, "routing_file", None),
         )
         wm = WorktreeManager(repo_root)
         lock = wm.claim_track(
@@ -624,6 +662,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             repo_root=repo_root,
             max_tracks=args.max_tracks,
             kit=args.kit,
+            routing_file=getattr(args, "routing_file", None),
         )
         wm = WorktreeManager(
             repo_root,
@@ -631,6 +670,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         try:
             violations = wm.verify_wave(plan=plan, wave_number=args.wave)
+            fixed_slots = not getattr(args, "dynamic_worktrees", False)
+            manifest = harvest_wave_manifest(
+                repo_root=repo_root,
+                plan=plan,
+                wave_id=args.wave,
+                sdd_kit=plan.sdd_kit,
+                fixed_slots=fixed_slots,
+            )
+            manifest_path = save_wave_manifest(repo_root, manifest)
         except (RuntimeError, ValueError, LIFORollbackViolationError) as exc:
             err_payload = {
                 "status": "error",
@@ -647,6 +695,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "wave": args.wave,
             "compliant": len(violations) == 0,
             "violations": violations,
+            "manifest_path": manifest_path.as_posix(),
+            "prevented_conflicts_count": len(manifest.prevented_conflicts),
         }
         if getattr(wm, "last_escalations", None):
             out_payload["escalations"] = wm.last_escalations
@@ -669,12 +719,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             repo_root=repo_root,
             max_tracks=args.max_tracks,
             kit=args.kit,
+            routing_file=getattr(args, "routing_file", None),
         )
         wm = WorktreeManager(
             repo_root,
             fixed_slots=not getattr(args, "dynamic_worktrees", False),
         )
         try:
+            fixed_slots = not getattr(args, "dynamic_worktrees", False)
+            manifest = harvest_wave_manifest(
+                repo_root=repo_root,
+                plan=plan,
+                wave_id=args.wave,
+                sdd_kit=plan.sdd_kit,
+                fixed_slots=fixed_slots,
+            )
+            manifest_path = save_wave_manifest(repo_root, manifest)
+
             merged = wm.merge_wave(
                 plan=plan,
                 wave_number=args.wave,
@@ -701,6 +762,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "wave": args.wave,
                     "dry_run": args.dry_run,
                     "merged_branches": merged,
+                    "manifest_path": manifest_path.as_posix(),
+                    "prevented_conflicts_count": len(manifest.prevented_conflicts),
                 },
                 indent=2,
             )
@@ -736,6 +799,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             repo_root=repo_root,
             max_tracks=args.max_tracks,
             kit=args.kit,
+            routing_file=getattr(args, "routing_file", None),
         )
         if not any(w.wave_number == args.wave for w in plan.waves):
             available = [w.wave_number for w in plan.waves]
@@ -832,6 +896,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             repo_root=repo_root,
             max_tracks=args.max_tracks,
             kit=args.kit,
+            routing_file=getattr(args, "routing_file", None),
         )
         guide_md = render_run_guide(
             repo_root=repo_root,

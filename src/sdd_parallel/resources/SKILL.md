@@ -18,12 +18,13 @@ Use this skill whenever the user wants to:
 
 ## Step 1: Discovery, Pre-Flight Gate & Wave Planning
 
-1. Run the deterministic planner to inspect the repository, detect Wave 0 blockers (`git status --porcelain`, uncommitted `in-progress` stories), scan AST imports (`Spine Locks` vs `Additive Registries`), and compute impact radius via `code-review-graph` (optionally specify `--kit {auto,bmad,spec-kit,gsd,openspec,beads}`):
+1. Run the deterministic planner to inspect the repository, detect Wave 0 blockers (`git status --porcelain`, uncommitted `in-progress` stories), scan AST imports (`Spine Locks` vs `Additive Registries`), and compute impact radius via `code-review-graph` (optionally specify `--kit {auto,bmad,spec-kit,gsd,openspec,beads}` and `--routing-file <routing-overrides.json>`):
    ```powershell
-   uv run sdd-parallel plan --repo <target-repo-path> --max-tracks 3 [--kit <kit>]
+   uv run sdd-parallel plan --repo <target-repo-path> --max-tracks 3 [--kit <kit>] [--routing-file <path>]
    ```
 2. For BMAD repositories, the Pre-Flight Context Gate automatically validates the existence of `epic-<N>-context.md` in `implementation-artifacts` or `planning-artifacts` before wave execution to avoid add/add merge conflicts.
 3. If multiple SDD ecosystems coexist in the same repository, `diagnose_multi_kit_coexistence()` warns the operator, automatically picks the kit with active backlog tasks, and isolates inactive kit directories.
+4. When coupled with an external Cognitive Router (e.g. `Cloudflare Clef`, `Jev`, `Clairic`, `GLiClass`), pass `--routing-file <routing-overrides.json>` to `plan`, `prepare`, `run-guide`, or `autopilot` to override `effort`, `model`, and `execution_mode` per task without LLM calls in the core engine.
 
 ---
 
@@ -115,11 +116,11 @@ If a wave fails verification, quality gates, or requirements during development:
 ## Complete CLI Command Reference
 
 All subcommands exposed by `sdd-parallel`:
-- `plan`: Analyze SDD roadmap, AST/CRG graph, and construct wave plan.
-- `prepare`: Provision isolated git worktree slots with boundary locks.
+- `plan`: Analyze SDD roadmap, AST/CRG graph, and construct wave plan (supports `--routing-file`).
+- `prepare`: Provision isolated git worktree slots with boundary locks (supports `--routing-file`).
 - `claim-track`: Attach boundary locks to an existing interactive IDE worktree slot.
-- `run-guide`: Display operator execution instructions and native worker launch commands.
-- `autopilot`: Generate and execute multi-conversation worker launch commands.
+- `run-guide`: Display operator execution instructions and native worker launch commands (supports `--routing-file`).
+- `autopilot`: Generate and execute multi-conversation worker launch commands (supports `--routing-file`).
 - `check-lock`: Validate if modifying a file is permitted by `.parallel-lock.json`.
 - `verify-wave`: Validate that track commits strictly adhere to lock boundaries.
 - `merge`: Checkpoint merge of parallel track branches with quality gates.

@@ -304,19 +304,29 @@ class SDDAdapterProtocol(Protocol):
 
 | Команда | Назначение | Ключевые флаги и параметры |
 | :--- | :--- | :--- |
-| `plan` | Расчёт DAG конфликтов и формирование расписания волн | `--repo <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--plan-source <auto\|plan\|specs>`, `--include-done`, `--dry-run` |
-| `prepare` | Подготовка слотов треков и локов для Wave K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run` |
+| `plan` | Расчёт DAG конфликтов и формирование расписания волн | `--repo <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--plan-source <auto\|plan\|specs>`, `--include-done`, `--dry-run`, `--routing-file <path>` |
+| `prepare` | Подготовка слотов треков и локов для Wave K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run`, `--routing-file <path>` |
 | `claim-track` | Присоединение локов к существующему ворк-три | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
-| `run-guide` | Вывод форматированной таблицы запуска для оператора | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout` |
-| `verify-wave` | Аудит диффов и соблюдения локов относительно merge-base | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | Барьерное слияние с 3-way мерджем статусов и гейтами | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `run-guide` | Вывод форматированной таблицы запуска для оператора | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
+| `verify-wave` | Аудит диффов, соблюдения локов и сбор манифеста | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
+| `merge` | Барьерное слияние с 3-way мерджем статусов, гейтами и манифестом | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | Автономный 3-way детерминированный мердж sprint-status.yaml | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | Проверка разрешения на запись в файл через логику хука | `--file <path>`, `--tool <name>` (вывод форматированного JSON с `indent=2`) |
 | `install-plugin` | Сборка и установка портативного плагина Antigravity | `--target-dir <path>` (по умолчанию `~/.gemini/config/plugins/sdd-parallel`) |
-| `autopilot` | Генерация или запуск команд в режиме Autopilot | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--harness <antigravity\|claude-code\|codex>`, `--antigravity-layout`, `--execute` |
+| `autopilot` | Генерация или запуск команд в режиме Autopilot | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--harness <antigravity\|claude-code\|codex>`, `--antigravity-layout`, `--execute`, `--routing-file <path>` |
 | `abort-wave` | Отмена волны до слияния и удаление параллельных веток | `--repo <path>`, `--wave <K>`, `--dynamic-worktrees` |
 | `rollback-wave` | Атомарный LIFO-откат волны со страховочной веткой | `--repo <path>`, `--wave <K>`, `--to-commit <hash>`, `--save-backup` / `--no-backup`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
 | `demo` | Запуск 5-секундного автономного оффлайн-демо | `--kit <bmad\|spec-kit\|gsd\|openspec\|beads\|all>`, `--keep-temp`, `--scaffold-only`, `--output-dir <path>` |
+| `bench` | Ретроспективный бэктест на истории коммитов Git или демо-репо | `--repo <path>`, `--since <rev>`, `--until <rev>`, `--demo`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--format <text\|json>` |
+| `inspect` | Генерация и открытие offline HTML Wave Inspector | `--repo <path>`, `--plan <path>`, `--output <path>`, `--open`, `--kit <auto\|kit>` |
+
+### 4.11. Модульные границы Dark Software Factory, Манифест исполнения и Cognitive Router (ADR-0009)
+
+В соответствии с `ADR-0009`, `sdd-parallel` строго выдерживает границы Narrow-Waist LEGO в экосистеме Dark Software Factory:
+1. **Zero LLM & Zero FinOps Bloat в ядре:** В ядре отсутствуют тарифные сетки моделей, расчёты стоимости токенов в USD или сетевые клиенты OpenTelemetry / Langfuse. Фактический расход токенов и корзины квот парсятся во внешнем проекте `AgentLens` из нативных транскриптов харнессов (`transcript.jsonl`).
+2. **Детерминированные структурные сигналы (`TaskStructuralSignals`):** Каждая `TaskNode` в `wave-plan.json` обогащается фактами сложности AST (`files_count`, `max_fan_in`, `touches_spine`, `ast_loc`, `conflict_degree`) для внешних System-1 классификаторов `Cognitive Router` (`Cloudflare Clef`, `Jev`, `Clairic`, `GLiClass ONNX`).
+3. **Узкий файловый контракт маршрутизации (`--routing-file`):** Внешний роутер переопределяет связку `(effort, model, execution_mode)` через файл `--routing-file <routing-overrides.json>` без встраивания ML-моделей в `sdd-parallel`.
+4. **Манифест исполнения и корреляции:** На барьерах верификации волны и слияния (строго до сброса слотов `track-<id>`) оркестратор формирует `.parallel/wave-<K>-manifest.json` и сводный `.parallel/run-manifest.json`, фиксируя Git-факты (`commit_sha`, изменённые файлы), метаданные сессии раннера (`session_id`) и предотвращённые конфликты (`PreventedConflictEntry`) для последующей аналитики.
 
 ---
 

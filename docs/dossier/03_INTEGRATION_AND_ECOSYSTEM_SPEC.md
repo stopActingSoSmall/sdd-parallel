@@ -155,22 +155,114 @@ Machine-readable manifest parsed by `PreToolUse` hooks for sub-millisecond acces
 }
 ```
 
+### 3.3. Wave Execution Manifest Contract (`.parallel/run-manifest.json` & `wave-<K>-manifest.json`)
+Deterministic run and wave manifests per `ADR-0009` harvested during `verify-wave` and `merge`:
+- **Wave Manifest:** `.parallel/wave-<K>-manifest.json` records track states, durations, exit codes, AST structural signals, and conflict prevention logs for wave $K$.
+- **Run Manifest:** `.parallel/run-manifest.json` aggregates overall execution telemetry across all waves.
+
+```json
+{
+  "run_id": "run-20261103-154012",
+  "created_at": "2026-11-03T15:40:12Z",
+  "kit_id": "bmad",
+  "repo_root": "/workspace",
+  "waves": [
+    {
+      "wave_id": 1,
+      "status": "merged",
+      "tracks": [
+        {
+          "track_id": "track-a",
+          "task_ids": ["11-2"],
+          "model_effort": "high",
+          "model_override": "anthropic/claude-3-5-sonnet",
+          "execution_mode": "interactive",
+          "duration_seconds": 124.5,
+          "exit_code": 0,
+          "tasks": [
+            {
+              "id": "11-2",
+              "title": "First Story",
+              "signals": {
+                "file_count": 3,
+                "write_file_count": 2,
+                "estimated_tokens": 12500,
+                "complexity_tier": "high",
+                "risk_score": 0.42,
+                "critical_spine": false,
+                "fan_out_degree": 1
+              }
+            }
+          ]
+        }
+      ],
+      "prevented_conflicts": [
+        {
+          "task_a": "11-2",
+          "task_b": "11-3",
+          "conflicting_files": ["src/canonical/manifest.py"],
+          "prevented_at": "plan",
+          "mechanism": "wave_separation"
+        }
+      ]
+    }
+  ],
+  "metrics": {
+    "total_tasks": 1,
+    "total_waves": 1,
+    "total_tracks": 1,
+    "total_conflicts_prevented": 1,
+    "effective_concurrency": 1.0
+  }
+}
+```
+
+### 3.4. Cognitive Routing Override Contract (`--routing-file`)
+Integration contract with external cognitive routers and FinOps token schedulers:
+- Format: JSON/YAML file passed via `--routing-file <path>` to `plan`, `prepare`, `autopilot`, and `run-guide`.
+- Contract schema:
+```json
+{
+  "tracks": {
+    "track-a": {
+      "model": "anthropic/claude-3-5-sonnet",
+      "model_effort": "high",
+      "execution_mode": "interactive"
+    },
+    "track-b": {
+      "model": "google/gemini-2.5-flash",
+      "model_effort": "low",
+      "execution_mode": "headless"
+    }
+  },
+  "tasks": {
+    "11-2": {
+      "model": "openai/gpt-4o",
+      "model_effort": "high"
+    }
+  }
+}
+```
+- Ingestion semantics: Task overrides map to track assignments. Explicit track settings take precedence over task fallbacks, while preserving AST risk signals in `.parallel/run-manifest.json`.
+
 ---
 
 ## 4. Orchestrator Interface Specifications
 
 ### 4.1. CLI Interface
 The orchestrator exposes a complete deterministic command suite:
-- `sdd-parallel plan [--kit auto|bmad|spec-kit|gsd|openspec|beads] [--max-tracks K]`
-  - Performs graph analysis, schedules waves, and writes `wave-plan.json` and `execution-plan-parallel.md`.
-- `sdd-parallel prepare --wave N [--dynamic-worktrees]`
+- `sdd-parallel plan [--kit auto|bmad|spec-kit|gsd|openspec|beads] [--max-tracks K] [--routing-file FILE]`
+  - Performs graph analysis, calculates AST structural signals, applies cognitive routing overrides, schedules waves, and writes `wave-plan.json` and `execution-plan-parallel.md`.
+- `sdd-parallel prepare --wave N [--dynamic-worktrees] [--routing-file FILE]`
   - Provisions fixed slots `track-<id>` with in-place reset (`git checkout -B` + `git clean -fd`), configures `info/exclude`, generates `.tmp/track-context.md`, `.parallel-lock.json`, and applies OS read-only locks (`chmod a-w`). The `--dynamic-worktrees` flag preserves legacy isolated directory creation.
-- `sdd-parallel run-guide --wave N`
-  - Outputs an operator terminal matrix with paths and launch commands for each active track window.
+- `sdd-parallel run-guide --wave N [--routing-file FILE]`
+  - Outputs an operator terminal matrix with paths and launch commands for each active track window, applying cognitive model routing.
+- `sdd-parallel autopilot --wave N [--concurrency K] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]`
+  - Generates or executes multi-window autopilot launch commands with cognitive model routing and execution mode directives.
 - `sdd-parallel verify-wave --wave N`
-  - Validates active worktree slots against `.parallel-lock.json`, audits Terminal Guard compliance, and performs multi-commit `git diff` inspection against `merge-base` before integration.
+  - Validates active worktree slots against `.parallel-lock.json`, audits Terminal Guard compliance, performs multi-commit `git diff` inspection against `merge-base`, and harvests `.parallel/wave-<N>-manifest.json`.
 - `sdd-parallel merge --wave N [--cleanup] [--strict-gates] [--skip-gates]`
-  - Runs polymorphic stack-agnostic quality gates (Python, Node/TS, Rust, Go, or `.parallel-config.json`), applies transactional auto-rollback to pre-merge commit on gate failure, barrier-merges track branches into master, and applies monotonic 3-way status reconciliation.
+  - Runs polymorphic stack-agnostic quality gates (Python, Node/TS, Rust, Go, or `.parallel-config.json`), applies transactional auto-rollback to pre-merge commit on gate failure, barrier-merges track branches into master, applies monotonic 3-way status reconciliation, and finalizes `.parallel/run-manifest.json` with conflict prevention metrics.
 - `sdd-parallel abort-wave --wave N`
   - Resets unmerged wave slots and deletes temporary parallel branches.
 - `sdd-parallel rollback-wave --wave N [--save-backup]`

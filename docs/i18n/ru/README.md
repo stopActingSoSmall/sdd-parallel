@@ -612,22 +612,24 @@ flowchart TD
 | Команда | Назначение |
 | :--- | :--- |
 | `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp] [--scaffold-only] [--output-dir DIR]` | Запуск офлайн-демо Merge-Bomb или создание интерактивной песочницы для любого из 5 SDD-китов. |
-| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR]` | Анализ роадмапа + графа кода; генерация `execution-plan-parallel.md` и `wave-plan.json`. |
-| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run]` | Подготовка слотов (`track-a`, `track-b`, …), установка блокировок ОС, внедрение файлов контекста. |
+| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR] [--routing-file FILE]` | Анализ роадмапа + графа кода; генерация `execution-plan-parallel.md` и `wave-plan.json`. |
+| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run] [--routing-file FILE]` | Подготовка слотов (`track-a`, `track-b`, …), установка блокировок ОС, внедрение файлов контекста. |
 | `sdd-parallel claim-track --wave K --track <id> --worktree <path> [--repo REPO] [--max-tracks N] [--kit KIT] [--headless]` | Привязка блокировок скоупа к существующему внешнему worktree. |
-| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout]` | Вывод интерактивного руководства оператора с нативной командой запуска для каждого трека. |
-| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | Аудит слотов по манифесту `.parallel-lock.json` и проверка мульти-коммитного diff относительно `merge-base`. |
-| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | Барьерное слияние: 3-way мердж статусов, git merge, quality gates, транзакционный автооткат. |
+| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout] [--routing-file FILE]` | Вывод интерактивного руководства оператора с нативной командой запуска для каждого трека. |
+| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | Аудит слотов по манифесту `.parallel-lock.json`, проверка мульти-коммитного diff относительно `merge-base` и фиксация манифеста. |
+| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | Барьерное слияние: 3-way мердж статусов, git merge, quality gates, транзакционный автооткат и манифест. |
 | `sdd-parallel abort-wave --wave K [--repo REPO] [--dynamic-worktrees]` | Прерывание несмердженной волны: сброс слотов, удаление временных параллельных веток. |
 | `sdd-parallel rollback-wave --wave K [--repo REPO] [--dynamic-worktrees] [--to-commit COMMIT] [--save-backup] [--no-backup] [--kit KIT]` | Откат смердженной волны (LIFO) со страховочной веткой бэкапа и полиморфным сбросом статусов SDD. |
 | `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | Низкоуровневое детерминированное 3-way слияние для `sprint-status.yaml`. |
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | Проверка операции записи на соответствие манифесту блокировок активного worktree. |
 | `sdd-parallel install-plugin [--target-dir DIR]` | Сборка и установка переносимого плагина Google Antigravity. |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute]` | Генерация или выполнение многооконных команд автопилота с маршрутизацией усилий моделей. |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]` | Генерация или выполнение многооконных команд автопилота с маршрутизацией усилий моделей. |
+| `sdd-parallel bench [--repo REPO] [--since REV] [--until REV] [--demo] [--max-tracks N] [--kit KIT] [--format {text,json}] [--output-file FILE]` | Ретроспективный бэктест на истории коммитов или демо-репозитории для оценки метрик (Precision, Recall, F1). |
+| `sdd-parallel inspect [--repo REPO] [--plan PATH] [--output PATH] [--open] [--kit KIT]` | Генерация и просмотр автономного offline HTML Wave Inspector для визуализации слотов и DAG конфликтов. |
 
 </details>
 
-</details>
+---
 
 ## 🚢 Матрица релиза: Готово (v0.1.0) vs Роадмап (v0.2+)
 
@@ -649,8 +651,8 @@ flowchart TD
 - [x] **Комьюнити-адаптеры:** `mattpocock/skills` (`/implement-spec`) и адаптер frontmatter-статусов `bmad-loop`.
 - [x] **Синхронизация окружения Zero-Pollution:** симлинки `.venv` / `node_modules` в фиксированные слоты.
 - [x] **Статический линковщик символов и эскалация скоупа:** автоматическое расширение набора файлов на запись по AST-символам с динамическим перепланированием волн.
-- [ ] **Экспортёры FinOps и наблюдаемости:** трейсы OpenTelemetry и телеметрия экономии токенов Langfuse.
-- [ ] **Headless демон автопилота:** исполнение агентов через локальный RPC / диспетчеризацию субагентов.
+- [x] **Манифест исполнения и контракт Cognitive Router:** детерминированный `.parallel/run-manifest.json`, структурные сигналы AST (`TaskStructuralSignals`) и файл переопределений `--routing-file` (`ADR-0009`).
+- [ ] **Официальный Depth-0 раннер волн (`agy` CLI / SDK):** параллельное headless исполнение треков через протокол `TrackExecutionPolicy`.
 
 ---
 

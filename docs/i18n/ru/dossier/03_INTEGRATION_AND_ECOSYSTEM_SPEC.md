@@ -155,22 +155,114 @@ flowchart LR
 }
 ```
 
+### 3.3. Контракт манифеста исполнения волн (`.parallel/run-manifest.json` и `wave-<K>-manifest.json`)
+Детерминированные манифесты исполнения по стандарту `ADR-0009`, фиксируемые на этапах `verify-wave` и `merge`:
+- **Манифест волны:** `.parallel/wave-<K>-manifest.json` сохраняет состояния треков, длительность, коды возврата, структурные сигналы AST и лог предотвращенных конфликтов для волны $K$.
+- **Сводный манифест запуска:** `.parallel/run-manifest.json` агрегирует сводную телеметрию исполнения по всем волнам проекта.
+
+```json
+{
+  "run_id": "run-20261103-154012",
+  "created_at": "2026-11-03T15:40:12Z",
+  "kit_id": "bmad",
+  "repo_root": "/workspace",
+  "waves": [
+    {
+      "wave_id": 1,
+      "status": "merged",
+      "tracks": [
+        {
+          "track_id": "track-a",
+          "task_ids": ["11-2"],
+          "model_effort": "high",
+          "model_override": "anthropic/claude-3-5-sonnet",
+          "execution_mode": "interactive",
+          "duration_seconds": 124.5,
+          "exit_code": 0,
+          "tasks": [
+            {
+              "id": "11-2",
+              "title": "First Story",
+              "signals": {
+                "file_count": 3,
+                "write_file_count": 2,
+                "estimated_tokens": 12500,
+                "complexity_tier": "high",
+                "risk_score": 0.42,
+                "critical_spine": false,
+                "fan_out_degree": 1
+              }
+            }
+          ]
+        }
+      ],
+      "prevented_conflicts": [
+        {
+          "task_a": "11-2",
+          "task_b": "11-3",
+          "conflicting_files": ["src/canonical/manifest.py"],
+          "prevented_at": "plan",
+          "mechanism": "wave_separation"
+        }
+      ]
+    }
+  ],
+  "metrics": {
+    "total_tasks": 1,
+    "total_waves": 1,
+    "total_tracks": 1,
+    "total_conflicts_prevented": 1,
+    "effective_concurrency": 1.0
+  }
+}
+```
+
+### 3.4. Контракт переопределения когнитивной маршрутизации (`--routing-file`)
+Контракт интеграции с внешними когнитивными маршрутизаторами и планировщиками FinOps:
+- Формат: JSON/YAML файл, передаваемый через флаг `--routing-file <path>` в команды `plan`, `prepare`, `autopilot` и `run-guide`.
+- Схема контракта:
+```json
+{
+  "tracks": {
+    "track-a": {
+      "model": "anthropic/claude-3-5-sonnet",
+      "model_effort": "high",
+      "execution_mode": "interactive"
+    },
+    "track-b": {
+      "model": "google/gemini-2.5-flash",
+      "model_effort": "low",
+      "execution_mode": "headless"
+    }
+  },
+  "tasks": {
+    "11-2": {
+      "model": "openai/gpt-4o",
+      "model_effort": "high"
+    }
+  }
+}
+```
+- Семантика применения: переопределения уровня задач маппятся на слоты треков. Явные настройки треков имеют наивысший приоритет над фоллбэками задач, сохраняя при этом структурные сигналы риска AST в `.parallel/run-manifest.json`.
+
 ---
 
 ## 4. Спецификация интерфейсов оркестратора
 
 ### 4.1. CLI Интерфейс
 Оркестратор предоставляет полный набор детерминированных команд:
-- `sdd-parallel plan [--kit auto|bmad|spec-kit|gsd|openspec|beads] [--max-tracks K]`
-  - Выполняет анализ графа, строит волны и сохраняет `wave-plan.json`.
-- `sdd-parallel prepare --wave N [--dynamic-worktrees]`
+- `sdd-parallel plan [--kit auto|bmad|spec-kit|gsd|openspec|beads] [--max-tracks K] [--routing-file FILE]`
+  - Выполняет анализ графа, рассчитывает структурные сигналы AST, применяет переопределения маршрутизации, строит волны и сохраняет `wave-plan.json` и `execution-plan-parallel.md`.
+- `sdd-parallel prepare --wave N [--dynamic-worktrees] [--routing-file FILE]`
   - Инициализирует постоянные слоты `track-<id>` с in-place сбросом (`git checkout -B` + `git clean -fd`), настраивает `info/exclude`, генерирует `.tmp/track-context.md`, `.parallel-lock.json` и накладывает OS read-only локи (`chmod a-w`). Флаг `--dynamic-worktrees` включает легаси-режим изолированных папок на каждую волну.
-- `sdd-parallel run-guide --wave N`
-  - Формирует форматированную матрицу запуска воркеров с путями и готовыми командами для оператора.
+- `sdd-parallel run-guide --wave N [--routing-file FILE]`
+  - Формирует форматированную матрицу запуска воркеров с путями и готовыми командами для оператора с учетом когнитивной маршрутизации моделей.
+- `sdd-parallel autopilot --wave N [--concurrency K] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]`
+  - Генерирует или выполняет многооконные команды автопилота с когнитивной маршрутизацией моделей и директивами режима исполнения.
 - `sdd-parallel verify-wave --wave N`
-  - Верифицирует скоуп в активных треках, проверяя `PreToolUse` локи, отсутствие нарушений Terminal Guard и полный `git diff` против `merge-base` перед слиянием.
+  - Верифицирует скоуп в активных треках, проверяя `PreToolUse` локи, отсутствие нарушений Terminal Guard, полный `git diff` против `merge-base` перед слиянием и формирует `.parallel/wave-<N>-manifest.json`.
 - `sdd-parallel merge --wave N [--cleanup] [--strict-gates] [--skip-gates]`
-  - Запускает полиморфные гейты качества (Python, Node/TS, Rust, Go или `.parallel-config.json`), применяет транзакционный авто-откат при сбое гейта, выполняет барьерное слияние веток треков в основную ветку и применяет монотонный 3-way merger для статусных файлов.
+  - Запускает полиморфные гейты качества (Python, Node/TS, Rust, Go или `.parallel-config.json`), применяет транзакционный авто-откат при сбое гейта, выполняет барьерное слияние веток треков в основную ветку, применяет монотонный 3-way merger для статусных файлов и сохраняет финальный `.parallel/run-manifest.json` с метриками предотвращенных конфликтов.
 - `sdd-parallel abort-wave --wave N`
   - Удаляет временные ветки треков и снимает блокировки неподмерженной волны.
 - `sdd-parallel rollback-wave --wave N [--save-backup]`
