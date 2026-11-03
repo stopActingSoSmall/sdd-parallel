@@ -260,6 +260,7 @@ class SDDAdapterProtocol(Protocol):
 
 Вместо динамического создания и удаления папок репозиторий использует параметрический пул постоянных слотов размера $K = \text{max\_tracks}$ (`track-a`, `track-b`, ..., `track-<id>`):
 - Каталоги располагаются в `~/.gemini/antigravity/worktrees/<Project>/<track_id>` с локальными связями в `.worktrees/<track_id>`.
+- **Git 2.48 Worktree Guard:** Провижининг слотов строго передаёт флаг `git -c worktree.useRelativePaths=false worktree add ...` с абсолютными путями, предотвращая запись `extensions.relativeWorktrees` в `.git/config` и сбои в средах с версией Git `< 2.48`.
 - **In-Place Reset:** При переходе между волнами папки остаются на диске, исключая ошибку `Missing Folder` в Antigravity Desktop. Слот атомарно переключается на новую волну через:
   ```powershell
   git checkout -B parallel/<track_id> master ; git clean -fd
@@ -267,7 +268,7 @@ class SDDAdapterProtocol(Protocol):
 
 ### 4.6. Трёхуровневый Scope Guard (Defense-in-Depth)
 
-1. **Рубеж 1 (PreToolUse Hook):** Перехват `write_file`, `edit_file`, `replace_file_content` по манифесту `.parallel-lock.json`.
+1. **Рубеж 1 (PreToolUse Hook & Песочница Claude Code):** Перехват `write_file`, `edit_file`, `replace_file_content`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit` и терминальных команд (`Bash`, `run_command`, `cmd`, `powershell`) по манифесту `.parallel-lock.json`. В Claude Code v2.1.314+ автоматически настраивается `.claude/settings.local.json` с `"permissions": {"blockWritesOutsideWorkingDirectories": true}` (с маскированием в `info/exclude` для соблюдения чистоты дерева).
 2. **Рубеж 2 (Terminal Guard):** Перехват команд интерпретатора (`Bash`, `run_command`, `cmd`, `powershell`) с блокировкой попыток записи (`>`, `>>`, `sed -i`, `rm`, `python open`) в файлы вне `allowed_write_globs`.
 3. **Рубеж 3 (OS Read-Only Locks):** Снятие прав записи ОС (`chmod a-w`) на файлы из `forbidden_files` в сочетании с `git config core.fileMode false`.
 4. **Контрольный гейт (`verify-wave`):** Детерминированная проверка `git diff $(git merge-base master HEAD)...HEAD` перед слиянием.

@@ -260,6 +260,7 @@ At barrier wave merge checkpoints (`sdd-parallel merge --wave K`), task progress
 
 Rather than recreating filesystem directories per wave, the orchestrator provisions a fixed pool of $K = \text{max\_tracks}$ permanent slots (`track-a`, `track-b`, ..., `track-<id>`):
 - Slots are located at `~/.gemini/antigravity/worktrees/<Project>/<track_id>` (with junction symlinks in `.worktrees/<track_id>`).
+- **Git 2.48 Worktree Guard:** Slot provisioning strictly enforces `git -c worktree.useRelativePaths=false worktree add ...` with absolute resolved paths. This prevents Git 2.48+ from injecting `extensions.relativeWorktrees` into `.git/config`, ensuring worktrees remain compatible with sandboxes and CI containers running Git `< 2.48`.
 - **In-Place Reset:** When transitioning between waves, directories remain on disk, eliminating `Missing Folder` errors in Antigravity Desktop. Slots atomically rebind via:
   ```powershell
   git checkout -B parallel/<track_id> master ; git clean -fd
@@ -267,7 +268,7 @@ Rather than recreating filesystem directories per wave, the orchestrator provisi
 
 ### 4.6. Three-Tier Defense-in-Depth Scope Guard
 
-1. **Tier 1 (PreToolUse Hook):** Intercepts file mutation tools (`write_file`, `edit_file`, `replace_file_content`) against `.parallel-lock.json`.
+1. **Tier 1 (PreToolUse Hook & Claude Code Sandbox):** Intercepts file mutation tools (`write_file`, `edit_file`, `replace_file_content`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`) and command runners (`Bash`, `run_command`, `cmd`, `powershell`) against `.parallel-lock.json`. In Claude Code v2.1.314+, automatically provisions `.claude/settings.local.json` with `"permissions": {"blockWritesOutsideWorkingDirectories": true}` (masked via `info/exclude` to maintain Invariant 1: Clean Worktree).
 2. **Tier 2 (Terminal Guard):** Intercepts shell execution tools (`Bash`, `run_command`, `cmd`, `powershell`) and blocks bypass attempts (`>`, `>>`, `sed -i`, `rm`, `python open`) targeting locked files.
 3. **Tier 3 (OS Read-Only Locks):** Applies filesystem permissions (`chmod a-w`) to `forbidden_files` combined with `git config core.fileMode false` (OS permissions remain invisible to Git, maintaining a clean status).
 4. **Verification Gate (`verify_wave`):** Multi-commit inspection auditing `git diff $(git merge-base master HEAD)...HEAD` prior to merge.

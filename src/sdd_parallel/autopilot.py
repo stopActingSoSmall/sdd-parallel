@@ -42,10 +42,12 @@ class AutopilotLauncher:
         self,
         repo_root: Path,
         agentapi_path: Path | None = None,
+        fixed_slots: bool = True,
     ) -> None:
         self.repo_root = repo_root.resolve()
         self.worktrees_dir = self.repo_root / ".worktrees"
         self.agentapi_path = agentapi_path or default_agentapi_path()
+        self.fixed_slots = fixed_slots
 
     @staticmethod
     def resolve_model_for_effort(harness: str, effort: EffortTier) -> str:
@@ -94,7 +96,12 @@ class AutopilotLauncher:
 
         specs: list[dict[str, Any]] = []
         for track in target_wave.tracks:
-            wt_path = self.worktrees_dir / f"wave-{wave_number}-{track.track_id}"
+            if self.fixed_slots:
+                wt_path = self.worktrees_dir / track.track_id
+                slot_name = track.track_id
+            else:
+                wt_path = self.worktrees_dir / f"wave-{wave_number}-{track.track_id}"
+                slot_name = f"wave-{wave_number}-{track.track_id}"
             model_id = self.resolve_model_for_effort(h_norm, track.effort)
             stories_str = ", ".join(track.task_ids)
             title = f"Wave {wave_number} ({track.track_id}): {stories_str}"
@@ -114,7 +121,7 @@ class AutopilotLauncher:
                 argv = [
                     "claude",
                     "--worktree",
-                    f"wave-{wave_number}-{track.track_id}",
+                    slot_name,
                     "--model",
                     model_id,
                     "-p",

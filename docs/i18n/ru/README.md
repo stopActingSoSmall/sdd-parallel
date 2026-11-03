@@ -526,7 +526,7 @@ my-project/
 
 | Харнесс | Как подключается |
 | :--- | :--- |
-| **Claude Code** (`claude`) | Запустите `claude` внутри `.worktrees/track-a`; попытки записи вне скоупа и обходы через шелл отклоняются хуком `PreToolUse` и правами ОС `chmod a-w`. Либо запустите все треки сразу: `sdd-parallel autopilot --wave 1 --harness claude-code`. |
+| **Claude Code** (`claude`) | Запустите `claude` внутри `.worktrees/track-a`; запись вне скоупа блокируется нативным флагом `permissions.blockWritesOutsideWorkingDirectories: true`, хуком `PreToolUse` и правами ОС `chmod a-w`. Либо запустите все треки сразу: `sdd-parallel autopilot --wave 1 --harness claude-code` (фиксированные слоты `track-a/b/c`, явный `--model`). |
 | **OpenAI Codex CLI** (`codex`) | `codex --cd .worktrees/track-b`; файлы только для чтения защищены через `chmod a-w`, а `sdd-parallel verify-wave` выполняет аудит diff перед слиянием. Автопилот: `--harness codex`. |
 | **Google Antigravity** | `sdd-parallel prepare --wave 1 --antigravity-layout` размещает слоты в `~/.gemini/antigravity/worktrees/<Project>/track-a`; `ACTIVE_TRACK.md` находится в корне слота; `sdd-parallel install-plugin` устанавливает переносимый плагин с хуком scope-guard. |
 | **Любой CLI или IDE с поддержкой worktree** — Cursor, Windsurf, OpenCode, Kimi CLI, MiniMax Code, Aider, Cline, Trae | Работает без дополнительной настройки: стандартные слоты `git worktree` (`track-a`, `track-b`, `track-c`, … через `--max-tracks N`), блокировки ОС `chmod a-w`, `ACTIVE_TRACK.md` и аудит diff через `sdd-parallel verify-wave`. |

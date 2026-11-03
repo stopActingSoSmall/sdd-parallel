@@ -566,7 +566,7 @@ You keep your agent and your prompts. After `sdd-parallel prepare --wave 1`, `sd
 
 | Harness | How it plugs in |
 | :--- | :--- |
-| **Claude Code** (`claude`) | Open `claude` inside `.worktrees/track-a`; out-of-scope writes and shell bypasses are denied by the `PreToolUse` hook plus OS `chmod a-w`. Or spawn all tracks with `sdd-parallel autopilot --wave 1 --harness claude-code`. |
+| **Claude Code** (`claude`) | Open `claude` inside `.worktrees/track-a`; out-of-scope writes are blocked by native `permissions.blockWritesOutsideWorkingDirectories: true` plus `PreToolUse` hook and OS `chmod a-w`. Or spawn all tracks with `sdd-parallel autopilot --wave 1 --harness claude-code` (fixed slots `track-a/b/c`, explicit `--model`). |
 | **OpenAI Codex CLI** (`codex`) | `codex --cd .worktrees/track-b`; read-only files are protected by `chmod a-w`, and `sdd-parallel verify-wave` audits the diff before merge. Autopilot: `--harness codex`. |
 | **Google Antigravity** | `sdd-parallel prepare --wave 1 --antigravity-layout` places slots under `~/.gemini/antigravity/worktrees/<Project>/track-a`; `ACTIVE_TRACK.md` sits at the slot root; `sdd-parallel install-plugin` installs the portable plugin with the scope-guard hook. |
 | **Any worktree-capable CLI or IDE** — Cursor, Windsurf, OpenCode, Kimi CLI, MiniMax Code, Aider, Cline, Trae | Works without extra setup: standard `git worktree` slots (`track-a`, `track-b`, `track-c`, … via `--max-tracks N`), OS-level `chmod a-w` locks, `ACTIVE_TRACK.md`, and post-hoc diff verification with `sdd-parallel verify-wave`. |

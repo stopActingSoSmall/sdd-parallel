@@ -32,7 +32,7 @@ def install_plugin(
     skill_dest_dir = dest / "skills" / "sdd-parallel"
     skill_dest_dir.mkdir(parents=True, exist_ok=True)
 
-    python_exe = str(Path(sys.executable).resolve())
+    python_exe = Path(sys.executable).resolve().as_posix()
     hook_cmd = f"{python_exe} -X utf8 -m sdd_parallel.hooks.blast_radius_guard"
 
     plugin_manifest: dict[str, Any] = {
@@ -54,7 +54,8 @@ def install_plugin(
                 {
                     "matcher": (
                         "write_to_file|replace_file_content|"
-                        "multi_replace_file_content|Write|Edit|MultiEdit"
+                        "multi_replace_file_content|Write|Edit|MultiEdit|"
+                        "NotebookEdit|Bash|run_command|cmd|powershell"
                     ),
                     "hooks": [
                         {
@@ -160,3 +161,31 @@ def sanitize_antigravity_settings_hooks(
         )
 
     return {"modified": removed > 0, "removed_hooks": removed}
+
+
+def configure_claude_settings(target_dir: Path) -> Path:
+    """Configure Claude Code settings.local.json with blockWritesOutsideWorkingDirectories.
+
+    Ensures native directory write protection (Claude Code v2.1.314+) without
+    polluting git status (when paired with git info/exclude).
+    """
+    claude_dir = target_dir / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    settings_file = claude_dir / "settings.local.json"
+    data: dict[str, Any] = {}
+    if settings_file.is_file():
+        try:
+            data = json.loads(settings_file.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    perms = data.setdefault("permissions", {})
+    if isinstance(perms, dict):
+        perms["blockWritesOutsideWorkingDirectories"] = True
+    else:
+        data["permissions"] = {"blockWritesOutsideWorkingDirectories": True}
+    settings_file.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return settings_file
+

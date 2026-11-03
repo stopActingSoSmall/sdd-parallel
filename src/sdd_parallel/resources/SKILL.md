@@ -43,7 +43,7 @@ Present the computed wave plan to the operator and prompt for execution flow:
 ```powershell
 uv run sdd-parallel prepare --repo <target-repo-path> --wave <K> --antigravity-layout --headless [--kit <kit>]
 ```
-This provisions or reuses fixed track slots in `~/.gemini/antigravity/worktrees/<Project>/track-<id>` ($K = \text{max\_tracks}$, e.g. `track-a`, `track-b`, ...), performs an atomic in-place reset (`git checkout -B`, `git clean -fd`), injects `.tmp/track-context.md`, `.parallel-lock.json`, and applies OS read-only locks (`chmod a-w` on forbidden files with `core.fileMode false`), keeping `git status --porcelain` **100% clean**.
+This provisions or reuses fixed track slots in `~/.gemini/antigravity/worktrees/<Project>/track-<id>` ($K = \text{max\_tracks}$, e.g. `track-a`, `track-b`, ...) with Git 2.48 guard (`-c worktree.useRelativePaths=false`), performs an atomic in-place reset (`git checkout -B`, `git clean -fd`), injects `.tmp/track-context.md`, `.parallel-lock.json`, configures Claude Code sandbox settings (`.claude/settings.local.json` with `blockWritesOutsideWorkingDirectories`), and applies OS read-only locks (`chmod a-w` on forbidden files with `core.fileMode false`), keeping `git status --porcelain` **100% clean**.
 *(Pass `--dynamic-worktrees` if legacy per-wave worktree directories `wave-<K>-track-<id>` are desired).*
 
 ### 3.2. Generate Operator Run Guide

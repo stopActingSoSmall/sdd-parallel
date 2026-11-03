@@ -155,11 +155,11 @@ Many parallelization attempts fail due to file tree contamination: temporary con
 Instructional constraints ("please do not edit out-of-scope files") are inherently unreliable: under refactoring pressure, LLMs frequently widen their edit radius, modifying neighboring files or bypassing tool locks by executing terminal scripts.
 
 `sdd-parallel` enforces multi-tiered boundary security:
-- **Tier 1 (PreToolUse Hook):** Intercepts direct IDE file manipulation tools (`write_file`, `edit_file`, `replace_file_content`). Prior to execution, target file paths are checked against `.parallel-lock.json`:
+- **Tier 1 (PreToolUse Hook & Harness Sandbox):** Intercepts direct IDE file manipulation tools (`write_file`, `edit_file`, `replace_file_content`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`). In Claude Code v2.1.314+, automatically provisions `.claude/settings.local.json` with `"permissions": {"blockWritesOutsideWorkingDirectories": true}` (masked via `info/exclude`), establishing an outer perimeter while `.parallel-lock.json` enforces intra-tree isolation:
   - If included in `allowed_write_globs` or `additive_shared_files`, the operation proceeds.
   - If locked by a sibling track or classified as a Spine Lock, the call is rejected with a `BLAST RADIUS VIOLATION` error.
 - **Tier 2 (Terminal Guard):** Intercepts shell execution tools (`Bash`, `run_command`, `cmd`, `powershell`). Commands are audited for write operations or destructive patterns (`>`, `>>`, `sed -i`, `rm`, `python open`) targeting files outside `allowed_write_globs`.
-- **Tier 3 (OS Read-Only Locks):** At the operating system filesystem level, write access to sibling files is stripped (`chmod a-w`). Paired with `git config core.fileMode false`, this prevents out-of-scope disk modification without polluting Git index permissions.
+- **Tier 3 (OS Read-Only Locks & Git 2.48 Guard):** At the operating system filesystem level, write access to sibling files is stripped (`chmod a-w`). Paired with `git config core.fileMode false` and `-c worktree.useRelativePaths=false` (preventing `extensions.relativeWorktrees` breakage on Git `< 2.48`), this prevents out-of-scope disk modification without polluting Git index permissions.
 - **Pre-Merge Diff Gate (`verify-wave`):** Final automated audit of multi-commit `git diff` against `merge-base` and `git status --porcelain` before integration. Prevents scope bypass across intermediate commits and fails the wave integration gate immediately upon unauthorized modifications.
 
 ### 6.1. Three Tiers of Defense: Cognitive vs. Execution vs. Kernel/VCS Level
