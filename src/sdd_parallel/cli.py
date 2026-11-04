@@ -247,6 +247,30 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional path to routing-overrides.json from external Cognitive Router",
     )
+    p_auto.add_argument(
+        "--timeout",
+        type=float,
+        default=1800.0,
+        help="Track execution timeout in seconds (default: 1800.0)",
+    )
+    p_auto.add_argument(
+        "--auto-merge",
+        action="store_true",
+        help="Automatically verify and merge wave upon 100% successful track completion",
+    )
+    p_auto.add_argument(
+        "--policy",
+        type=str,
+        default="single-shot",
+        choices=["single-shot", "cyclic-review"],
+        help="Track execution policy (default: single-shot)",
+    )
+    p_auto.add_argument(
+        "--max-iterations",
+        type=int,
+        default=3,
+        help="Maximum review iterations for cyclic review policy (default: 3)",
+    )
 
     # abort-wave
     p_abort = sub.add_parser(
@@ -820,14 +844,48 @@ def main(argv: Sequence[str] | None = None) -> int:
         launcher = AutopilotLauncher(repo_root)
         if getattr(args, "antigravity_layout", False):
             launcher.worktrees_dir = default_antigravity_worktrees_dir(repo_root.name)
-        results = launcher.launch_wave(
+
+        if not getattr(args, "execute", False):
+            results = launcher.launch_wave(
+                plan=plan,
+                wave_number=args.wave,
+                harness=args.harness,
+                execute=False,
+            )
+            print(json.dumps(results, indent=2, ensure_ascii=False))
+            return 0
+
+        # Official Depth-0 Wave Runner execution
+        from sdd_parallel.runner import (
+            BoundedCyclicReviewPolicy,
+            SingleShotExecutionPolicy,
+            TrackExecutionPolicy,
+            WaveRunner,
+        )
+
+        policy_obj: TrackExecutionPolicy
+        if getattr(args, "policy", "single-shot") == "cyclic-review":
+            policy_obj = BoundedCyclicReviewPolicy(
+                max_iterations=getattr(args, "max_iterations", 3)
+            )
+        else:
+            policy_obj = SingleShotExecutionPolicy()
+
+        runner = WaveRunner(
+            repo_root=repo_root,
+            harness=args.harness,
+            fixed_slots=launcher.fixed_slots,
+            worktrees_dir=launcher.worktrees_dir,
+            timeout_seconds=getattr(args, "timeout", 1800.0),
+            policy=policy_obj,
+        )
+        summary = runner.run_wave(
             plan=plan,
             wave_number=args.wave,
-            harness=args.harness,
-            execute=args.execute,
+            auto_merge=getattr(args, "auto_merge", False),
         )
-        print(json.dumps(results, indent=2, ensure_ascii=False))
-        return 0
+        print(json.dumps(summary.to_dict(), indent=2, ensure_ascii=False))
+        return 0 if summary.all_succeeded else 1
 
     if args.command == "abort-wave":
         repo_root = args.repo.resolve()

@@ -33,7 +33,7 @@ Use this skill whenever the user wants to:
 Present the computed wave plan to the operator and prompt for execution flow:
 1. **Execution Workflow:**
    - `(Recommended) Mode A: Two-Stage Assisted (Native SDD)` — Orchestrator provisions worktrees (`Depth 0`), operator opens independent Antigravity windows and launches native worker commands (`/bmad-build`, `/speckit.implement`, etc.) with full review lenses, then orchestrator verifies and merges.
-   - `Mode B: Multi-Conversation Autopilot` — Automated launch across separate sessions via `sdd-parallel autopilot`.
+   - `Mode B: Multi-Conversation Autopilot` — Automated Depth-0 launch across separate sessions via `sdd-parallel autopilot` (`--execute`, `--auto-merge`, `--policy`, `--timeout`).
    - `Mode C: In-Session Flat Dispatch (Deprecated / Fallback Only)` — Monolithic subagent dispatch inside single chat session (warning: loses nested BMAD review lenses due to platform `Max Subagent Depth = 1`).
 
 ---
@@ -120,7 +120,7 @@ All subcommands exposed by `sdd-parallel`:
 - `prepare`: Provision isolated git worktree slots with boundary locks (supports `--routing-file`).
 - `claim-track`: Attach boundary locks to an existing interactive IDE worktree slot.
 - `run-guide`: Display operator execution instructions and native worker launch commands (supports `--routing-file`).
-- `autopilot`: Generate and execute multi-conversation worker launch commands (supports `--routing-file`).
+- `autopilot`: Generate and execute multi-conversation worker launch commands (supports `--routing-file`, `--execute`, `--auto-merge`, `--policy`, `--timeout`).
 - `check-lock`: Validate if modifying a file is permitted by `.parallel-lock.json`.
 - `verify-wave`: Validate that track commits strictly adhere to lock boundaries.
 - `merge`: Checkpoint merge of parallel track branches with quality gates.
