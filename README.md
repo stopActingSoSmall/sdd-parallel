@@ -43,7 +43,7 @@
   <em>Deterministic blast-radius wave plan, zero merge-bombs and clean worktree slots in under 28 seconds.</em>
 </p>
 
-Prefer to read at your own pace? See the [4-step annotated breakdown below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough).
+Prefer to read at your own pace? See the [4-step annotated breakdown below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough) or explore the **[⚡ Live Interactive Wave Inspector (Zero-Install Web Demo)](https://stopactingdosmall.github.io/sdd-parallel/)**.
 
 ---
 
@@ -706,3 +706,12 @@ uv run sdd-parallel demo --kit all     # offline 5-kit demo
 - **Contributing:** see the **[Contributing Guide](CONTRIBUTING.md)** for environment setup and pull-request gates.
 - **Security:** report vulnerabilities as described in the **[Security Policy](SECURITY.md)**.
 - **License:** MIT — see [LICENSE](LICENSE).
+
+### 💼 Commercial Audits & Enterprise Monorepo Support
+
+Scaling autonomous AI coding agents across engineering teams with large codebases requires deterministic blast-radius isolation. We offer fixed-scope asynchronous B2B audits (**Parallel SDD Readiness & Blast-Radius Audit**, \$500–\$2,500):
+- **Commit History Retrospective:** `sdd-parallel bench` backtest detecting historical Merge-Bomb hotspots and blast-radius bottlenecks.
+- **Custom Repository Configuration:** Tailored `.parallel-config.json` defining exact `contract_globs`, spine schema serialization, port isolation, and CI/CD quality gate barriers.
+- **Interactive Multi-Agent Roadmap:** Pre-computed `wave-plan.json` and standalone HTML inspector report detailing velocity gains and agent slot allocations.
+
+To discuss architecture or schedule an audit, open a topic in **[GitHub Discussions](https://github.com/stopActingSoSmall/sdd-parallel/discussions)** or reach out to the maintainers.

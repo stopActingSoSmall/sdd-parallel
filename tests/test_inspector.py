@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from graphlib import TopologicalSorter
 from pathlib import Path
 
 import pytest
@@ -154,3 +155,59 @@ def test_cli_inspect_subcommand(tmp_path: Path, capsys: pytest.CaptureFixture[st
     captured = capsys.readouterr()
     assert "[SDD-Parallel] Wave Inspector generated at:" in captured.out
     assert target_out.is_file()
+
+
+def test_sample_wave_plan_dag_is_strictly_acyclic() -> None:
+    plan = build_sample_wave_plan()
+    edges = plan["edges"]
+    graph: dict[str, set[str]] = {}
+    for e in edges:
+        graph.setdefault(e["target"], set()).add(e["source"])
+        graph.setdefault(e["source"], set())
+
+    ts = TopologicalSorter(graph)
+    order = list(ts.static_order())
+    assert len(order) >= 4
+
+    # All 4 conflict types present
+    conflict_types = {e["conflict_type"] for e in edges}
+    assert conflict_types == {
+        "direct_collision",
+        "semantic_collision",
+        "spine_order",
+        "explicit_dep",
+    }
+
+
+def test_inspector_html_v2_features() -> None:
+    plan = build_sample_wave_plan()
+    plan["wave_zero_blockers"] = ["Critical syntax error in spec.md"]
+    html = generate_inspector_html(plan_data=plan)
+
+    # 1. No raw LaTeX formulas in DAG legend
+    assert "$W_A" not in html
+    assert "$W_A \\cap W_B" not in html
+    assert "$W_A \\cap I_B" not in html
+    assert "Wₐ ∩ Wᵦ ≠ ∅" in html
+    assert "Wₐ ∩ Iᵦ ≠ ∅" in html
+
+    # 2. CLI Action Bridge & Pipeline strip
+    assert "Deterministic SDD Cycle:" in html
+    assert "pipeline-strip" in html
+    assert "Copy: prepare --wave" in html
+    assert "Copy: merge --wave" in html
+    assert "copyCliCommand" in html
+
+    # 3. Wave 0 Blockers & function scope notes
+    assert "Wave 0 Blockers (pre-flight checks failed)" in html
+    assert "Critical syntax error in spec.md" in html
+    assert "register_normalizer_command" in html
+    assert "fn-badge" in html
+
+    # 4. Color semantics: shared vs spine
+    assert ".file-pill.shared" in html
+    assert ".file-pill.spine" in html
+    assert "--accent-purple" in html
+
+    # 5. Product-Led B2B Funnel
+    assert "Parallel SDD Readiness &amp; Monorepo Blast-Radius Audit" in html
