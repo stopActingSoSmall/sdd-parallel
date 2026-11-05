@@ -202,7 +202,7 @@ If a wave fails integration testing or requires rollback:
 The system adapts to various execution environments:
 
 ### Topology A: `Two-Stage Assisted (BMAD Native)` — Recommended Standard
-- Overcomes the platform limitation in Google Antigravity (`Max Subagent Depth = 1`).
+- Provides physical worktree directory isolation (`CWD`) and guarantees that track workers preserve 100% of their platform subagent depth budget for internal multi-lens reviews.
 - The orchestrator calculates the wave schedule, provisions fixed track slots, and displays an operator launch guide via `sdd-parallel run-guide`.
 - The human operator opens track slots across independent windows and executes native `/bmad-build <story-id>` commands at `Depth 0`, preserving the complete multi-lens review cycle.
 - The orchestrator audits locks and executes barrier merges with full test suite validation.
@@ -212,4 +212,4 @@ The system adapts to various execution environments:
 - Each worker runs as an independent `Depth 0` process with dynamic model selection via `Model Effort Routing` (`High` / `Medium` / `Low`).
 
 ### Topology C: `In-Session Flat Dispatch` (Deprecated / Fallback Only)
-- Flat execution of nested subagents within a single chat session. Retained strictly for headless environments where independent CLI windows cannot be spawned, with full awareness of subagent depth constraints.
+- Flat execution of subagents within a single chat session. Retained strictly for headless environments where independent CLI windows cannot be spawned, with full awareness of shared directory conflicts and orchestrator context window limits.

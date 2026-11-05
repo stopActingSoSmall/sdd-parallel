@@ -300,7 +300,7 @@ class SDDAdapterProtocol(Protocol):
 
 ## 5. Google Antigravity 与 AI 智能体并行执行模型 (Execution Models)
 
-在面对平台环境对**嵌套子智能体深度限制（`Max Subagent Depth = 1`）**时，系统提供两种主要执行模型：
+尽管 Google Antigravity 等现代化平台支持深达 10 级的子智能体嵌套，但子智能体 API 缺乏对隔离 `git worktree` 工作目录（`cwd`）的物理绑定，且会导致父会话上下文窗口急剧耗尽。将轨道工作智能体作为独立的 **`Depth 0` 进程在 `git worktree` 槽位** 中运行，可以为框架内部工作流（如 BMAD 的多维评审镜头）100% 完整保留平台的子智能体嵌套深度预算，同时具备跨 Harness 平台的通用性。系统提供两种主要执行模型：
 
 ### 5.1. 模式 A: `Two-Stage Assisted & Interactive Checkpoints` (推荐默认)
 
@@ -326,4 +326,4 @@ class SDDAdapterProtocol(Protocol):
 
 ### 5.3. 模式 C: `In-Session Flat Dispatch` (已废弃 / 仅限紧急回退)
 
-在单一会话中依次调度扁平子智能体链（`Spec -> Dev -> Review`）的做法**已废弃**，仅作为多窗口不可用时的应急后备。
+在单一会话中调度子智能体的做法**已废弃**，由于缺乏工作目录（`CWD`）物理隔离且容易导致父会话上下文窗口耗尽，仅作为多窗口或外部 CLI 不可用时的应急后备。
