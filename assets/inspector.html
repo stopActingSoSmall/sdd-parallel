@@ -113,40 +113,56 @@
       color: var(--text-muted);
       font-family: var(--font-mono);
     }
-    .stats-bar {
+    /* Unified Analytics Summary Bar */
+    .stat-summary-bar {
       display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
       align-items: center;
-    }
-    .stat-pill {
       background: var(--bg-card);
       border: 1px solid var(--border-color);
       border-radius: 6px;
-      padding: 4px 10px;
+      padding: 2px 0;
       font-size: 12px;
+      font-family: var(--font-sans);
+    }
+    .stat-item {
+      padding: 4px 12px;
       display: flex;
-      gap: 6px;
       align-items: center;
+      gap: 6px;
+      border-right: 1px solid var(--border-muted);
+    }
+    .stat-item:last-child {
+      border-right: none;
+    }
+    .stat-label {
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 500;
     }
     .stat-val {
       font-weight: 700;
-      color: var(--accent-blue);
       font-family: var(--font-mono);
+      color: var(--text-main);
+    }
+    .stat-val.conflicts {
+      color: var(--accent-amber);
+    }
+    .stat-val.spine {
+      color: var(--accent-purple);
     }
     /* Pipeline Workflow Strip */
     .pipeline-strip {
       background: #11161d;
       border-bottom: 1px solid var(--border-color);
-      padding: 8px 24px;
+      padding: 6px 24px;
       display: flex;
       align-items: center;
       flex-wrap: wrap;
-      gap: 12px;
+      gap: 10px;
       font-size: 12px;
     }
     .pipeline-title {
-      font-weight: 700;
+      font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
       font-size: 11px;
@@ -158,11 +174,8 @@
       align-items: center;
       gap: 6px;
       font-family: var(--font-mono);
-      background: #1c2128;
-      border: 1px solid var(--border-color);
-      border-radius: 6px;
-      padding: 3px 8px;
       color: var(--text-main);
+      font-size: 12px;
     }
     .step-num {
       background: var(--accent-blue);
@@ -297,16 +310,17 @@
       gap: 24px;
     }
     .wave-card {
-      background: var(--bg-card);
+      background: #11161f;
       border: 1px solid var(--border-color);
-      border-radius: 10px;
+      border-left: 3px solid var(--accent-blue);
+      border-radius: 8px;
       overflow: hidden;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
     }
     .wave-header {
       background: rgba(255, 255, 255, 0.02);
-      border-bottom: 1px solid var(--border-color);
-      padding: 12px 20px;
+      border-bottom: 1px solid var(--border-muted);
+      padding: 10px 18px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -314,21 +328,38 @@
       gap: 12px;
     }
     .wave-title {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 700;
       display: flex;
       align-items: center;
       gap: 10px;
     }
-    .barrier-pill {
-      background: rgba(63, 185, 80, 0.15);
-      border: 1px solid var(--accent-green);
-      color: var(--accent-green);
-      font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 10px;
+    .wave-num-badge {
+      background: rgba(88, 166, 255, 0.15);
+      border: 1px solid rgba(88, 166, 255, 0.4);
+      color: var(--accent-blue);
       font-family: var(--font-mono);
-      font-weight: 600;
+      font-weight: 700;
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+    }
+    .wave-meta {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      font-family: var(--font-sans);
+    }
+    .wave-barrier-footer {
+      background: rgba(0, 0, 0, 0.22);
+      border-top: 1px solid var(--border-muted);
+      padding: 8px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
     }
     .checkpoint-gates {
       font-family: var(--font-mono);
@@ -340,8 +371,8 @@
       flex-wrap: wrap;
     }
     .gate-badge {
-      background: #21262d;
-      border: 1px solid var(--border-color);
+      background: #1c2128;
+      border: 1px solid var(--border-muted);
       border-radius: 4px;
       padding: 2px 6px;
       font-size: 11px;
@@ -378,106 +409,136 @@
     .tracks-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-      gap: 16px;
-      padding: 20px;
+      gap: 14px;
+      padding: 16px 18px;
     }
     .track-card {
-      background: #0d1117;
-      border: 1px solid var(--border-color);
+      background: #18202c;
+      border: 1px solid var(--border-muted);
       border-radius: 8px;
-      padding: 16px;
+      padding: 14px 16px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
     }
     .track-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       border-bottom: 1px solid var(--border-muted);
-      padding-bottom: 10px;
+      padding-bottom: 8px;
+      gap: 8px;
     }
     .track-id {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 700;
       font-family: var(--font-mono);
       color: var(--accent-blue);
     }
-    .effort-badge {
-      font-size: 10px;
-      text-transform: uppercase;
-      font-weight: 700;
-      padding: 2px 8px;
-      border-radius: 10px;
+    .task-badge {
       font-family: var(--font-mono);
-    }
-    .effort-high {
-      background: rgba(248, 81, 73, 0.15);
-      border: 1px solid var(--accent-red);
-      color: var(--accent-red);
-    }
-    .effort-medium {
-      background: rgba(210, 153, 34, 0.15);
-      border: 1px solid var(--accent-amber);
-      color: var(--accent-amber);
-    }
-    .effort-low {
-      background: rgba(63, 185, 80, 0.15);
-      border: 1px solid var(--accent-green);
-      color: var(--accent-green);
-    }
-    .story-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-muted);
-      border-radius: 6px;
-      padding: 10px;
-      cursor: pointer;
-      transition: border-color 0.15s;
-    }
-    .story-card:hover {
-      border-color: var(--accent-blue);
-    }
-    .story-id {
       font-weight: 700;
-      font-family: var(--font-mono);
+      font-size: 12px;
       color: var(--accent-cyan);
+      background: rgba(57, 197, 187, 0.12);
+      border: 1px solid rgba(57, 197, 187, 0.35);
+      border-radius: 4px;
+      padding: 1px 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-block;
+    }
+    .task-badge:hover {
+      background: rgba(57, 197, 187, 0.25);
+      border-color: var(--accent-cyan);
+    }
+    .task-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .task-title {
+      font-size: 12px;
+      color: var(--text-main);
+      font-weight: 500;
+      font-family: var(--font-sans);
+    }
+    .modal-task-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--accent-cyan);
+      border-bottom: 1px solid var(--border-muted);
+      padding-bottom: 8px;
+      margin-bottom: 4px;
+    }
+    .effort-badge {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      font-weight: 500;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-muted);
+      padding: 2px 8px;
+      border-radius: 4px;
+      white-space: nowrap;
     }
     .file-box {
       font-size: 12px;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 2px;
     }
     .file-label {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
+    .file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin-top: 2px;
+    }
     .file-pill {
       font-family: var(--font-mono);
-      background: #1c2128;
-      border: 1px solid var(--border-muted);
-      border-radius: 4px;
-      padding: 3px 6px;
+      font-size: 12px;
       color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 1px 0;
+      background: transparent;
+      border: none;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
     }
     .file-pill.exclusive {
-      border-left: 3px solid var(--accent-green);
+      border-left: 2px solid var(--accent-green);
+      padding-left: 6px;
     }
     .file-pill.shared {
-      border-left: 3px solid var(--accent-cyan); /* Differentiated from Spine Lock */
+      border-left: 2px solid var(--accent-cyan); /* Differentiated from Spine Lock */
+      padding-left: 6px;
     }
     .file-pill.spine {
-      border-left: 3px solid var(--accent-purple); /* Strictly Spine Lock */
+      border-left: 2px solid var(--accent-purple); /* Strictly Spine Lock */
+      padding-left: 6px;
     }
+    .file-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .file-dot.exclusive { background: var(--accent-green); }
+    .file-dot.shared { background: var(--accent-cyan); }
+    .file-dot.spine { background: var(--accent-purple); }
     .fn-badge {
       display: inline-block;
       font-size: 10px;
@@ -490,6 +551,44 @@
       margin-left: 6px;
       font-weight: 600;
       white-space: nowrap;
+    }
+    .track-constraints {
+      border-top: 1px dashed var(--border-muted);
+      padding-top: 8px;
+      margin-top: 4px;
+    }
+    .constraint-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin-top: 4px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+    }
+    .constraint-list li {
+      padding-left: 12px;
+      position: relative;
+      line-height: 1.4;
+    }
+    .constraint-list li::before {
+      content: "•";
+      position: absolute;
+      left: 2px;
+      color: var(--accent-amber);
+    }
+    .wave-tag {
+      font-size: 10px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-muted);
+      padding: 1px 5px;
+      border-radius: 3px;
+      margin-left: 4px;
+      font-weight: normal;
+      vertical-align: middle;
     }
     /* Graph View */
     .graph-view-card {
@@ -717,12 +816,12 @@
       <span class="mode-hint">CLI: uvx sdd-parallel inspect --open</span>
     </div>
 
-    <div class="stats-bar">
-      <div class="stat-pill"><span>🌊 Waves:</span> <span id="stat-waves" class="stat-val">0</span></div>
-      <div class="stat-pill"><span>🛤️ Tracks:</span> <span id="stat-tracks" class="stat-val">0</span></div>
-      <div class="stat-pill"><span>📋 Tasks:</span> <span id="stat-tasks" class="stat-val">0</span></div>
-      <div class="stat-pill"><span>⚡ Conflicts:</span> <span id="stat-conflicts" class="stat-val">0</span></div>
-      <div class="stat-pill"><span>🔒 Spine Files:</span> <span id="stat-spine" class="stat-val">0</span></div>
+    <div class="stat-summary-bar">
+      <div class="stat-item"><span class="stat-label">Waves:</span> <span id="stat-waves" class="stat-val">0</span></div>
+      <div class="stat-item"><span class="stat-label">Tracks:</span> <span id="stat-tracks" class="stat-val">0</span></div>
+      <div class="stat-item"><span class="stat-label">Tasks:</span> <span id="stat-tasks" class="stat-val">0</span></div>
+      <div class="stat-item"><span class="stat-label">Conflicts:</span> <span id="stat-conflicts" class="stat-val conflicts">0</span></div>
+      <div class="stat-item"><span class="stat-label">Spine Locks:</span> <span id="stat-spine" class="stat-val spine">0</span></div>
     </div>
   </header>
 
@@ -873,6 +972,13 @@
     "src/demo_app/cli.py",
     "src/demo_app/__init__.py"
   ],
+  "task_titles": {
+    "T001": "Upgrade core telemetry schema",
+    "T002": "Normalize telemetry payloads",
+    "T003": "Add telemetry exporter",
+    "T004": "Expose REST API endpoint",
+    "T005": "Finalize schema v2 migration"
+  },
   "waves": [
     {
       "wave_number": 1,
@@ -1224,6 +1330,8 @@
         const card = document.createElement('div');
         card.className = "wave-card";
 
+        const trackCount = (w.tracks || []).length;
+        const trackCountText = `${trackCount} parallel track${trackCount === 1 ? '' : 's'}`;
         const gates = (w.checkpoint_gates || []).map(g => `<span class="gate-badge">${escapeHtml(g)}</span>`).join(" ");
         const prepCmd = `sdd-parallel prepare --wave ${w.wave_number}`;
         const mergeCmd = `sdd-parallel merge --wave ${w.wave_number}`;
@@ -1231,50 +1339,96 @@
         card.innerHTML = `
           <div class="wave-header">
             <div class="wave-title">
-              <span>Wave ${w.wave_number}</span>
-              <span class="barrier-pill">Barrier Checkpoint</span>
-            </div>
-            <div class="checkpoint-gates">
-              <span>Gates:</span>
-              ${gates || '<span class="gate-badge">uv run pytest</span>'}
+              <span class="wave-num-badge">WAVE ${w.wave_number}</span>
+              <span class="wave-meta">${trackCountText}</span>
             </div>
             <div class="wave-actions">
               <button class="btn-copy" onclick="copyCliCommand('${prepCmd}', this)">📋 Copy: prepare --wave ${w.wave_number}</button>
-              <button class="btn-copy" onclick="copyCliCommand('${mergeCmd}', this)">📋 Copy: merge --wave ${w.wave_number}</button>
             </div>
           </div>
           <div class="tracks-grid">
             ${(w.tracks || []).map(t => renderTrackHtml(t, w.wave_number)).join("")}
+          </div>
+          <div class="wave-barrier-footer">
+            <div class="checkpoint-gates">
+              <span style="font-weight: 600; color: var(--accent-green); font-size: 11px;">🛡️ Barrier Checkpoint Gates:</span>
+              ${gates || '<span class="gate-badge">uv run pytest</span>'}
+            </div>
+            <div class="wave-actions">
+              <button class="btn-copy" onclick="copyCliCommand('${mergeCmd}', this)">📋 Copy: merge --wave ${w.wave_number}</button>
+            </div>
           </div>
         `;
 
         container.appendChild(card);
       });
 
-      // Hook click on story cards
-      container.querySelectorAll('.story-card').forEach(card => {
-        card.addEventListener('click', () => {
-          showStoryDetails(card.dataset.taskId, card.dataset.trackId, card.dataset.waveNum);
+      // Hook click on task badges
+      container.querySelectorAll('.task-badge').forEach(badge => {
+        badge.addEventListener('click', (e) => {
+          e.stopPropagation();
+          showStoryDetails(badge.dataset.taskId, badge.dataset.trackId, badge.dataset.waveNum);
         });
       });
     }
 
-    function renderTrackHtml(track, waveNum) {
-      const effortClass = "effort-" + (track.effort || "medium").toLowerCase();
-      const fnNotes = track.function_scope_notes || {};
+    function getTrackConstraints(taskIds) {
+      if (!activePlan || !activePlan.edges || !taskIds || !taskIds.length) return [];
+      const taskIdSet = new Set(taskIds);
+      const taskWaveMap = {};
+      (activePlan.waves || []).forEach(w => {
+        (w.tracks || []).forEach(t => {
+          (t.task_ids || []).forEach(tid => {
+            taskWaveMap[tid] = w.wave_number;
+          });
+        });
+      });
 
-      const storiesHtml = (track.task_ids || []).map(tid => `
-        <div class="story-card" data-task-id="${escapeHtml(tid)}" data-track-id="${escapeHtml(track.track_id)}" data-wave-num="${waveNum}">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span class="story-id">📋 ${escapeHtml(tid)}</span>
-            <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">Slot: ${escapeHtml(track.track_id)}</span>
+      const constraints = [];
+      activePlan.edges.forEach(e => {
+        if (taskIdSet.has(e.source)) {
+          const targetWave = taskWaveMap[e.target] !== undefined ? ` (Wave ${taskWaveMap[e.target]})` : "";
+          const fileCtx = (e.shared_files && e.shared_files.length > 0) ? ` on ${e.shared_files.join(", ")}` : "";
+          constraints.push(`<strong>Blocks ${escapeHtml(e.target)}${targetWave}</strong>: ${escapeHtml(e.conflict_type)}${escapeHtml(fileCtx)}`);
+        } else if (taskIdSet.has(e.target)) {
+          const sourceWave = taskWaveMap[e.source] !== undefined ? ` (Wave ${taskWaveMap[e.source]})` : "";
+          const fileCtx = (e.shared_files && e.shared_files.length > 0) ? ` on ${e.shared_files.join(", ")}` : "";
+          constraints.push(`<strong>Waits for ${escapeHtml(e.source)}${sourceWave}</strong>: ${escapeHtml(e.conflict_type)}${escapeHtml(fileCtx)}`);
+        }
+      });
+      return constraints;
+    }
+
+    function renderTrackHtml(track, waveNum) {
+      const rawEffort = (track.effort || "medium").toLowerCase();
+      let effortLabel = "Med";
+      let effortDots = "••";
+      if (rawEffort === "high") {
+        effortLabel = "High";
+        effortDots = "•••";
+      } else if (rawEffort === "low") {
+        effortLabel = "Low";
+        effortDots = "•";
+      }
+
+      const fnNotes = track.function_scope_notes || {};
+      const taskTitles = (activePlan && activePlan.task_titles) || {};
+
+      const taskItemsHtml = (track.task_ids || []).map(tid => {
+        const title = taskTitles[tid];
+        const titleHtml = title ? `<span class="task-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>` : "";
+        return `
+          <div class="task-item">
+            <span class="task-badge" data-task-id="${escapeHtml(tid)}" data-track-id="${escapeHtml(track.track_id)}" data-wave-num="${waveNum}" title="Click to view full task specification">[${escapeHtml(tid)}]</span>
+            ${titleHtml}
           </div>
-        </div>
-      `).join("");
+        `;
+      }).join(" ");
 
       const writeFiles = (track.exclusive_write_files || []).map(f => `
         <div class="file-pill exclusive" title="${escapeHtml(f)}">
-          <span>✍️ ${escapeHtml(f)}</span>
+          <span class="file-dot exclusive"></span>
+          <span>${escapeHtml(f)}</span>
         </div>
       `).join("");
 
@@ -1283,31 +1437,60 @@
         const fnBadge = note ? `<span class="fn-badge" title="Target function AST scope">fn: ${escapeHtml(note)}</span>` : "";
         return `
           <div class="file-pill shared" title="${escapeHtml(f)}">
-            <span>🔀 ${escapeHtml(f)}</span>
+            <span class="file-dot shared"></span>
+            <span>${escapeHtml(f)}</span>
             ${fnBadge}
           </div>
         `;
       }).join("");
 
+      const constraints = getTrackConstraints(track.task_ids || []);
+      let constraintsHtml = "";
+      if (constraints.length > 0) {
+        const listItems = constraints.map(c => `<li>${c}</li>`).join("");
+        if (constraints.length <= 2) {
+          constraintsHtml = `
+            <div class="track-constraints">
+              <div class="file-label">⚡ Scheduling Constraints:</div>
+              <ul class="constraint-list">${listItems}</ul>
+            </div>
+          `;
+        } else {
+          constraintsHtml = `
+            <div class="track-constraints">
+              <details>
+                <summary class="file-label" style="cursor: pointer;">⚡ Scheduling Constraints (${constraints.length})</summary>
+                <ul class="constraint-list">${listItems}</ul>
+              </details>
+            </div>
+          `;
+        }
+      }
+
       return `
         <div class="track-card">
           <div class="track-header">
-            <div class="track-id">🛤️ ${escapeHtml(track.track_id)}</div>
-            <span class="effort-badge ${effortClass}">${escapeHtml(track.effort || "medium")} tier</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 8px;">
-            ${storiesHtml}
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1;">
+              <span class="track-id">🛤️ ${escapeHtml(track.track_id)}</span>
+              ${taskItemsHtml}
+            </div>
+            <span class="effort-badge">Effort: ${effortLabel} ${effortDots}</span>
           </div>
           <div class="file-box">
             <div class="file-label">Exclusive Write Scope:</div>
-            ${writeFiles || '<span style="color: var(--text-muted); font-style: italic;">None</span>'}
+            <div class="file-list">
+              ${writeFiles || '<span style="color: var(--text-muted); font-style: italic; font-size: 11px;">None</span>'}
+            </div>
           </div>
           ${sharedFiles ? `
           <div class="file-box">
             <div class="file-label">Additive Shared Registries:</div>
-            ${sharedFiles}
+            <div class="file-list">
+              ${sharedFiles}
+            </div>
           </div>
           ` : ""}
+          ${constraintsHtml}
         </div>
       `;
     }
@@ -1477,6 +1660,12 @@
         sub.setAttribute("text-anchor", "middle");
         sub.textContent = coord.track;
 
+        const taskTitles = (activePlan && activePlan.task_titles) || {};
+        const titleText = taskTitles[tid] ? `${tid}: ${taskTitles[tid]}` : `Task ${tid}`;
+        const nodeTitle = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        nodeTitle.textContent = titleText;
+        g.appendChild(nodeTitle);
+
         g.appendChild(rect);
         g.appendChild(text);
         g.appendChild(sub);
@@ -1503,6 +1692,19 @@
         return;
       }
 
+      const taskWaveMap = {};
+      if (activePlan && activePlan.waves) {
+        activePlan.waves.forEach(w => {
+          (w.tracks || []).forEach(t => {
+            (t.task_ids || []).forEach(tid => {
+              taskWaveMap[tid] = w.wave_number;
+            });
+          });
+        });
+      }
+
+      const taskTitles = (activePlan && activePlan.task_titles) || {};
+
       edges.forEach(e => {
         const tr = document.createElement('tr');
         let badgeClass = "edge-explicit";
@@ -1512,9 +1714,21 @@
 
         const filesHtml = (e.shared_files || []).map(f => `<span class="file-pill">${escapeHtml(f)}</span>`).join(" ");
 
+        const srcWave = taskWaveMap[e.source] !== undefined ? `<span class="wave-tag">W${taskWaveMap[e.source]}</span>` : "";
+        const dstWave = taskWaveMap[e.target] !== undefined ? `<span class="wave-tag">W${taskWaveMap[e.target]}</span>` : "";
+
+        const srcTitle = taskTitles[e.source] ? `${e.source}: ${taskTitles[e.source]}` : "Click to view task details";
+        const dstTitle = taskTitles[e.target] ? `${e.target}: ${taskTitles[e.target]}` : "Click to view task details";
+
         tr.innerHTML = `
-          <td class="clickable-task" data-task-id="${escapeHtml(e.source)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-cyan);" title="Click to view task details">${escapeHtml(e.source)}</td>
-          <td class="clickable-task" data-task-id="${escapeHtml(e.target)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-blue);" title="Click to view task details">${escapeHtml(e.target)}</td>
+          <td>
+            <span class="clickable-task" data-task-id="${escapeHtml(e.source)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-cyan);" title="${escapeHtml(srcTitle)}">${escapeHtml(e.source)}</span>
+            ${srcWave}
+          </td>
+          <td>
+            <span class="clickable-task" data-task-id="${escapeHtml(e.target)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-blue);" title="${escapeHtml(dstTitle)}">${escapeHtml(e.target)}</span>
+            ${dstWave}
+          </td>
           <td><span class="edge-type-pill ${badgeClass}">${escapeHtml(e.conflict_type)}</span></td>
           <td>${filesHtml || '<span style="color: var(--text-muted);">-</span>'}</td>
           <td style="color: var(--text-muted); font-size: 12px;">${escapeHtml(e.reason)}</td>
@@ -1589,7 +1803,12 @@
           }).join("")
         : '<span style="color: var(--text-muted); font-style: italic;">None</span>';
 
+      const taskTitles = (activePlan && activePlan.task_titles) || {};
+      const fullTitle = taskTitles[taskId] || "";
+      const fullTitleHtml = fullTitle ? `<div class="modal-task-title">${escapeHtml(fullTitle)}</div>` : "";
+
       body.innerHTML = `
+        ${fullTitleHtml}
         <div style="display: flex; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;">
           <span class="stat-pill">Wave: <strong style="color: var(--accent-blue);">${foundWaveNum || "-"}</strong></span>
           <span class="stat-pill">Slot: <strong style="color: var(--accent-cyan);">${trackId || (trackInfo ? trackInfo.track_id : "-")}</strong></span>
@@ -1637,12 +1856,16 @@
         waveCard.querySelectorAll('.track-card').forEach(trackCard => {
           let trackHasMatches = false;
 
-          // Check story cards
-          trackCard.querySelectorAll('.story-card').forEach(storyCard => {
-            const tid = (storyCard.dataset.taskId || "").toLowerCase();
-            const matches = !lowerTerm || tid.includes(lowerTerm);
-            storyCard.style.display = matches ? "" : "none";
-            if (matches && lowerTerm) trackHasMatches = true;
+          // Check task badges & titles
+          trackCard.querySelectorAll('.task-badge').forEach(badge => {
+            const tid = (badge.dataset.taskId || "").toLowerCase();
+            if (lowerTerm && tid.includes(lowerTerm)) trackHasMatches = true;
+          });
+
+          trackCard.querySelectorAll('.task-title').forEach(titleEl => {
+            if (lowerTerm && titleEl.textContent.toLowerCase().includes(lowerTerm)) {
+              trackHasMatches = true;
+            }
           });
 
           // Check file pills
@@ -1653,9 +1876,16 @@
             }
           });
 
+          // Check scheduling constraints
+          const constraints = trackCard.querySelectorAll('.constraint-list li');
+          constraints.forEach(li => {
+            if (lowerTerm && li.textContent.toLowerCase().includes(lowerTerm)) {
+              trackHasMatches = true;
+            }
+          });
+
           if (!lowerTerm) {
             trackCard.style.display = "";
-            trackCard.querySelectorAll('.story-card').forEach(sc => sc.style.display = "");
             waveHasMatches = true;
           } else if (trackHasMatches) {
             trackCard.style.display = "";

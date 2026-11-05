@@ -26,6 +26,13 @@ def build_sample_wave_plan() -> dict[str, Any]:
             "src/demo_app/cli.py",
             "src/demo_app/__init__.py",
         ],
+        "task_titles": {
+            "T001": "Upgrade core telemetry schema",
+            "T002": "Normalize telemetry payloads",
+            "T003": "Add telemetry exporter",
+            "T004": "Expose REST API endpoint",
+            "T005": "Finalize schema v2 migration",
+        },
         "waves": [
             {
                 "wave_number": 1,
@@ -169,6 +176,15 @@ def generate_inspector_html(
         raw_dict = plan_data.to_dict()
     else:
         raw_dict = dict(plan_data)
+
+    if "task_titles" not in raw_dict:
+        extracted_titles: dict[str, str] = {}
+        if "tasks" in raw_dict and isinstance(raw_dict["tasks"], list):
+            for t in raw_dict["tasks"]:
+                if isinstance(t, dict) and "id" in t and "title" in t and t["title"]:
+                    extracted_titles[str(t["id"])] = str(t["title"])
+        if extracted_titles:
+            raw_dict["task_titles"] = extracted_titles
 
     serialized_json = json.dumps(raw_dict, indent=2, ensure_ascii=False)
     # Prevent closing script tag injection
