@@ -18,12 +18,13 @@ Use this skill whenever the user wants to:
 
 ## Step 1: Discovery, Pre-Flight Gate & Wave Planning
 
-1. Run the deterministic planner to inspect the repository, detect Wave 0 blockers (`git status --porcelain`, uncommitted `in-progress` stories), scan AST imports (`Spine Locks` vs `Additive Registries`), and compute impact radius via `code-review-graph` (optionally specify `--kit {auto,bmad,spec-kit,gsd,openspec,beads}`):
+1. Run the deterministic planner to inspect the repository, detect Wave 0 blockers (`git status --porcelain`, uncommitted `in-progress` stories), scan AST imports (`Spine Locks` vs `Additive Registries`), and compute impact radius via `code-review-graph` (optionally specify `--kit {auto,bmad,spec-kit,gsd,openspec,beads}` and `--routing-file <routing-overrides.json>`):
    ```powershell
-   uv run sdd-parallel plan --repo <target-repo-path> --max-tracks 3 [--kit <kit>]
+   uv run sdd-parallel plan --repo <target-repo-path> --max-tracks 3 [--kit <kit>] [--routing-file <path>]
    ```
 2. For BMAD repositories, the Pre-Flight Context Gate automatically validates the existence of `epic-<N>-context.md` in `implementation-artifacts` or `planning-artifacts` before wave execution to avoid add/add merge conflicts.
 3. If multiple SDD ecosystems coexist in the same repository, `diagnose_multi_kit_coexistence()` warns the operator, automatically picks the kit with active backlog tasks, and isolates inactive kit directories.
+4. When coupled with an external Cognitive Router (e.g. `Cloudflare Clef`, `Jev`, `Clairic`, `GLiClass`), pass `--routing-file <routing-overrides.json>` to `plan`, `prepare`, `run-guide`, or `autopilot` to override `effort`, `model`, and `execution_mode` per task without LLM calls in the core engine.
 
 ---
 
@@ -32,7 +33,7 @@ Use this skill whenever the user wants to:
 Present the computed wave plan to the operator and prompt for execution flow:
 1. **Execution Workflow:**
    - `(Recommended) Mode A: Two-Stage Assisted (Native SDD)` — Orchestrator provisions worktrees (`Depth 0`), operator opens independent Antigravity windows and launches native worker commands (`/bmad-build`, `/speckit.implement`, etc.) with full review lenses, then orchestrator verifies and merges.
-   - `Mode B: Multi-Conversation Autopilot` — Automated launch across separate sessions via `sdd-parallel autopilot`.
+   - `Mode B: Multi-Conversation Autopilot` — Automated Depth-0 launch across separate sessions via `sdd-parallel autopilot` (`--execute`, `--auto-merge`, `--policy`, `--timeout`).
    - `Mode C: In-Session Flat Dispatch (Deprecated / Fallback Only)` — Monolithic subagent dispatch inside single chat session (warning: loses nested BMAD review lenses due to platform `Max Subagent Depth = 1`).
 
 ---
@@ -43,7 +44,7 @@ Present the computed wave plan to the operator and prompt for execution flow:
 ```powershell
 uv run sdd-parallel prepare --repo <target-repo-path> --wave <K> --antigravity-layout --headless [--kit <kit>]
 ```
-This provisions or reuses fixed track slots in `~/.gemini/antigravity/worktrees/<Project>/track-<id>` ($K = \text{max\_tracks}$, e.g. `track-a`, `track-b`, ...), performs an atomic in-place reset (`git checkout -B`, `git clean -fd`), injects `.tmp/track-context.md`, `.parallel-lock.json`, and applies OS read-only locks (`chmod a-w` on forbidden files with `core.fileMode false`), keeping `git status --porcelain` **100% clean**.
+This provisions or reuses fixed track slots in `~/.gemini/antigravity/worktrees/<Project>/track-<id>` ($K = \text{max\_tracks}$, e.g. `track-a`, `track-b`, ...) with Git 2.48 guard (`-c worktree.useRelativePaths=false`), performs an atomic in-place reset (`git checkout -B`, `git clean -fd`), injects `.tmp/track-context.md`, `.parallel-lock.json`, configures Claude Code sandbox settings (`.claude/settings.local.json` with `blockWritesOutsideWorkingDirectories`), and applies OS read-only locks (`chmod a-w` on forbidden files with `core.fileMode false`), keeping `git status --porcelain` **100% clean**.
 *(Pass `--dynamic-worktrees` if legacy per-wave worktree directories `wave-<K>-track-<id>` are desired).*
 
 ### 3.2. Generate Operator Run Guide
@@ -115,11 +116,11 @@ If a wave fails verification, quality gates, or requirements during development:
 ## Complete CLI Command Reference
 
 All subcommands exposed by `sdd-parallel`:
-- `plan`: Analyze SDD roadmap, AST/CRG graph, and construct wave plan.
-- `prepare`: Provision isolated git worktree slots with boundary locks.
+- `plan`: Analyze SDD roadmap, AST/CRG graph, and construct wave plan (supports `--routing-file`).
+- `prepare`: Provision isolated git worktree slots with boundary locks (supports `--routing-file`).
 - `claim-track`: Attach boundary locks to an existing interactive IDE worktree slot.
-- `run-guide`: Display operator execution instructions and native worker launch commands.
-- `autopilot`: Generate and execute multi-conversation worker launch commands.
+- `run-guide`: Display operator execution instructions and native worker launch commands (supports `--routing-file`).
+- `autopilot`: Generate and execute multi-conversation worker launch commands (supports `--routing-file`, `--execute`, `--auto-merge`, `--policy`, `--timeout`).
 - `check-lock`: Validate if modifying a file is permitted by `.parallel-lock.json`.
 - `verify-wave`: Validate that track commits strictly adhere to lock boundaries.
 - `merge`: Checkpoint merge of parallel track branches with quality gates.

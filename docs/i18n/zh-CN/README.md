@@ -607,18 +607,18 @@ flowchart TD
 | 命令 | 用途 |
 | :--- | :--- |
 | `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp] [--scaffold-only] [--output-dir DIR]` | 运行离线 Merge-Bomb 演示或为 5 大 SDD 套件中的任意一个脚手架搭建交互式沙箱。 |
-| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR]` | 分析路线图与代码调用图；输出 `execution-plan-parallel.md` 与 `wave-plan.json`。 |
-| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run]` | 配置工作树槽位（`track-a`、`track-b`、……），应用操作系统只读锁，注入边界文件。 |
+| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR] [--routing-file FILE]` | 分析路线图与代码调用图；输出 `execution-plan-parallel.md` 与 `wave-plan.json`。 |
+| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run] [--routing-file FILE]` | 配置工作树槽位（`track-a`、`track-b`、……），应用操作系统只读锁，注入边界文件。 |
 | `sdd-parallel claim-track --wave K --track <id> --worktree <path> [--repo REPO] [--max-tracks N] [--kit KIT] [--headless]` | 将边界锁清单附加到现有的外部工作树槽位。 |
-| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout]` | 打印操作员执行指南矩阵，包含每个轨道的原生启动命令。 |
-| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | 审计工作树槽位是否符合 `.parallel-lock.json`，并针对 `merge-base` 检查多提交累积差异。 |
-| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | 栅障合并检查点：三方状态合并、Git 合并、质量门禁与事务性自动回滚。 |
+| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout] [--routing-file FILE]` | 打印操作员执行指南矩阵，包含每个轨道的原生启动命令。 |
+| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | 审计工作树槽位是否符合 `.parallel-lock.json`，检查多提交累积差异并保存执行清单。 |
+| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | 栅障合并检查点：三方状态合并、Git 合并、质量门禁、事务性自动回滚与执行清单。 |
 | `sdd-parallel abort-wave --wave K [--repo REPO] [--dynamic-worktrees]` | 中止未合并波次：重置槽位并清理临时并行分支。 |
 | `sdd-parallel rollback-wave --wave K [--repo REPO] [--dynamic-worktrees] [--to-commit COMMIT] [--save-backup] [--no-backup] [--kit KIT]` | 按 LIFO 顺序回滚已合并波次，附带安全备份分支并多态重置 SDD 任务状态。 |
 | `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | 用于 `sprint-status.yaml` 的底层确定性三方状态合并工具。 |
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | 验证文件写入操作是否符合当前工作树的锁清单。 |
 | `sdd-parallel install-plugin [--target-dir DIR]` | 打包并安装便携式 Antigravity 插件。 |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute]` | 基于模型开销路由生成或执行多窗口 Autopilot 启动命令。 |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]` | 基于模型开销路由生成或执行多窗口 Autopilot 启动命令。 |
 
 </details>
 
@@ -644,8 +644,8 @@ flowchart TD
 - [x] **社区适配器生态：** `mattpocock/skills`（`/implement-spec`）与 `bmad-loop` frontmatter 状态适配器。
 - [x] **零污染环境同步：** 将 `.venv` / `node_modules` 符号链接进固定槽位。
 - [x] **波次前静态符号链接器与动态范围提权：** 通过 AST 符号自动补全写入集，配合动态任务重排。
-- [ ] **FinOps 与可观测性导出器：** OpenTelemetry spans 与 Langfuse Token 节约量度指标遥测。
-- [ ] **无头 Autopilot 守护进程：** 通过本地 RPC / 子智能体派发进行智能体执行。
+- [x] **执行清单与认知路由器协议 (Execution manifest & Cognitive Router)：** 确定性 `.parallel/run-manifest.json`、AST 结构信号 (`TaskStructuralSignals`) 与 `--routing-file` 协议 (`ADR-0009`)。
+- [ ] **官方 Depth-0 波次运行器 (`agy` CLI / SDK)：** 基于 `TrackExecutionPolicy` 的并行无头轨道执行。
 
 ---
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from sdd_parallel.models import (
@@ -12,6 +13,7 @@ from sdd_parallel.models import (
     ConflictType,
     FileRole,
     TaskNode,
+    TaskStructuralSignals,
     Wave,
     WavePlan,
     WaveTrack,
@@ -36,6 +38,7 @@ class BSPWaveScheduler:
         file_roles: dict[str, FileRole] | None = None,
         ast_scanner: Any | None = None,
         contract_globs: Sequence[str] | None = None,
+        repo_root: Path | None = None,
     ) -> None:
         if max_tracks < 1:
             raise ValueError("max_tracks must be >= 1")
@@ -44,6 +47,11 @@ class BSPWaveScheduler:
         self.ast_scanner = ast_scanner
         self.contract_globs = (
             tuple(contract_globs) if contract_globs is not None else DEFAULT_CONTRACT_GLOBS
+        )
+        self.repo_root = (
+            repo_root
+            if repo_root is not None
+            else (getattr(ast_scanner, "repo_root", None) if ast_scanner is not None else None)
         )
 
     def get_file_role(self, path: str) -> FileRole:
@@ -182,6 +190,53 @@ class BSPWaveScheduler:
         scope_b = task_b.shared_function_notes.get(file_path)
         return bool(scope_a and scope_b and scope_a != scope_b)
 
+    def compute_structural_signals(
+        self,
+        task: TaskNode,
+        edges: Sequence[ConflictEdge],
+    ) -> TaskStructuralSignals:
+        """Compute deterministic AST & conflict-graph structural metrics for task."""
+        files_count = len(task.write_files)
+        max_fan_in = 0
+        if self.ast_scanner is not None and task.write_files:
+            max_fan_in = max(
+                (len(self.ast_scanner.get_importers(f)) for f in task.write_files),
+                default=0,
+            )
+        touches_spine = any(
+            self.get_file_role(f) == FileRole.SPINE for f in task.write_files
+        )
+
+        base_dir: Path | None = self.repo_root
+        if base_dir is None and self.ast_scanner is not None:
+            base_dir = getattr(self.ast_scanner, "repo_root", None)
+
+        ast_loc = 0
+        for f in task.write_files:
+            f_path = Path(f)
+            if base_dir is not None and not f_path.is_absolute():
+                p = (base_dir / f).resolve()
+            else:
+                p = f_path.resolve()
+            if p.is_file():
+                try:
+                    content = p.read_text(encoding="utf-8-sig", errors="replace")
+                    ast_loc += len(content.splitlines())
+                except Exception:
+                    pass
+
+        conflict_degree = sum(
+            1 for e in edges if e.source == task.id or e.target == task.id
+        )
+
+        return TaskStructuralSignals(
+            files_count=files_count,
+            max_fan_in=max_fan_in,
+            touches_spine=touches_spine,
+            ast_loc=ast_loc,
+            conflict_degree=conflict_degree,
+        )
+
     def schedule(
         self,
         tasks: Sequence[TaskNode],
@@ -195,9 +250,13 @@ class BSPWaveScheduler:
                 waves=[],
                 edges=[],
                 wave_zero_blockers=list(wave_zero_blockers),
+                tasks=[],
             )
 
         edges = self.build_edges(tasks)
+        for t in tasks:
+            t.structural_signals = self.compute_structural_signals(t, edges)
+
         task_order = [t.id for t in tasks]
         task_map = {t.id: t for t in tasks}
 
@@ -297,6 +356,7 @@ class BSPWaveScheduler:
             wave_zero_blockers=list(wave_zero_blockers),
             spine_files=spine_files,
             additive_registries=additive_registries,
+            tasks=list(tasks),
         )
 
         # Enforce 100% Task Coverage Invariant

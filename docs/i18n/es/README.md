@@ -608,18 +608,18 @@ flowchart TD
 | Comando | Propósito |
 | :--- | :--- |
 | `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp] [--scaffold-only] [--output-dir DIR]` | Ejecuta la demo offline de Merge-Bomb o crea un sandbox interactivo para cualquiera de los 5 kits SDD. |
-| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR]` | Analiza el roadmap + el grafo de código; genera `execution-plan-parallel.md` y `wave-plan.json`. |
-| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run]` | Despliega ranuras (`track-a`, `track-b`, …), aplica bloqueos del SO e inyecta límites. |
+| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR] [--routing-file FILE]` | Analiza el roadmap + el grafo de código; genera `execution-plan-parallel.md` y `wave-plan.json`. |
+| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run] [--routing-file FILE]` | Despliega ranuras (`track-a`, `track-b`, …), aplica bloqueos del SO e inyecta límites. |
 | `sdd-parallel claim-track --wave K --track <id> --worktree <path> [--repo REPO] [--max-tracks N] [--kit KIT] [--headless]` | Asocia bloqueos de límites a un worktree externo ya existente. |
-| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout]` | Imprime la guía de ejecución para el operador con el comando nativo de lanzamiento para cada track. |
-| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | Audita las ranuras frente a `.parallel-lock.json` y el diff multicommit frente a `merge-base`. |
-| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | Fusión de barrera: merge 3-way de estados, git merge, quality gates y reversión automática transaccional. |
+| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout] [--routing-file FILE]` | Imprime la guía de ejecución para el operador con el comando nativo de lanzamiento para cada track. |
+| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | Audita las ranuras frente a `.parallel-lock.json`, comprueba diff multicommit frente a `merge-base` y guarda el manifiesto. |
+| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | Fusión de barrera: merge 3-way de estados, git merge, quality gates, reversión automática y manifiesto. |
 | `sdd-parallel abort-wave --wave K [--repo REPO] [--dynamic-worktrees]` | Aborta una ola no fusionada: restablece ranuras y elimina ramas paralelas temporales. |
 | `sdd-parallel rollback-wave --wave K [--repo REPO] [--dynamic-worktrees] [--to-commit COMMIT] [--save-backup] [--no-backup] [--kit KIT]` | Revierte una ola fusionada (LIFO) con rama de respaldo de seguridad y reinicio de estados SDD. |
 | `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | Fusión 3-way determinista de bajo nivel para `sprint-status.yaml`. |
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | Verifica una escritura frente al manifiesto de bloqueo del worktree activo. |
 | `sdd-parallel install-plugin [--target-dir DIR]` | Empaqueta e instala el plugin portátil de Antigravity. |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute]` | Genera o ejecuta comandos de lanzamiento para piloto automático multiventana con enrutamiento de esfuerzo de modelo. |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]` | Genera o ejecuta comandos de lanzamiento para piloto automático multiventana con enrutamiento de esfuerzo de modelo. |
 
 </details>
 
@@ -645,8 +645,8 @@ flowchart TD
 - [x] **Adaptadores comunitarios:** `mattpocock/skills` (`/implement-spec`) y adaptador de estado frontmatter para `bmad-loop`.
 - [x] **Sincronización de entorno sin contaminación:** symlinks de `.venv` / `node_modules` hacia las ranuras fijas.
 - [x] **Enlazador estático de símbolos y escalado de alcance pre-ola:** expansión automática del conjunto de escritura mediante símbolos AST con reprogramación dinámica.
-- [ ] **Exportadores de observabilidad y FinOps:** spans de OpenTelemetry y telemetría de ahorro de tokens en Langfuse.
-- [ ] **Demonio headless para piloto automático:** ejecución de agentes vía RPC local / despacho de subagentes.
+- [x] **Manifiesto de ejecución y contrato de Cognitive Router:** `.parallel/run-manifest.json` determinista, señales estructurales AST (`TaskStructuralSignals`) y contrato `--routing-file` (`ADR-0009`).
+- [ ] **Ejecutor oficial Depth-0 (`agy` CLI / SDK):** ejecución paralela headless de tracks con `TrackExecutionPolicy`.
 
 ---
 

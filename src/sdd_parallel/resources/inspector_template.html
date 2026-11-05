@@ -17,8 +17,8 @@
       --accent-green: #3fb950;
       --accent-amber: #d29922;
       --accent-red: #f85149;
-      --accent-purple: #bc8cff;
-      --accent-cyan: #39c5bb;
+      --accent-purple: #bc8cff; /* Strictly for Spine Lock Contracts */
+      --accent-cyan: #39c5bb;   /* For Additive Shared Registries & Function Scopes */
       --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
       --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     }
@@ -33,16 +33,19 @@
       font-family: var(--font-sans);
       font-size: 14px;
       line-height: 1.5;
-      padding-bottom: 60px;
+      padding-bottom: 40px;
     }
     a {
       color: var(--accent-blue);
       text-decoration: none;
     }
+    a:hover {
+      text-decoration: underline;
+    }
     header {
       background: var(--bg-header);
       border-bottom: 1px solid var(--border-color);
-      padding: 16px 24px;
+      padding: 14px 24px;
       position: sticky;
       top: 0;
       z-index: 100;
@@ -56,6 +59,7 @@
       display: flex;
       align-items: center;
       gap: 12px;
+      flex-wrap: wrap;
     }
     .brand-icon {
       width: 32px;
@@ -86,6 +90,29 @@
       font-weight: 600;
       text-transform: uppercase;
     }
+    .mode-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      background: rgba(88, 166, 255, 0.12);
+      border: 1px solid var(--accent-blue);
+      color: var(--accent-blue);
+    }
+    .mode-badge.demo {
+      background: rgba(210, 153, 34, 0.12);
+      border-color: var(--accent-amber);
+      color: var(--accent-amber);
+    }
+    .mode-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
     .stats-bar {
       display: flex;
       flex-wrap: wrap;
@@ -107,6 +134,59 @@
       color: var(--accent-blue);
       font-family: var(--font-mono);
     }
+    /* Pipeline Workflow Strip */
+    .pipeline-strip {
+      background: #11161d;
+      border-bottom: 1px solid var(--border-color);
+      padding: 8px 24px;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 12px;
+    }
+    .pipeline-title {
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      margin-right: 4px;
+    }
+    .pipeline-step {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      background: #1c2128;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 3px 8px;
+      color: var(--text-main);
+    }
+    .step-num {
+      background: var(--accent-blue);
+      color: #0d1117;
+      border-radius: 50%;
+      width: 16px;
+      height: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: bold;
+    }
+    .pipeline-arrow {
+      color: var(--text-muted);
+      font-weight: bold;
+    }
+    .pipeline-bridge-note {
+      margin-left: auto;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-family: var(--font-mono);
+    }
+    /* Toolbar */
     .toolbar {
       background: var(--bg-card);
       border-bottom: 1px solid var(--border-color);
@@ -120,6 +200,7 @@
     .tab-group {
       display: flex;
       gap: 6px;
+      flex-wrap: wrap;
     }
     .tab-btn {
       background: transparent;
@@ -159,14 +240,6 @@
       background: #30363d;
       border-color: var(--text-muted);
     }
-    .btn-primary {
-      background: #238636;
-      border-color: #2ea043;
-      color: #fff;
-    }
-    .btn-primary:hover {
-      background: #2ea043;
-    }
     .search-input {
       background: var(--bg-canvas);
       border: 1px solid var(--border-color);
@@ -174,7 +247,7 @@
       padding: 6px 12px;
       border-radius: 6px;
       font-size: 13px;
-      width: 240px;
+      width: 250px;
     }
     .search-input:focus {
       outline: none;
@@ -190,6 +263,32 @@
     }
     .tab-content.active {
       display: block;
+    }
+    /* Wave 0 Blockers Banner */
+    .wave-zero-banner {
+      background: rgba(210, 153, 34, 0.12);
+      border: 1px solid var(--accent-amber);
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .wave-zero-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      color: var(--accent-amber);
+      font-size: 14px;
+    }
+    .wave-zero-list {
+      list-style: square inside;
+      color: var(--text-main);
+      font-size: 12px;
+      font-family: var(--font-mono);
+      margin-left: 8px;
     }
     /* Waves Layout */
     .wave-container {
@@ -238,6 +337,7 @@
       display: flex;
       gap: 8px;
       align-items: center;
+      flex-wrap: wrap;
     }
     .gate-badge {
       background: #21262d;
@@ -245,6 +345,35 @@
       border-radius: 4px;
       padding: 2px 6px;
       font-size: 11px;
+    }
+    .wave-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .btn-copy {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 4px 10px;
+      background: #21262d;
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-copy:hover {
+      background: #30363d;
+      border-color: var(--accent-blue);
+    }
+    .btn-copied {
+      background: rgba(63, 185, 80, 0.2) !important;
+      border-color: var(--accent-green) !important;
+      color: var(--accent-green) !important;
     }
     .tracks-grid {
       display: grid;
@@ -331,17 +460,36 @@
       background: #1c2128;
       border: 1px solid var(--border-muted);
       border-radius: 4px;
-      padding: 2px 6px;
+      padding: 3px 6px;
       color: var(--text-main);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
     .file-pill.exclusive {
       border-left: 3px solid var(--accent-green);
     }
     .file-pill.shared {
-      border-left: 3px solid var(--accent-purple);
+      border-left: 3px solid var(--accent-cyan); /* Differentiated from Spine Lock */
+    }
+    .file-pill.spine {
+      border-left: 3px solid var(--accent-purple); /* Strictly Spine Lock */
+    }
+    .fn-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      background: rgba(57, 197, 187, 0.15);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(57, 197, 187, 0.4);
+      border-radius: 4px;
+      padding: 1px 6px;
+      margin-left: 6px;
+      font-weight: 600;
+      white-space: nowrap;
     }
     /* Graph View */
     .graph-view-card {
@@ -374,7 +522,7 @@
     }
     .svg-canvas {
       width: 100%;
-      min-height: 480px;
+      min-height: 520px;
       background: #090d13;
       border: 1px solid var(--border-color);
       border-radius: 8px;
@@ -438,6 +586,14 @@
       color: var(--accent-blue);
       border: 1px solid var(--accent-blue);
     }
+    .clickable-task {
+      cursor: pointer;
+      transition: opacity 0.15s ease;
+    }
+    .clickable-task:hover {
+      text-decoration: underline;
+      opacity: 0.85;
+    }
     /* Modal */
     .modal-backdrop {
       position: fixed;
@@ -460,7 +616,7 @@
       border: 1px solid var(--border-color);
       border-radius: 10px;
       width: 90%;
-      max-width: 600px;
+      max-width: 620px;
       max-height: 80vh;
       overflow-y: auto;
       padding: 24px;
@@ -509,6 +665,41 @@
     .drop-overlay.active {
       display: flex;
     }
+    /* B2B Funnel Footer */
+    footer.b2b-footer {
+      max-width: 1440px;
+      margin: 40px auto 0;
+      padding: 24px;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      background: var(--bg-card);
+      border-radius: 10px;
+    }
+    .b2b-card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .b2b-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      max-width: 780px;
+      line-height: 1.6;
+    }
+    .b2b-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
   </style>
 </head>
 <body>
@@ -522,6 +713,8 @@
         <div style="font-size: 11px; color: var(--text-muted);">Deterministic Multi-Track Wave Visualizer</div>
       </div>
       <span id="kit-badge" class="kit-badge">KIT: AUTO</span>
+      <span id="mode-badge" class="mode-badge">Mode: Local Plan</span>
+      <span class="mode-hint">CLI: uvx sdd-parallel inspect --open</span>
     </div>
 
     <div class="stats-bar">
@@ -533,6 +726,19 @@
     </div>
   </header>
 
+  <!-- Interactive CLI Workflow Strip -->
+  <div class="pipeline-strip">
+    <span class="pipeline-title">Deterministic SDD Cycle:</span>
+    <span class="pipeline-step"><span class="step-num">1</span> plan</span>
+    <span class="pipeline-arrow">➔</span>
+    <span class="pipeline-step"><span class="step-num">2</span> prepare --wave K</span>
+    <span class="pipeline-arrow">➔</span>
+    <span class="pipeline-step"><span class="step-num">3</span> execute tracks</span>
+    <span class="pipeline-arrow">➔</span>
+    <span class="pipeline-step"><span class="step-num">4</span> merge --wave K</span>
+    <span class="pipeline-bridge-note">⚡ CLI Action Bridge: copy per-wave commands below</span>
+  </div>
+
   <div class="toolbar">
     <div class="tab-group">
       <button class="tab-btn active" data-tab="tab-waves">🌊 Waves &amp; Tracks</button>
@@ -541,7 +747,7 @@
       <button class="tab-btn" data-tab="tab-roles">🔒 Architectural Roles</button>
     </div>
 
-    <div style="display: flex; gap: 10px; align-items: center;">
+    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
       <input type="text" id="search-input" class="search-input" placeholder="Search tasks or files...">
       <input type="file" id="file-picker" accept=".json" style="display: none;">
       <button class="btn" id="btn-load-file">📂 Open JSON</button>
@@ -552,6 +758,7 @@
   <main>
     <!-- TAB 1: Waves & Tracks -->
     <div id="tab-waves" class="tab-content active">
+      <div id="wave-zero-container"></div>
       <div id="waves-container" class="wave-container">
         <!-- Rendered by JS -->
       </div>
@@ -563,11 +770,11 @@
         <div class="legend">
           <div class="legend-item">
             <div class="legend-color" style="background: var(--accent-red);"></div>
-            <span>Direct Collision ($W_A \cap W_B \neq \emptyset$)</span>
+            <span>Direct Collision (Wₐ ∩ Wᵦ ≠ ∅ — Same file write)</span>
           </div>
           <div class="legend-item">
             <div class="legend-color" style="background: var(--accent-amber);"></div>
-            <span>Semantic Collision ($W_A \cap I_B \neq \emptyset$)</span>
+            <span>Semantic Collision (Wₐ ∩ Iᵦ ≠ ∅ — Cross-file AST import)</span>
           </div>
           <div class="legend-item">
             <div class="legend-color" style="background: var(--accent-purple);"></div>
@@ -614,15 +821,34 @@
         </div>
 
         <div class="table-card" style="padding: 20px;">
-          <h3 style="margin-bottom: 12px; color: var(--accent-blue); font-size: 15px;">🔀 Additive Registries (Append-Only)</h3>
+          <h3 style="margin-bottom: 12px; color: var(--accent-cyan); font-size: 15px;">🔀 Additive Registries (Append-Only)</h3>
           <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 16px;">
-            Router, CLI decorator registries, and plugin tables. Parallel safe via additive merge resolution.
+            Router, CLI decorator registries, and plugin tables. Parallel-safe via AST additive merge resolution.
           </p>
           <ul id="additive-files-list" style="list-style: none; display: flex; flex-direction: column; gap: 8px;"></ul>
         </div>
       </div>
     </div>
   </main>
+
+  <!-- Product-Led B2B Funnel Footer -->
+  <footer class="b2b-footer">
+    <div>
+      <div class="b2b-card-title">
+        <span>💼 Parallel SDD Readiness &amp; Monorepo Blast-Radius Audit</span>
+      </div>
+      <div class="b2b-desc">
+        Scale multi-agent execution across Claude Code, Codex, and Antigravity with zero merge-bombs. 
+        Fixed-scope 3–5 day asynchronous audit ($500–$2,500): commit history retrospective backtest via 
+        <code style="font-family: var(--font-mono); color: var(--accent-blue);">sdd-parallel bench</code>, tailored 
+        <code style="font-family: var(--font-mono); color: var(--accent-cyan);">.parallel-config.json</code>, AST contract boundaries, and CI quality gates.
+      </div>
+    </div>
+    <div class="b2b-actions">
+      <button class="btn" onclick="window.open('https://github.com/stopActingSoSmall/sdd-parallel/discussions', '_blank')">💬 Architecture Discussions</button>
+      <button class="btn" onclick="window.open('https://github.com/stopActingSoSmall/sdd-parallel', '_blank')">⭐ GitHub Repo</button>
+    </div>
+  </footer>
 
   <!-- Modal for Story Details -->
   <div id="story-modal" class="modal-backdrop">
@@ -685,6 +911,7 @@ __PRELOADED_DATA__
         reader.onload = (evt) => {
           try {
             activePlan = JSON.parse(evt.target.result);
+            activePlan.is_demo = false;
             render(activePlan);
           } catch (err) {
             alert("Error parsing JSON file: " + err.message);
@@ -718,6 +945,7 @@ __PRELOADED_DATA__
           reader.onload = (evt) => {
             try {
               activePlan = JSON.parse(evt.target.result);
+              activePlan.is_demo = false;
               render(activePlan);
             } catch (err) {
               alert("Error parsing JSON file: " + err.message);
@@ -738,15 +966,66 @@ __PRELOADED_DATA__
       });
     }
 
+    // CLI Action Bridge copy helper with safe sandbox/file:/// fallback
+    function copyCliCommand(cmd, btnEl) {
+      function onSuccess() {
+        const originalHtml = btnEl.innerHTML;
+        btnEl.innerHTML = "✅ Copied!";
+        btnEl.classList.add("btn-copied");
+        setTimeout(() => {
+          btnEl.innerHTML = originalHtml;
+          btnEl.classList.remove("btn-copied");
+        }, 1500);
+      }
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(cmd).then(onSuccess).catch(() => {
+          fallbackCopy(cmd, onSuccess);
+        });
+      } else {
+        fallbackCopy(cmd, onSuccess);
+      }
+    }
+
+    function fallbackCopy(text, onSuccess) {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";
+      textArea.style.top = "-9999px";
+      textArea.style.left = "-9999px";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+        const ok = document.execCommand('copy');
+        if (ok && onSuccess) onSuccess();
+      } catch (err) {
+        console.error("Fallback clipboard copy failed:", err);
+      }
+      document.body.removeChild(textArea);
+    }
+
     function render(plan) {
       if (!plan) return;
 
-      // Stats
+      // Kit & Mode badge
       document.getElementById('kit-badge').textContent = "KIT: " + (plan.sdd_kit || "AUTO").toUpperCase();
+
+      const modeBadge = document.getElementById('mode-badge');
+      const isDemo = plan.is_demo === true || plan.sdd_kit === "spec-kit" && (plan.waves && plan.waves.length === 3 && plan.waves[0].tracks && plan.waves[0].tracks[0].track_id === "track-a");
+      if (isDemo) {
+        modeBadge.textContent = "Mode: Interactive Demo Preset";
+        modeBadge.className = "mode-badge demo";
+      } else {
+        modeBadge.textContent = "Mode: Local Project Plan";
+        modeBadge.className = "mode-badge";
+      }
+
       const waves = plan.waves || [];
       const edges = plan.edges || [];
       const spineFiles = plan.spine_files || [];
       const additiveFiles = plan.additive_registries || [];
+      const blockers = plan.wave_zero_blockers || [];
 
       let totalTracks = 0;
       let totalTasks = 0;
@@ -762,6 +1041,20 @@ __PRELOADED_DATA__
       document.getElementById('stat-tasks').textContent = totalTasks;
       document.getElementById('stat-conflicts').textContent = edges.length;
       document.getElementById('stat-spine').textContent = spineFiles.length;
+
+      // Render Wave 0 Blockers if any
+      const zeroContainer = document.getElementById('wave-zero-container');
+      if (blockers.length > 0) {
+        const listHtml = blockers.map(b => `<li>${escapeHtml(b)}</li>`).join("");
+        zeroContainer.innerHTML = `
+          <div class="wave-zero-banner">
+            <div class="wave-zero-title">⚠️ Wave 0 Blockers (pre-flight checks failed)</div>
+            <ul class="wave-zero-list">${listHtml}</ul>
+          </div>
+        `;
+      } else {
+        zeroContainer.innerHTML = "";
+      }
 
       renderWaves(waves);
       renderDAG(waves, edges);
@@ -783,6 +1076,8 @@ __PRELOADED_DATA__
         card.className = "wave-card";
 
         const gates = (w.checkpoint_gates || []).map(g => `<span class="gate-badge">${escapeHtml(g)}</span>`).join(" ");
+        const prepCmd = `sdd-parallel prepare --wave ${w.wave_number}`;
+        const mergeCmd = `sdd-parallel merge --wave ${w.wave_number}`;
 
         card.innerHTML = `
           <div class="wave-header">
@@ -793,6 +1088,10 @@ __PRELOADED_DATA__
             <div class="checkpoint-gates">
               <span>Gates:</span>
               ${gates || '<span class="gate-badge">uv run pytest</span>'}
+            </div>
+            <div class="wave-actions">
+              <button class="btn-copy" onclick="copyCliCommand('${prepCmd}', this)">📋 Copy: prepare --wave ${w.wave_number}</button>
+              <button class="btn-copy" onclick="copyCliCommand('${mergeCmd}', this)">📋 Copy: merge --wave ${w.wave_number}</button>
             </div>
           </div>
           <div class="tracks-grid">
@@ -813,6 +1112,8 @@ __PRELOADED_DATA__
 
     function renderTrackHtml(track, waveNum) {
       const effortClass = "effort-" + (track.effort || "medium").toLowerCase();
+      const fnNotes = track.function_scope_notes || {};
+
       const storiesHtml = (track.task_ids || []).map(tid => `
         <div class="story-card" data-task-id="${escapeHtml(tid)}" data-track-id="${escapeHtml(track.track_id)}" data-wave-num="${waveNum}">
           <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -823,12 +1124,21 @@ __PRELOADED_DATA__
       `).join("");
 
       const writeFiles = (track.exclusive_write_files || []).map(f => `
-        <div class="file-pill exclusive" title="${escapeHtml(f)}">✍️ ${escapeHtml(f)}</div>
+        <div class="file-pill exclusive" title="${escapeHtml(f)}">
+          <span>✍️ ${escapeHtml(f)}</span>
+        </div>
       `).join("");
 
-      const sharedFiles = (track.additive_shared_files || []).map(f => `
-        <div class="file-pill shared" title="${escapeHtml(f)}">🔀 ${escapeHtml(f)}</div>
-      `).join("");
+      const sharedFiles = (track.additive_shared_files || []).map(f => {
+        const note = fnNotes[f];
+        const fnBadge = note ? `<span class="fn-badge" title="Target function AST scope">fn: ${escapeHtml(note)}</span>` : "";
+        return `
+          <div class="file-pill shared" title="${escapeHtml(f)}">
+            <span>🔀 ${escapeHtml(f)}</span>
+            ${fnBadge}
+          </div>
+        `;
+      }).join("");
 
       return `
         <div class="track-card">
@@ -876,25 +1186,41 @@ __PRELOADED_DATA__
       const colWidth = 320;
       const startX = 60;
       let maxWave = waves.length || 1;
+      let maxY = 480;
 
-      // Layout nodes
+      // Multi-task coordinate grid positioning: offset each task inside a track vertically
       waves.forEach((w, wIdx) => {
         const x = startX + wIdx * colWidth;
         const tracks = w.tracks || [];
-        tracks.forEach((t, tIdx) => {
-          const y = 80 + tIdx * 140;
+        let trackY = 80;
+        tracks.forEach((t) => {
           const tasks = t.task_ids || [];
-          tasks.forEach(tid => {
-            nodeCoords[tid] = { x: x + 80, y: y + 40, wave: w.wave_number, track: t.track_id };
+          tasks.forEach((tid, taskIdx) => {
+            const y = trackY + taskIdx * 65;
+            nodeCoords[tid] = { x: x + 80, y: y + 25, wave: w.wave_number, track: t.track_id };
+            if (y + 80 > maxY) maxY = y + 80;
           });
+          trackY += Math.max(140, tasks.length * 65 + 30);
         });
       });
 
-      // Render edges
+      // Track edge pair counts to separate parallel Bezier arcs
+      const edgePairCount = {};
+      const edgePairIndex = {};
+      edges.forEach(e => {
+        const key = `${e.source}-->${e.target}`;
+        edgePairCount[key] = (edgePairCount[key] || 0) + 1;
+      });
+
+      // Render edges with hitboxes
       edges.forEach(e => {
         const src = nodeCoords[e.source];
         const dst = nodeCoords[e.target];
         if (!src || !dst) return;
+
+        const key = `${e.source}-->${e.target}`;
+        const curIdx = edgePairIndex[key] || 0;
+        edgePairIndex[key] = curIdx + 1;
 
         let stroke = "#58a6ff";
         let marker = "arr-explicit";
@@ -910,13 +1236,23 @@ __PRELOADED_DATA__
         }
 
         const dx = dst.x - src.x;
-        const cx1 = src.x + dx * 0.5;
-        const cy1 = src.y;
-        const cx2 = dst.x - dx * 0.5;
-        const cy2 = dst.y;
+        let cx1 = src.x + dx * 0.5;
+        let cy1 = src.y;
+        let cx2 = dst.x - dx * 0.5;
+        let cy2 = dst.y;
 
+        // Separate parallel edges with alternating vertical curves
+        if (edgePairCount[key] > 1) {
+          const arcOffset = (curIdx % 2 === 1 ? 1 : -1) * Math.ceil(curIdx / 2) * 32;
+          cy1 += arcOffset;
+          cy2 += arcOffset;
+        }
+
+        const dAttr = `M ${src.x} ${src.y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${dst.x} ${dst.y}`;
+
+        // Visible curve
         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        path.setAttribute("d", `M ${src.x} ${src.y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${dst.x} ${dst.y}`);
+        path.setAttribute("d", dAttr);
         path.setAttribute("fill", "none");
         path.setAttribute("stroke", stroke);
         path.setAttribute("stroke-width", "2");
@@ -924,11 +1260,25 @@ __PRELOADED_DATA__
         path.setAttribute("marker-end", `url(#${marker})`);
         path.setAttribute("opacity", "0.85");
 
+        // 12px transparent hit-path for effortless hover & inspection
+        const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        hitPath.setAttribute("d", dAttr);
+        hitPath.setAttribute("fill", "none");
+        hitPath.setAttribute("stroke", "transparent");
+        hitPath.setAttribute("stroke-width", "12");
+        hitPath.style.cursor = "pointer";
+
+        const titleText = `${e.source} -> ${e.target} (${e.conflict_type}): ${e.reason}`;
         const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-        title.textContent = `${e.source} -> ${e.target} (${e.conflict_type}): ${e.reason}`;
+        title.textContent = titleText;
         path.appendChild(title);
 
+        const hitTitle = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        hitTitle.textContent = titleText;
+        hitPath.appendChild(hitTitle);
+
         svg.appendChild(path);
+        svg.appendChild(hitPath);
       });
 
       // Render wave column labels & barriers
@@ -990,7 +1340,9 @@ __PRELOADED_DATA__
       });
 
       const reqWidth = Math.max(1000, startX + maxWave * colWidth);
-      svg.setAttribute("viewBox", `0 0 ${reqWidth} 480`);
+      const reqHeight = Math.max(520, maxY + 60);
+      svg.setAttribute("viewBox", `0 0 ${reqWidth} ${reqHeight}`);
+      svg.style.minHeight = `${reqHeight}px`;
     }
 
     function renderMatrix(edges) {
@@ -1012,12 +1364,19 @@ __PRELOADED_DATA__
         const filesHtml = (e.shared_files || []).map(f => `<span class="file-pill">${escapeHtml(f)}</span>`).join(" ");
 
         tr.innerHTML = `
-          <td style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-cyan);">${escapeHtml(e.source)}</td>
-          <td style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-blue);">${escapeHtml(e.target)}</td>
+          <td class="clickable-task" data-task-id="${escapeHtml(e.source)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-cyan);" title="Click to view task details">${escapeHtml(e.source)}</td>
+          <td class="clickable-task" data-task-id="${escapeHtml(e.target)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-blue);" title="Click to view task details">${escapeHtml(e.target)}</td>
           <td><span class="edge-type-pill ${badgeClass}">${escapeHtml(e.conflict_type)}</span></td>
           <td>${filesHtml || '<span style="color: var(--text-muted);">-</span>'}</td>
           <td style="color: var(--text-muted); font-size: 12px;">${escapeHtml(e.reason)}</td>
         `;
+
+        tr.querySelectorAll('.clickable-task').forEach(cell => {
+          cell.addEventListener('click', () => {
+            showStoryDetails(cell.dataset.taskId);
+          });
+        });
+
         tbody.appendChild(tr);
       });
     }
@@ -1030,8 +1389,7 @@ __PRELOADED_DATA__
       } else {
         spineFiles.forEach(f => {
           const li = document.createElement('li');
-          li.className = "file-pill";
-          li.style.borderLeft = "3px solid var(--accent-purple)";
+          li.className = "file-pill spine";
           li.textContent = "🔒 " + f;
           spineList.appendChild(li);
         });
@@ -1044,8 +1402,7 @@ __PRELOADED_DATA__
       } else {
         additiveFiles.forEach(f => {
           const li = document.createElement('li');
-          li.className = "file-pill";
-          li.style.borderLeft = "3px solid var(--accent-blue)";
+          li.className = "file-pill shared";
           li.textContent = "🔀 " + f;
           addList.appendChild(li);
         });
@@ -1058,34 +1415,50 @@ __PRELOADED_DATA__
 
       const body = document.getElementById('modal-body');
       let trackInfo = null;
+      let foundWaveNum = waveNum;
+
       if (activePlan && activePlan.waves) {
         activePlan.waves.forEach(w => {
           (w.tracks || []).forEach(t => {
-            if ((t.task_ids || []).includes(taskId)) trackInfo = t;
+            if ((t.task_ids || []).includes(taskId)) {
+              trackInfo = t;
+              if (!foundWaveNum) foundWaveNum = w.wave_number;
+            }
           });
         });
       }
 
       const writes = trackInfo ? (trackInfo.exclusive_write_files || []).join(", ") : "-";
-      const shared = trackInfo ? (trackInfo.additive_shared_files || []).join(", ") : "-";
+      const sharedFiles = trackInfo ? (trackInfo.additive_shared_files || []) : [];
+      const fnNotes = trackInfo ? (trackInfo.function_scope_notes || {}) : {};
+
+      const sharedHtml = sharedFiles.length > 0 
+        ? sharedFiles.map(f => {
+            const note = fnNotes[f];
+            const badge = note ? `<span class="fn-badge">fn: ${escapeHtml(note)}</span>` : "";
+            return `<div class="file-pill shared"><span>🔀 ${escapeHtml(f)}</span>${badge}</div>`;
+          }).join("")
+        : '<span style="color: var(--text-muted); font-style: italic;">None</span>';
 
       body.innerHTML = `
-        <div style="display: flex; gap: 10px; margin-bottom: 8px;">
-          <span class="stat-pill">Wave: <strong style="color: var(--accent-blue);">${waveNum || "-"}</strong></span>
-          <span class="stat-pill">Slot: <strong style="color: var(--accent-cyan);">${trackId || "-"}</strong></span>
+        <div style="display: flex; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;">
+          <span class="stat-pill">Wave: <strong style="color: var(--accent-blue);">${foundWaveNum || "-"}</strong></span>
+          <span class="stat-pill">Slot: <strong style="color: var(--accent-cyan);">${trackId || (trackInfo ? trackInfo.track_id : "-")}</strong></span>
           <span class="stat-pill">Effort: <strong style="color: var(--accent-amber);">${trackInfo ? trackInfo.effort : "medium"}</strong></span>
         </div>
         <div class="file-box">
           <div class="file-label">Exclusive Write Files (Blast Radius Boundary):</div>
-          <div class="file-pill exclusive">${escapeHtml(writes) || "None"}</div>
+          <div class="file-pill exclusive"><span>✍️ ${escapeHtml(writes) || "None"}</span></div>
         </div>
         <div class="file-box">
-          <div class="file-label">Additive Shared Files:</div>
-          <div class="file-pill shared">${escapeHtml(shared) || "None"}</div>
+          <div class="file-label">Additive Shared Files &amp; Function Scopes:</div>
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            ${sharedHtml}
+          </div>
         </div>
         <div class="file-box" style="margin-top: 8px;">
           <div class="file-label">Related Conflict Constraints:</div>
-          <ul style="list-style: square; padding-left: 20px; font-size: 12px; color: var(--text-muted);">
+          <ul style="list-style: square; padding-left: 20px; font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px;">
             ${getRelatedConflictsHtml(taskId)}
           </ul>
         </div>
@@ -1100,16 +1473,61 @@ __PRELOADED_DATA__
       if (related.length === 0) return "<li>No active conflicts or dependencies.</li>";
       return related.map(e => `
         <li>
-          <strong>${e.source} &rarr; ${e.target}</strong> [${e.conflict_type}]: ${escapeHtml(e.reason)}
+          <strong>${escapeHtml(e.source)} &rarr; ${escapeHtml(e.target)}</strong> [${escapeHtml(e.conflict_type)}]: ${escapeHtml(e.reason)}
         </li>
       `).join("");
     }
 
     function filterTasks(term) {
-      document.querySelectorAll('.story-card').forEach(card => {
-        const tid = card.dataset.taskId.toLowerCase();
-        const matches = !term || tid.includes(term);
-        card.style.display = matches ? "block" : "none";
+      const lowerTerm = term.toLowerCase().trim();
+
+      // 1. Filter Tab 1 (Waves & Tracks)
+      document.querySelectorAll('.wave-card').forEach(waveCard => {
+        let waveHasMatches = false;
+
+        waveCard.querySelectorAll('.track-card').forEach(trackCard => {
+          let trackHasMatches = false;
+
+          // Check story cards
+          trackCard.querySelectorAll('.story-card').forEach(storyCard => {
+            const tid = (storyCard.dataset.taskId || "").toLowerCase();
+            const matches = !lowerTerm || tid.includes(lowerTerm);
+            storyCard.style.display = matches ? "" : "none";
+            if (matches && lowerTerm) trackHasMatches = true;
+          });
+
+          // Check file pills
+          const filePills = trackCard.querySelectorAll('.file-pill');
+          filePills.forEach(pill => {
+            if (lowerTerm && pill.textContent.toLowerCase().includes(lowerTerm)) {
+              trackHasMatches = true;
+            }
+          });
+
+          if (!lowerTerm) {
+            trackCard.style.display = "";
+            trackCard.querySelectorAll('.story-card').forEach(sc => sc.style.display = "");
+            waveHasMatches = true;
+          } else if (trackHasMatches) {
+            trackCard.style.display = "";
+            waveHasMatches = true;
+          } else {
+            trackCard.style.display = "none";
+          }
+        });
+
+        waveCard.style.display = (!lowerTerm || waveHasMatches) ? "" : "none";
+      });
+
+      // 2. Filter Tab 3 (Conflict Matrix)
+      const rows = document.querySelectorAll('#matrix-tbody tr');
+      rows.forEach(tr => {
+        if (!lowerTerm) {
+          tr.style.display = "";
+        } else {
+          const rowText = tr.textContent.toLowerCase();
+          tr.style.display = rowText.includes(lowerTerm) ? "" : "none";
+        }
       });
     }
 

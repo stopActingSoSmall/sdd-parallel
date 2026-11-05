@@ -606,18 +606,18 @@ flowchart TD
 | コマンド | 目的 |
 | :--- | :--- |
 | `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp] [--scaffold-only] [--output-dir DIR]` | オフラインのマージボム実証デモを実行、または 5 大 SDD キットの対話型サンドボックスをスキャフォールド。 |
-| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR]` | ロードマップとコードグラフを解析し、`execution-plan-parallel.md` および `wave-plan.json` を出力。 |
-| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run]` | スロット（`track-a`、`track-b`、…）のプロビジョニング、OS ロックの適用、境界ファイルの注入。 |
+| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR] [--routing-file FILE]` | ロードマップとコードグラフを解析し、`execution-plan-parallel.md` および `wave-plan.json` を出力。 |
+| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run] [--routing-file FILE]` | スロット（`track-a`、`track-b`、…）のプロビジョニング、OS ロックの適用、境界ファイルの注入。 |
 | `sdd-parallel claim-track --wave K --track <id> --worktree <path> [--repo REPO] [--max-tracks N] [--kit KIT] [--headless]` | 既存の外部 worktree に対して境界ロックを関連付け。 |
-| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout]` | オペレーター向けランガイドを出力（トラックごとのネイティブ起動コマンドを含む）。 |
-| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | `.parallel-lock.json` に対するスロットの監査および `merge-base` に対する複数コミット diff の監査。 |
-| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | バリアマージ：3-Way ステータスマージ、Git マージ、品質ゲート、トランザクション自動ロールバック。 |
+| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout] [--routing-file FILE]` | オペレーター向けランガイドを出力（トラックごとのネイティブ起動コマンドを含む）。 |
+| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | `.parallel-lock.json` に対するスロットの監査、`merge-base` に対する diff 監査、およびマニフェスト保存。 |
+| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | バリアマージ：3-Way ステータスマージ、Git マージ、品質ゲート、自動ロールバック、マニフェスト保存。 |
 | `sdd-parallel abort-wave --wave K [--repo REPO] [--dynamic-worktrees]` | 未マージのウェーブを破棄：スロットをリセットし、一時並行ブランチを削除。 |
 | `sdd-parallel rollback-wave --wave K [--repo REPO] [--dynamic-worktrees] [--to-commit COMMIT] [--save-backup] [--no-backup] [--kit KIT]` | マージ済みウェーブの取り消し（LIFO）：安全バックアップブランチ作成と SDD ステータス復元。 |
 | `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | `sprint-status.yaml` 用の低レベル決定論的 3-Way マージャー。 |
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | アクティブな worktree のロックマニフェストに対してファイル書き込み権限を照合。 |
 | `sdd-parallel install-plugin [--target-dir DIR]` | ポータブルな Antigravity プラグインをパッケージングしてインストール。 |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute]` | モデル推論労力ルーティングを備えたマルチウィンドウ・オートパイロット起動コマンドの生成または直接実行。 |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]` | モデル推論労力ルーティングを備えたマルチウィンドウ・オートパイロット起動コマンドの生成または直接実行。 |
 
 </details>
 
@@ -643,8 +643,8 @@ flowchart TD
 - [x] **コミュニティアダプター：** `mattpocock/skills`（`/implement-spec`）および `bmad-loop` フロントマターステータスアダプター。
 - [x] **汚染ゼロの環境同期：** 固定スロットへの `.venv` / `node_modules` のシンボリックリンク共有。
 - [x] **ウェーブ実行前の静的シンボルリンカー ＆ スコープエスカレーション：** AST シンボル解析による書き込みセットの動的拡張と自動リスケジューリング。
-- [ ] **FinOps ＆ 可観測性エクスポーター：** OpenTelemetry スパンおよび Langfuse トークン削減テレメトリの出力。
-- [ ] **ヘッドレス・オートパイロットデーモン：** ローカル RPC / サブエージェントディスパッチによるエージェント自動実行。
+- [x] **実行マニフェストとコグニティブルーティング契約：** 決定論的 `.parallel/run-manifest.json`、AST 構造シグナル (`TaskStructuralSignals`)、および `--routing-file` 契約 (`ADR-0009`)。
+- [ ] **公式 Depth-0 ウェーブランナー (`agy` CLI / SDK)：** `TrackExecutionPolicy` による並行ヘッドレストラック実行。
 
 ---
 

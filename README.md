@@ -43,7 +43,7 @@
   <em>Deterministic blast-radius wave plan, zero merge-bombs and clean worktree slots in under 28 seconds.</em>
 </p>
 
-Prefer to read at your own pace? See the [4-step annotated breakdown below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough).
+Prefer to read at your own pace? See the [4-step annotated breakdown below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough) or explore the **[⚡ Live Interactive Wave Inspector (Zero-Install Web Demo)](https://stopactingdosmall.github.io/sdd-parallel/)**.
 
 ---
 
@@ -566,7 +566,7 @@ You keep your agent and your prompts. After `sdd-parallel prepare --wave 1`, `sd
 
 | Harness | How it plugs in |
 | :--- | :--- |
-| **Claude Code** (`claude`) | Open `claude` inside `.worktrees/track-a`; out-of-scope writes and shell bypasses are denied by the `PreToolUse` hook plus OS `chmod a-w`. Or spawn all tracks with `sdd-parallel autopilot --wave 1 --harness claude-code`. |
+| **Claude Code** (`claude`) | Open `claude` inside `.worktrees/track-a`; out-of-scope writes are blocked by native `permissions.blockWritesOutsideWorkingDirectories: true` plus `PreToolUse` hook and OS `chmod a-w`. Or spawn all tracks with `sdd-parallel autopilot --wave 1 --harness claude-code` (fixed slots `track-a/b/c`, explicit `--model`). |
 | **OpenAI Codex CLI** (`codex`) | `codex --cd .worktrees/track-b`; read-only files are protected by `chmod a-w`, and `sdd-parallel verify-wave` audits the diff before merge. Autopilot: `--harness codex`. |
 | **Google Antigravity** | `sdd-parallel prepare --wave 1 --antigravity-layout` places slots under `~/.gemini/antigravity/worktrees/<Project>/track-a`; `ACTIVE_TRACK.md` sits at the slot root; `sdd-parallel install-plugin` installs the portable plugin with the scope-guard hook. |
 | **Any worktree-capable CLI or IDE** — Cursor, Windsurf, OpenCode, Kimi CLI, MiniMax Code, Aider, Cline, Trae | Works without extra setup: standard `git worktree` slots (`track-a`, `track-b`, `track-c`, … via `--max-tracks N`), OS-level `chmod a-w` locks, `ACTIVE_TRACK.md`, and post-hoc diff verification with `sdd-parallel verify-wave`. |
@@ -646,18 +646,18 @@ flowchart TD
 | Command | Purpose |
 | :--- | :--- |
 | `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp] [--scaffold-only] [--output-dir DIR]` | Run the offline Merge-Bomb demo or scaffold an interactive sandbox for any of the 5 SDD kits. |
-| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR]` | Analyze roadmap + code graph; write `execution-plan-parallel.md` and `wave-plan.json`. |
-| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run]` | Provision slots (`track-a`, `track-b`, …), apply OS locks, inject boundaries. |
+| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR] [--routing-file FILE]` | Analyze roadmap + code graph; write `execution-plan-parallel.md` and `wave-plan.json`. |
+| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run] [--routing-file FILE]` | Provision slots (`track-a`, `track-b`, …), apply OS locks, inject boundaries. |
 | `sdd-parallel claim-track --wave K --track <id> --worktree <path> [--repo REPO] [--max-tracks N] [--kit KIT] [--headless]` | Attach boundary locks to an existing external worktree. |
-| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout]` | Print the operator run-guide with the native launch command for each track. |
-| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | Audit slots against `.parallel-lock.json` and the multi-commit diff against `merge-base`. |
-| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | Barrier merge: 3-way status merge, git merge, quality gates, transactional auto-rollback. |
+| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout] [--routing-file FILE]` | Print the operator run-guide with the native launch command for each track. |
+| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | Audit slots against `.parallel-lock.json`, multi-commit diff against `merge-base`, and save manifest. |
+| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | Barrier merge: 3-way status merge, git merge, quality gates, transactional auto-rollback, and manifest. |
 | `sdd-parallel abort-wave --wave K [--repo REPO] [--dynamic-worktrees]` | Abort an unmerged wave: reset slots, remove temporary parallel branches. |
 | `sdd-parallel rollback-wave --wave K [--repo REPO] [--dynamic-worktrees] [--to-commit COMMIT] [--save-backup] [--no-backup] [--kit KIT]` | Revert a merged wave (LIFO) with a safety backup branch and SDD status reset. |
 | `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | Low-level deterministic 3-way merge for `sprint-status.yaml`. |
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | Check a write against the active worktree lock manifest. |
 | `sdd-parallel install-plugin [--target-dir DIR]` | Package and install the portable Antigravity plugin. |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute]` | Generate or execute multi-window autopilot launch commands with model effort routing. |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]` | Generate or execute multi-window autopilot launch commands with model effort routing. |
 | `sdd-parallel bench [--repo REPO] [--since REV] [--until REV] [--demo] [--max-tracks N] [--kit KIT] [--format {text,json}] [--output-file FILE]` | Retrospective backtest on commit history or demo repo evaluating Merge-Bomb collision metrics (TP/FP/FN/TN, Precision, Recall, F1). |
 | `sdd-parallel inspect [--repo REPO] [--plan PATH] [--output PATH] [--open] [--kit KIT]` | Generate and view standalone offline HTML Wave Inspector visualizing wave tracks, slot boundaries, and interactive SVG DAG conflict graphs. |
 
@@ -685,8 +685,8 @@ flowchart TD
 - [x] **Community adapters:** `mattpocock/skills` (`/implement-spec`) and `bmad-loop` frontmatter status adapter.
 - [x] **Zero-pollution environment sync:** `.venv` / `node_modules` symlinks into fixed slots.
 - [x] **Pre-wave static symbol linker & scope escalation:** automatic write-set expansion via AST symbols with dynamic rescheduling.
-- [ ] **FinOps & observability exporters:** OpenTelemetry spans and Langfuse token-savings telemetry.
-- [ ] **Headless autopilot daemon:** agent execution via local RPC / subagent dispatch.
+- [x] **Execution manifest & Cognitive Router contract:** deterministic `.parallel/run-manifest.json`, AST structural signals (`TaskStructuralSignals`), and `--routing-file` contract for external System-1 routers and AgentLens (`ADR-0009`).
+- [ ] **Official Depth-0 wave runner (`agy` CLI / SDK):** parallel headless track execution with `TrackExecutionPolicy`.
 
 ---
 
@@ -706,3 +706,12 @@ uv run sdd-parallel demo --kit all     # offline 5-kit demo
 - **Contributing:** see the **[Contributing Guide](CONTRIBUTING.md)** for environment setup and pull-request gates.
 - **Security:** report vulnerabilities as described in the **[Security Policy](SECURITY.md)**.
 - **License:** MIT — see [LICENSE](LICENSE).
+
+### 💼 Commercial Audits & Enterprise Monorepo Support
+
+Scaling autonomous AI coding agents across engineering teams with large codebases requires deterministic blast-radius isolation. We offer fixed-scope asynchronous B2B audits (**Parallel SDD Readiness & Blast-Radius Audit**, \$500–\$2,500):
+- **Commit History Retrospective:** `sdd-parallel bench` backtest detecting historical Merge-Bomb hotspots and blast-radius bottlenecks.
+- **Custom Repository Configuration:** Tailored `.parallel-config.json` defining exact `contract_globs`, spine schema serialization, port isolation, and CI/CD quality gate barriers.
+- **Interactive Multi-Agent Roadmap:** Pre-computed `wave-plan.json` and standalone HTML inspector report detailing velocity gains and agent slot allocations.
+
+To discuss architecture or schedule an audit, open a topic in **[GitHub Discussions](https://github.com/stopActingSoSmall/sdd-parallel/discussions)** or reach out to the maintainers.

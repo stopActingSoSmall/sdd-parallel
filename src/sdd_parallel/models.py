@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -127,6 +127,68 @@ class ConflictType(StrEnum):
     SEMANTIC_COLLISION = "semantic_collision"
 
 
+@dataclass(frozen=True)
+class TaskStructuralSignals:
+    """Deterministic AST & conflict-graph metrics exported for external Cognitive Routers."""
+
+    files_count: int = 0
+    max_fan_in: int = 0
+    touches_spine: bool = False
+    ast_loc: int = 0
+    conflict_degree: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "files_count": self.files_count,
+            "max_fan_in": self.max_fan_in,
+            "touches_spine": self.touches_spine,
+            "ast_loc": self.ast_loc,
+            "conflict_degree": self.conflict_degree,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> TaskStructuralSignals:
+        return cls(
+            files_count=int(data.get("files_count", 0)),
+            max_fan_in=int(data.get("max_fan_in", 0)),
+            touches_spine=bool(data.get("touches_spine", False)),
+            ast_loc=int(data.get("ast_loc", 0)),
+            conflict_degree=int(data.get("conflict_degree", 0)),
+        )
+
+
+@dataclass(frozen=True)
+class RoutingOverride:
+    """External Cognitive Router decision for a single task."""
+
+    task_id: str
+    effort: EffortTier
+    model: str | None = None
+    execution_mode: str = "NORMAL"
+    reason: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "effort": self.effort.value,
+            "model": self.model,
+            "execution_mode": self.execution_mode,
+            "reason": self.reason,
+        }
+
+    @classmethod
+    def from_dict(cls, task_id: str, data: Mapping[str, Any]) -> RoutingOverride:
+        effort_raw = str(data.get("effort", "medium")).lower()
+        model_val = data.get("model")
+        return cls(
+            task_id=task_id,
+            effort=EffortTier(effort_raw),
+            model=str(model_val) if model_val is not None else None,
+            execution_mode=str(data.get("execution_mode", "NORMAL")),
+            reason=str(data.get("reason", "")),
+        )
+
+
 @dataclass(slots=True)
 class TaskNode:
     """Canonical representation of an SDD story or task."""
@@ -142,6 +204,9 @@ class TaskNode:
     depends_on: list[str] = field(default_factory=list)
     shared_function_notes: dict[str, str] = field(default_factory=dict)
     description: str = ""
+    structural_signals: TaskStructuralSignals | None = None
+    model_override: str | None = None
+    execution_mode: str = "NORMAL"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -156,10 +221,24 @@ class TaskNode:
             "depends_on": list(self.depends_on),
             "shared_function_notes": dict(self.shared_function_notes),
             "description": self.description,
+            "structural_signals": (
+                self.structural_signals.to_dict()
+                if self.structural_signals is not None
+                else None
+            ),
+            "model_override": self.model_override,
+            "execution_mode": self.execution_mode,
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> TaskNode:
+    def from_dict(cls, data: Mapping[str, Any]) -> TaskNode:
+        sig_data = data.get("structural_signals")
+        signals = (
+            TaskStructuralSignals.from_dict(sig_data)
+            if isinstance(sig_data, Mapping)
+            else None
+        )
+        model_val = data.get("model_override")
         return cls(
             id=str(data["id"]),
             title=str(data.get("title", "")),
@@ -174,6 +253,9 @@ class TaskNode:
                 str(k): str(v) for k, v in data.get("shared_function_notes", {}).items()
             },
             description=str(data.get("description", "")),
+            structural_signals=signals,
+            model_override=str(model_val) if model_val is not None else None,
+            execution_mode=str(data.get("execution_mode", "NORMAL")),
         )
 
 
@@ -198,6 +280,17 @@ class ConflictEdge:
             "directed": self.directed,
         }
 
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ConflictEdge:
+        return cls(
+            source=str(data["source"]),
+            target=str(data["target"]),
+            conflict_type=ConflictType(str(data["conflict_type"])),
+            reason=str(data.get("reason", "")),
+            shared_files=tuple(str(f) for f in data.get("shared_files", ())),
+            directed=bool(data.get("directed", True)),
+        )
+
 
 @dataclass(slots=True)
 class WaveTrack:
@@ -209,6 +302,8 @@ class WaveTrack:
     exclusive_write_files: list[str] = field(default_factory=list)
     additive_shared_files: list[str] = field(default_factory=list)
     function_scope_notes: dict[str, str] = field(default_factory=dict)
+    model_override: str | None = None
+    execution_mode: str = "NORMAL"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -218,7 +313,25 @@ class WaveTrack:
             "exclusive_write_files": list(self.exclusive_write_files),
             "additive_shared_files": list(self.additive_shared_files),
             "function_scope_notes": dict(self.function_scope_notes),
+            "model_override": self.model_override,
+            "execution_mode": self.execution_mode,
         }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> WaveTrack:
+        model_val = data.get("model_override")
+        return cls(
+            track_id=str(data["track_id"]),
+            task_ids=[str(t) for t in data.get("task_ids", [])],
+            effort=EffortTier(str(data.get("effort", "medium")).lower()),
+            exclusive_write_files=[str(f) for f in data.get("exclusive_write_files", [])],
+            additive_shared_files=[str(f) for f in data.get("additive_shared_files", [])],
+            function_scope_notes={
+                str(k): str(v) for k, v in data.get("function_scope_notes", {}).items()
+            },
+            model_override=str(model_val) if model_val is not None else None,
+            execution_mode=str(data.get("execution_mode", "NORMAL")),
+        )
 
 
 @dataclass(slots=True)
@@ -240,6 +353,14 @@ class Wave:
             "checkpoint_gates": list(self.checkpoint_gates),
         }
 
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Wave:
+        return cls(
+            wave_number=int(data["wave_number"]),
+            tracks=[WaveTrack.from_dict(t) for t in data.get("tracks", [])],
+            checkpoint_gates=[str(g) for g in data.get("checkpoint_gates", [])],
+        )
+
 
 @dataclass(slots=True)
 class WavePlan:
@@ -251,6 +372,7 @@ class WavePlan:
     wave_zero_blockers: list[str] = field(default_factory=list)
     spine_files: list[str] = field(default_factory=list)
     additive_registries: list[str] = field(default_factory=list)
+    tasks: list[TaskNode] = field(default_factory=list)
 
     @property
     def scheduled_task_ids(self) -> list[str]:
@@ -262,9 +384,22 @@ class WavePlan:
             "wave_zero_blockers": list(self.wave_zero_blockers),
             "spine_files": list(self.spine_files),
             "additive_registries": list(self.additive_registries),
+            "tasks": [t.to_dict() for t in self.tasks],
             "waves": [w.to_dict() for w in self.waves],
             "edges": [e.to_dict() for e in self.edges],
         }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> WavePlan:
+        return cls(
+            sdd_kit=str(data.get("sdd_kit", "auto")),
+            waves=[Wave.from_dict(w) for w in data.get("waves", [])],
+            edges=[ConflictEdge.from_dict(e) for e in data.get("edges", [])],
+            wave_zero_blockers=[str(b) for b in data.get("wave_zero_blockers", [])],
+            spine_files=[str(f) for f in data.get("spine_files", [])],
+            additive_registries=[str(r) for r in data.get("additive_registries", [])],
+            tasks=[TaskNode.from_dict(t) for t in data.get("tasks", [])],
+        )
 
 
 @dataclass(slots=True)

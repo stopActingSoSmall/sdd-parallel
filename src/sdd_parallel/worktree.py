@@ -25,6 +25,7 @@ from sdd_parallel.models import (
     WavePlan,
     WaveTrack,
 )
+from sdd_parallel.plugin_installer import configure_claude_settings
 from sdd_parallel.status_merger import get_status_merger
 
 _DEFAULT_SHARED_DIRS = (".venv", "node_modules", ".cache")
@@ -38,6 +39,8 @@ _EXCLUDE_ENTRIES = (
     ".parallel-lock.json",
     ".tmp/",
     "ACTIVE_TRACK.md",
+    ".claude/",
+    ".claude/settings.local.json",
     ".venv",
     ".venv/",
     "node_modules",
@@ -681,6 +684,9 @@ class WorktreeManager:
             )
         (wt / "ACTIVE_TRACK.md").write_text("\n".join(hud_lines), encoding="utf-8")
 
+        # 5. Configure Claude Code sandbox (permissions.blockWritesOutsideWorkingDirectories)
+        configure_claude_settings(wt)
+
         # 6. Register injected files in git info/exclude so `git status --porcelain` stays empty
         self._update_git_exclude(wt, extra_entries=extra_exclude_entries)
 
@@ -795,7 +801,17 @@ class WorktreeManager:
             else:
                 if not wt_path.exists():
                     subprocess.run(
-                        ["git", "worktree", "add", "-B", branch_name, str(wt_path), base_branch],
+                        [
+                            "git",
+                            "-c",
+                            "worktree.useRelativePaths=false",
+                            "worktree",
+                            "add",
+                            "-B",
+                            branch_name,
+                            str(wt_path.resolve()),
+                            base_branch,
+                        ],
                         cwd=self.repo_root,
                         capture_output=True,
                         check=True,

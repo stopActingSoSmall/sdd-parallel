@@ -19,6 +19,7 @@ def build_sample_wave_plan() -> dict[str, Any]:
     """Construct a canonical sample WavePlan dictionary for fallback or demo visualizer."""
     return {
         "sdd_kit": "spec-kit",
+        "is_demo": True,
         "wave_zero_blockers": [],
         "spine_files": ["src/demo_app/schema.py"],
         "additive_registries": [
@@ -126,10 +127,13 @@ def build_sample_wave_plan() -> dict[str, Any]:
                 "directed": True,
             },
             {
-                "source": "T001",
-                "target": "T002",
+                "source": "T003",
+                "target": "T004",
                 "conflict_type": "direct_collision",
-                "reason": "Mutual exclusivity on shared specification documents",
+                "reason": (
+                    "Direct collision on shared specification document: "
+                    "specs/001-telemetry/tasks.md"
+                ),
                 "shared_files": ["specs/001-telemetry/tasks.md"],
                 "directed": True,
             },

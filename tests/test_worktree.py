@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -305,3 +306,99 @@ def test_verify_wave_lifecycle_hook_pre_verify(tmp_path: Path) -> None:
     violations_failing = wm_failing.verify_wave(plan, wave_number=1)
     expected_err = "lifecycle hook 'pre_verify' failed with exit code 7"
     assert any(expected_err in v for v in violations_failing)
+
+
+def test_prepare_wave_relative_worktrees_guard_and_claude_settings(tmp_path: Path) -> None:
+    repo = tmp_path / "guard_repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    # Simulate git config worktree.useRelativePaths=true
+    subprocess.run(
+        ["git", "config", "worktree.useRelativePaths", "true"],
+        cwd=repo,
+        check=True,
+    )
+
+    plan = WavePlan(
+        sdd_kit="bmad",
+        waves=[
+            Wave(
+                wave_number=1,
+                tracks=[WaveTrack(track_id="track-a", task_ids=["1-1"], effort=EffortTier.LOW)],
+            )
+        ],
+        edges=[],
+    )
+
+    wm = WorktreeManager(repo, fixed_slots=True)
+    paths = wm.prepare_wave(plan, wave_number=1)
+    wt_a = paths[0]
+
+    # Verify extensions.relativeWorktrees is NOT present
+    proc = subprocess.run(
+        ["git", "config", "--get", "extensions.relativeWorktrees"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode != 0 or proc.stdout.strip() != "true"
+
+    # Verify Claude Code settings.local.json in worktree
+    claude_settings = wt_a / ".claude" / "settings.local.json"
+    assert claude_settings.is_file()
+    data = json.loads(claude_settings.read_text(encoding="utf-8"))
+    assert data["permissions"]["blockWritesOutsideWorkingDirectories"] is True
+
+    # Invariant 1: Clean worktree (git status --porcelain is empty)
+    status_proc = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=wt_a,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert status_proc.stdout.strip() == "", f"Worktree dirty: {status_proc.stdout}"
+
+
+def test_prepare_wave_git_worktree_add_arguments(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "mock_repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    plan = WavePlan(
+        sdd_kit="bmad",
+        waves=[
+            Wave(
+                wave_number=1,
+                tracks=[WaveTrack(track_id="track-a", task_ids=["1-1"], effort=EffortTier.LOW)],
+            )
+        ],
+        edges=[],
+    )
+
+    captured_cmds: list[list[str]] = []
+    orig_run = subprocess.run
+
+    def mock_run(cmd: Any, *args: Any, **kwargs: Any) -> Any:
+        if isinstance(cmd, list) and len(cmd) >= 4 and cmd[0] == "git" and "worktree" in cmd:
+            captured_cmds.append(cmd)
+        return orig_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+
+    wm = WorktreeManager(repo, fixed_slots=True)
+    wm.prepare_wave(plan, wave_number=1)
+
+    assert len(captured_cmds) == 1
+    cmd = captured_cmds[0]
+    assert cmd[0] == "git"
+    assert cmd[1] == "-c"
+    assert cmd[2] == "worktree.useRelativePaths=false"
+    assert cmd[3] == "worktree"
+    assert cmd[4] == "add"
+    assert str(wm.worktree_path_for_track(1, "track-a").resolve()) in cmd
+

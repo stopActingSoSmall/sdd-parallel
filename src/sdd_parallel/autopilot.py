@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -27,12 +29,26 @@ _MODEL_MAP: dict[str, dict[EffortTier, str]] = {
 }
 
 
-def default_agentapi_path() -> Path:
-    """Return standard path to Google Antigravity CLI bridge on Windows/POSIX."""
-    win_candidate = Path.home() / ".gemini" / "antigravity" / "bin" / "agentapi.bat"
-    if win_candidate.is_file():
-        return win_candidate
-    return Path.home() / ".gemini" / "antigravity" / "bin" / "agentapi"
+def extract_session_id_from_stdout(stdout: str) -> str | None:
+    """Extract conversation/session ID from stdout (JSON object or JSONL lines)."""
+    if not stdout or not stdout.strip():
+        return None
+    text = stdout.strip()
+    candidates = [text]
+    candidates.extend(reversed([line.strip() for line in text.splitlines() if line.strip()]))
+    for cand in candidates:
+        if not (cand.startswith("{") and cand.endswith("}")):
+            continue
+        try:
+            data = json.loads(cand)
+            if isinstance(data, dict):
+                for key in ("session_id", "sessionId", "conversation_id", "conversationId"):
+                    val = data.get(key)
+                    if val:
+                        return str(val)
+        except Exception:
+            continue
+    return None
 
 
 class AutopilotLauncher:
@@ -42,10 +58,19 @@ class AutopilotLauncher:
         self,
         repo_root: Path,
         agentapi_path: Path | None = None,
+        fixed_slots: bool = True,
+        agy_cmd: str | None = None,
     ) -> None:
         self.repo_root = repo_root.resolve()
         self.worktrees_dir = self.repo_root / ".worktrees"
-        self.agentapi_path = agentapi_path or default_agentapi_path()
+        self.fixed_slots = fixed_slots
+        # Prefer explicit agy_cmd, fallback to shutil.which("agy") or "agy"
+        if agy_cmd:
+            self.agy_cmd = agy_cmd
+        elif agentapi_path and agentapi_path.name != "agentapi.bat":
+            self.agy_cmd = str(agentapi_path)
+        else:
+            self.agy_cmd = shutil.which("agy") or "agy"
 
     @staticmethod
     def resolve_model_for_effort(harness: str, effort: EffortTier) -> str:
@@ -70,8 +95,13 @@ class AutopilotLauncher:
             worker_cmd = f"/bmad-build {' '.join(track.task_ids)}"
 
         stories = ", ".join(track.task_ids)
+        mode_prefix = (
+            f"[EXECUTION_MODE: {track.execution_mode}] "
+            if track.execution_mode and track.execution_mode != "NORMAL"
+            else ""
+        )
         return (
-            f"Working directory: {wt_path.as_posix()}. "
+            f"{mode_prefix}Working directory: {wt_path.as_posix()}. "
             f"Read .tmp/track-context.md and .parallel-lock.json first. "
             f"Execute Wave {wave_number} / {track.track_id} stories ({stories}) "
             f"using `{worker_cmd}` strictly within the allowed write scope."
@@ -94,8 +124,16 @@ class AutopilotLauncher:
 
         specs: list[dict[str, Any]] = []
         for track in target_wave.tracks:
-            wt_path = self.worktrees_dir / f"wave-{wave_number}-{track.track_id}"
-            model_id = self.resolve_model_for_effort(h_norm, track.effort)
+            if self.fixed_slots:
+                wt_path = self.worktrees_dir / track.track_id
+                slot_name = track.track_id
+            else:
+                wt_path = self.worktrees_dir / f"wave-{wave_number}-{track.track_id}"
+                slot_name = f"wave-{wave_number}-{track.track_id}"
+            if track.model_override and track.model_override.strip():
+                model_id = track.model_override.strip()
+            else:
+                model_id = self.resolve_model_for_effort(h_norm, track.effort)
             stories_str = ", ".join(track.task_ids)
             title = f"Wave {wave_number} ({track.track_id}): {stories_str}"
             prompt = self._build_track_prompt(
@@ -104,25 +142,32 @@ class AutopilotLauncher:
 
             if h_norm == "antigravity":
                 argv = [
-                    str(self.agentapi_path),
-                    "new-conversation",
-                    f"--model={model_id}",
-                    f"--title={title}",
+                    self.agy_cmd,
+                    "-p",
                     prompt,
+                    "--model",
+                    model_id,
+                    "--effort",
+                    track.effort.value,
+                    "--mode",
+                    "auto",
+                    "--output-format",
+                    "json",
                 ]
             elif h_norm == "claude-code":
                 argv = [
                     "claude",
-                    "--worktree",
-                    f"wave-{wave_number}-{track.track_id}",
-                    "--model",
-                    model_id,
                     "-p",
                     prompt,
+                    "--model",
+                    model_id,
+                    "--output-format",
+                    "json",
                 ]
             else:
                 argv = [
                     "codex",
+                    "exec",
                     "--cd",
                     wt_path.as_posix(),
                     "--model",
@@ -134,8 +179,10 @@ class AutopilotLauncher:
                 {
                     "wave": wave_number,
                     "track_id": track.track_id,
+                    "slot_name": slot_name,
                     "stories": list(track.task_ids),
                     "effort": track.effort.value,
+                    "execution_mode": track.execution_mode,
                     "harness": h_norm,
                     "model": model_id,
                     "worktree": wt_path.as_posix(),
@@ -180,4 +227,22 @@ class AutopilotLauncher:
             item["returncode"] = proc.returncode
             item["stdout"] = proc.stdout.strip()
             item["stderr"] = proc.stderr.strip()
+            session_id = extract_session_id_from_stdout(proc.stdout)
+            item["session_id"] = session_id
+
+            if target_cwd.is_dir():
+                tmp_dir = target_cwd / ".tmp"
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                session_file = tmp_dir / "runner-session.json"
+                session_payload: dict[str, Any] = {
+                    "session_id": session_id,
+                    "harness": item.get("harness"),
+                    "exit_code": proc.returncode,
+                    "policy": "single-shot",
+                    "iterations_used": 1,
+                }
+                session_file.write_text(
+                    json.dumps(session_payload, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
         return specs

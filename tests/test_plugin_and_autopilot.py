@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from sdd_parallel.autopilot import AutopilotLauncher
+from sdd_parallel.autopilot import AutopilotLauncher, extract_session_id_from_stdout
 from sdd_parallel.cli import main
 from sdd_parallel.models import EffortTier, TaskNode
 from sdd_parallel.plugin_installer import (
+    configure_claude_settings,
     install_plugin,
     sanitize_antigravity_settings_hooks,
 )
@@ -26,8 +27,34 @@ def test_install_plugin_creates_bundle(tmp_path: Path) -> None:
 
     hooks_data = json.loads(Path(manifest_paths["hooks_json"]).read_text(encoding="utf-8"))
     pre_tool = hooks_data["hooks"]["PreToolUse"][0]
-    assert "write_to_file" in pre_tool["matcher"]
-    assert "sdd_parallel.hooks.blast_radius_guard" in pre_tool["hooks"][0]["command"]
+    matcher = pre_tool["matcher"]
+    assert "write_to_file" in matcher
+    for tool_name in ["NotebookEdit", "Bash", "run_command", "cmd", "powershell"]:
+        assert tool_name in matcher, f"Tool '{tool_name}' missing from PreToolUse matcher"
+    hook_command = pre_tool["hooks"][0]["command"]
+    assert "sdd_parallel.hooks.blast_radius_guard" in hook_command
+    assert not (hook_command.startswith('"') and hook_command.endswith('"'))
+    assert "\\" not in hook_command.split()[0]
+
+
+def test_configure_claude_settings_creates_and_preserves(tmp_path: Path) -> None:
+    slot_dir = tmp_path / "slot"
+    slot_dir.mkdir()
+    settings_file = configure_claude_settings(slot_dir)
+    assert settings_file.is_file()
+    data = json.loads(settings_file.read_text(encoding="utf-8"))
+    assert data["permissions"]["blockWritesOutsideWorkingDirectories"] is True
+
+    # Test preserving existing properties and permissions
+    (slot_dir / ".claude" / "settings.local.json").write_text(
+        json.dumps({"existingKey": "value", "permissions": {"customPerm": True}}),
+        encoding="utf-8",
+    )
+    configure_claude_settings(slot_dir)
+    updated = json.loads(settings_file.read_text(encoding="utf-8"))
+    assert updated["existingKey"] == "value"
+    assert updated["permissions"]["customPerm"] is True
+    assert updated["permissions"]["blockWritesOutsideWorkingDirectories"] is True
 
 
 def test_install_plugin_falls_back_to_embedded_skill_resource(tmp_path: Path) -> None:
@@ -111,21 +138,65 @@ def test_autopilot_launcher_routes_models_across_harnesses(tmp_path: Path) -> No
     scheduler = BSPWaveScheduler(max_tracks=2)
     plan = scheduler.schedule(tasks)
 
-    launcher = AutopilotLauncher(tmp_path, agentapi_path=Path("agentapi.bat"))
+    launcher = AutopilotLauncher(tmp_path, agy_cmd="agy")
+    assert launcher.fixed_slots is True
     ag_specs = launcher.build_launch_specs(plan, wave_number=1, harness="antigravity")
     assert len(ag_specs) == 2
     assert ag_specs[0]["model"] == "pro"
     assert ag_specs[1]["model"] == "flash_lite"
-    assert "new-conversation" in ag_specs[0]["command_line"]
-    assert "--cwd=" not in ag_specs[0]["command_line"]
+    assert ag_specs[0]["argv"] == [
+        "agy",
+        "-p",
+        ag_specs[0]["prompt"],
+        "--model",
+        "pro",
+        "--effort",
+        "high",
+        "--mode",
+        "auto",
+        "--output-format",
+        "json",
+    ]
+    assert "agy" in ag_specs[0]["command_line"]
+    assert "--output-format json" in ag_specs[0]["command_line"]
+    assert ag_specs[0]["worktree"].endswith("/track-a")
 
     cc_specs = launcher.build_launch_specs(plan, wave_number=1, harness="claude-code")
     assert cc_specs[0]["model"] == "claude-opus-4-6"
     assert cc_specs[1]["model"] == "claude-haiku-4-5"
+    assert cc_specs[0]["argv"] == [
+        "claude",
+        "-p",
+        cc_specs[0]["prompt"],
+        "--model",
+        "claude-opus-4-6",
+        "--output-format",
+        "json",
+    ]
 
     cx_specs = launcher.build_launch_specs(plan, wave_number=1, harness="codex")
     assert cx_specs[0]["model"] == "o3-high"
     assert cx_specs[1]["model"] == "codex-mini"
+    assert cx_specs[0]["argv"] == [
+        "codex",
+        "exec",
+        "--cd",
+        cx_specs[0]["worktree"],
+        "--model",
+        "o3-high",
+        cx_specs[0]["prompt"],
+    ]
+
+    # Backward compatibility with fixed_slots=False
+    launcher_legacy = AutopilotLauncher(
+        tmp_path, fixed_slots=False
+    )
+    assert launcher_legacy.fixed_slots is False
+    cc_legacy = launcher_legacy.build_launch_specs(plan, wave_number=1, harness="claude-code")
+    assert cc_legacy[0]["worktree"].endswith("/wave-1-track-a")
+
+    cx_legacy = launcher_legacy.build_launch_specs(plan, wave_number=1, harness="codex")
+    assert cx_legacy[0]["argv"][3].endswith("/wave-1-track-a")
 
     # CLI install-plugin check
     rc = main(["install-plugin", "--target-dir", str(tmp_path / "cli-plugin")])
@@ -171,3 +242,22 @@ def test_autopilot_polymorphic_worker_commands(tmp_path: Path) -> None:
     assert len(specs_gsd) == 1
     assert "/gsd-execute-phase" in specs_gsd[0]["prompt"]
     assert "/bmad-build-auto" not in specs_gsd[0]["prompt"]
+
+
+def test_extract_session_id_from_stdout() -> None:
+    # 1. Single JSON object
+    assert extract_session_id_from_stdout('{"conversation_id": "conv-123"}') == "conv-123"
+    assert extract_session_id_from_stdout('{"session_id": "sess-456"}') == "sess-456"
+    assert extract_session_id_from_stdout('{"sessionId": "sess-789"}') == "sess-789"
+    assert extract_session_id_from_stdout('{"conversationId": "conv-999"}') == "conv-999"
+
+    # 2. JSONL stream with session ID in final object
+    jsonl = '{"event": "start"}\n{"status": "running"}\n{"conversation_id": "conv-final"}'
+    assert extract_session_id_from_stdout(jsonl) == "conv-final"
+
+    # 3. Non-JSON output or empty
+    assert extract_session_id_from_stdout("") is None
+    assert extract_session_id_from_stdout("   \n  ") is None
+    assert extract_session_id_from_stdout("plain text stdout without json") is None
+    assert extract_session_id_from_stdout('{"status": "ok"}') is None
+
