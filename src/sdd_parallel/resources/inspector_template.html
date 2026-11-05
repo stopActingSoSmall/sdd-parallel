@@ -453,6 +453,26 @@
       background: rgba(57, 197, 187, 0.25);
       border-color: var(--accent-cyan);
     }
+    .task-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .task-title {
+      font-size: 12px;
+      color: var(--text-main);
+      font-weight: 500;
+      font-family: var(--font-sans);
+    }
+    .modal-task-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--accent-cyan);
+      border-bottom: 1px solid var(--border-muted);
+      padding-bottom: 8px;
+      margin-bottom: 4px;
+    }
     .effort-badge {
       font-size: 11px;
       font-family: var(--font-mono);
@@ -1236,10 +1256,18 @@ __PRELOADED_DATA__
       }
 
       const fnNotes = track.function_scope_notes || {};
+      const taskTitles = (activePlan && activePlan.task_titles) || {};
 
-      const taskBadgesHtml = (track.task_ids || []).map(tid => `
-        <span class="task-badge" data-task-id="${escapeHtml(tid)}" data-track-id="${escapeHtml(track.track_id)}" data-wave-num="${waveNum}" title="Click to view full task specification">[${escapeHtml(tid)}]</span>
-      `).join(" ");
+      const taskItemsHtml = (track.task_ids || []).map(tid => {
+        const title = taskTitles[tid];
+        const titleHtml = title ? `<span class="task-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>` : "";
+        return `
+          <div class="task-item">
+            <span class="task-badge" data-task-id="${escapeHtml(tid)}" data-track-id="${escapeHtml(track.track_id)}" data-wave-num="${waveNum}" title="Click to view full task specification">[${escapeHtml(tid)}]</span>
+            ${titleHtml}
+          </div>
+        `;
+      }).join(" ");
 
       const writeFiles = (track.exclusive_write_files || []).map(f => `
         <div class="file-pill exclusive" title="${escapeHtml(f)}">
@@ -1286,9 +1314,9 @@ __PRELOADED_DATA__
       return `
         <div class="track-card">
           <div class="track-header">
-            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1;">
               <span class="track-id">🛤️ ${escapeHtml(track.track_id)}</span>
-              ${taskBadgesHtml}
+              ${taskItemsHtml}
             </div>
             <span class="effort-badge">Effort: ${effortLabel} ${effortDots}</span>
           </div>

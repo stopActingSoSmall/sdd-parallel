@@ -453,6 +453,26 @@
       background: rgba(57, 197, 187, 0.25);
       border-color: var(--accent-cyan);
     }
+    .task-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .task-title {
+      font-size: 12px;
+      color: var(--text-main);
+      font-weight: 500;
+      font-family: var(--font-sans);
+    }
+    .modal-task-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--accent-cyan);
+      border-bottom: 1px solid var(--border-muted);
+      padding-bottom: 8px;
+      margin-bottom: 4px;
+    }
     .effort-badge {
       font-size: 11px;
       font-family: var(--font-mono);
@@ -952,6 +972,13 @@
     "src/demo_app/cli.py",
     "src/demo_app/__init__.py"
   ],
+  "task_titles": {
+    "T001": "Upgrade core telemetry schema",
+    "T002": "Normalize telemetry payloads",
+    "T003": "Add telemetry exporter",
+    "T004": "Expose REST API endpoint",
+    "T005": "Finalize schema v2 migration"
+  },
   "waves": [
     {
       "wave_number": 1,
