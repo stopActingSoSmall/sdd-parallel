@@ -211,3 +211,33 @@ def test_inspector_html_v2_features() -> None:
 
     # 5. Product-Led B2B Funnel
     assert "Parallel SDD Readiness &amp; Monorepo Blast-Radius Audit" in html
+
+
+def test_inspector_html_v3_features() -> None:
+    plan = build_sample_wave_plan()
+    html = generate_inspector_html(plan_data=plan)
+
+    # 1. Unified Analytics Summary Bar (no separate .stat-pill buttons in header)
+    assert "stat-summary-bar" in html
+    assert "stat-item" in html
+    assert 'id="stat-waves"' in html
+    assert 'id="stat-tracks"' in html
+    assert 'id="stat-tasks"' in html
+    assert 'id="stat-conflicts"' in html
+    assert 'id="stat-spine"' in html
+
+    # 2. Chronological Wave Barrier Footer & Header Cleanup
+    assert "wave-barrier-footer" in html
+    assert "Barrier Checkpoint Gates:" in html
+    assert "wave-num-badge" in html
+    assert ".barrier-pill" not in html  # Static green badge removed from header
+
+    # 3. Inline Task Badges & De-Cluttered Track Header
+    assert "task-badge" in html
+    assert 'Slot: track-a' not in html  # Duplicate slot label removed
+    assert "track-constraints" in html
+    assert "Scheduling Constraints" in html
+    assert "getTrackConstraints" in html
+
+    # 4. Conflict Matrix Wave Number Tags
+    assert "wave-tag" in html
