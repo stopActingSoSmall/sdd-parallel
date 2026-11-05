@@ -43,7 +43,7 @@
   <em>Deterministic blast-radius wave plan, zero merge-bombs and clean worktree slots in under 28 seconds.</em>
 </p>
 
-Prefer to read at your own pace? See the [4-step annotated breakdown below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough) or explore the **[⚡ Live Interactive Wave Inspector (Zero-Install Web Demo)](https://stopactingdosmall.github.io/sdd-parallel/)**.
+Prefer to read at your own pace? See the [4-step annotated breakdown below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough) or explore the **[⚡ Live Interactive Wave Inspector (Zero-Install Web Demo)](https://stopactingsosmall.github.io/sdd-parallel/)**.
 
 ---
 
