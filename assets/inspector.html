@@ -1803,7 +1803,12 @@
           }).join("")
         : '<span style="color: var(--text-muted); font-style: italic;">None</span>';
 
+      const taskTitles = (activePlan && activePlan.task_titles) || {};
+      const fullTitle = taskTitles[taskId] || "";
+      const fullTitleHtml = fullTitle ? `<div class="modal-task-title">${escapeHtml(fullTitle)}</div>` : "";
+
       body.innerHTML = `
+        ${fullTitleHtml}
         <div style="display: flex; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;">
           <span class="stat-pill">Wave: <strong style="color: var(--accent-blue);">${foundWaveNum || "-"}</strong></span>
           <span class="stat-pill">Slot: <strong style="color: var(--accent-cyan);">${trackId || (trackInfo ? trackInfo.track_id : "-")}</strong></span>
@@ -1851,10 +1856,16 @@
         waveCard.querySelectorAll('.track-card').forEach(trackCard => {
           let trackHasMatches = false;
 
-          // Check task badges
+          // Check task badges & titles
           trackCard.querySelectorAll('.task-badge').forEach(badge => {
             const tid = (badge.dataset.taskId || "").toLowerCase();
             if (lowerTerm && tid.includes(lowerTerm)) trackHasMatches = true;
+          });
+
+          trackCard.querySelectorAll('.task-title').forEach(titleEl => {
+            if (lowerTerm && titleEl.textContent.toLowerCase().includes(lowerTerm)) {
+              trackHasMatches = true;
+            }
           });
 
           // Check file pills

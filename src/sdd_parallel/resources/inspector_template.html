@@ -1700,10 +1700,16 @@ __PRELOADED_DATA__
         waveCard.querySelectorAll('.track-card').forEach(trackCard => {
           let trackHasMatches = false;
 
-          // Check task badges
+          // Check task badges & titles
           trackCard.querySelectorAll('.task-badge').forEach(badge => {
             const tid = (badge.dataset.taskId || "").toLowerCase();
             if (lowerTerm && tid.includes(lowerTerm)) trackHasMatches = true;
+          });
+
+          trackCard.querySelectorAll('.task-title').forEach(titleEl => {
+            if (lowerTerm && titleEl.textContent.toLowerCase().includes(lowerTerm)) {
+              trackHasMatches = true;
+            }
           });
 
           // Check file pills
