@@ -1504,6 +1504,12 @@ __PRELOADED_DATA__
         sub.setAttribute("text-anchor", "middle");
         sub.textContent = coord.track;
 
+        const taskTitles = (activePlan && activePlan.task_titles) || {};
+        const titleText = taskTitles[tid] ? `${tid}: ${taskTitles[tid]}` : `Task ${tid}`;
+        const nodeTitle = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        nodeTitle.textContent = titleText;
+        g.appendChild(nodeTitle);
+
         g.appendChild(rect);
         g.appendChild(text);
         g.appendChild(sub);
@@ -1541,6 +1547,8 @@ __PRELOADED_DATA__
         });
       }
 
+      const taskTitles = (activePlan && activePlan.task_titles) || {};
+
       edges.forEach(e => {
         const tr = document.createElement('tr');
         let badgeClass = "edge-explicit";
@@ -1553,13 +1561,16 @@ __PRELOADED_DATA__
         const srcWave = taskWaveMap[e.source] !== undefined ? `<span class="wave-tag">W${taskWaveMap[e.source]}</span>` : "";
         const dstWave = taskWaveMap[e.target] !== undefined ? `<span class="wave-tag">W${taskWaveMap[e.target]}</span>` : "";
 
+        const srcTitle = taskTitles[e.source] ? `${e.source}: ${taskTitles[e.source]}` : "Click to view task details";
+        const dstTitle = taskTitles[e.target] ? `${e.target}: ${taskTitles[e.target]}` : "Click to view task details";
+
         tr.innerHTML = `
           <td>
-            <span class="clickable-task" data-task-id="${escapeHtml(e.source)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-cyan);" title="Click to view task details">${escapeHtml(e.source)}</span>
+            <span class="clickable-task" data-task-id="${escapeHtml(e.source)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-cyan);" title="${escapeHtml(srcTitle)}">${escapeHtml(e.source)}</span>
             ${srcWave}
           </td>
           <td>
-            <span class="clickable-task" data-task-id="${escapeHtml(e.target)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-blue);" title="Click to view task details">${escapeHtml(e.target)}</span>
+            <span class="clickable-task" data-task-id="${escapeHtml(e.target)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-blue);" title="${escapeHtml(dstTitle)}">${escapeHtml(e.target)}</span>
             ${dstWave}
           </td>
           <td><span class="edge-type-pill ${badgeClass}">${escapeHtml(e.conflict_type)}</span></td>
@@ -1636,7 +1647,12 @@ __PRELOADED_DATA__
           }).join("")
         : '<span style="color: var(--text-muted); font-style: italic;">None</span>';
 
+      const taskTitles = (activePlan && activePlan.task_titles) || {};
+      const fullTitle = taskTitles[taskId] || "";
+      const fullTitleHtml = fullTitle ? `<div class="modal-task-title">${escapeHtml(fullTitle)}</div>` : "";
+
       body.innerHTML = `
+        ${fullTitleHtml}
         <div style="display: flex; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;">
           <span class="stat-pill">Wave: <strong style="color: var(--accent-blue);">${foundWaveNum || "-"}</strong></span>
           <span class="stat-pill">Slot: <strong style="color: var(--accent-cyan);">${trackId || (trackInfo ? trackInfo.track_id : "-")}</strong></span>

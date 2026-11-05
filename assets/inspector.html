@@ -1412,10 +1412,18 @@
       }
 
       const fnNotes = track.function_scope_notes || {};
+      const taskTitles = (activePlan && activePlan.task_titles) || {};
 
-      const taskBadgesHtml = (track.task_ids || []).map(tid => `
-        <span class="task-badge" data-task-id="${escapeHtml(tid)}" data-track-id="${escapeHtml(track.track_id)}" data-wave-num="${waveNum}" title="Click to view full task specification">[${escapeHtml(tid)}]</span>
-      `).join(" ");
+      const taskItemsHtml = (track.task_ids || []).map(tid => {
+        const title = taskTitles[tid];
+        const titleHtml = title ? `<span class="task-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>` : "";
+        return `
+          <div class="task-item">
+            <span class="task-badge" data-task-id="${escapeHtml(tid)}" data-track-id="${escapeHtml(track.track_id)}" data-wave-num="${waveNum}" title="Click to view full task specification">[${escapeHtml(tid)}]</span>
+            ${titleHtml}
+          </div>
+        `;
+      }).join(" ");
 
       const writeFiles = (track.exclusive_write_files || []).map(f => `
         <div class="file-pill exclusive" title="${escapeHtml(f)}">
@@ -1462,9 +1470,9 @@
       return `
         <div class="track-card">
           <div class="track-header">
-            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1;">
               <span class="track-id">🛤️ ${escapeHtml(track.track_id)}</span>
-              ${taskBadgesHtml}
+              ${taskItemsHtml}
             </div>
             <span class="effort-badge">Effort: ${effortLabel} ${effortDots}</span>
           </div>
@@ -1652,6 +1660,12 @@
         sub.setAttribute("text-anchor", "middle");
         sub.textContent = coord.track;
 
+        const taskTitles = (activePlan && activePlan.task_titles) || {};
+        const titleText = taskTitles[tid] ? `${tid}: ${taskTitles[tid]}` : `Task ${tid}`;
+        const nodeTitle = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        nodeTitle.textContent = titleText;
+        g.appendChild(nodeTitle);
+
         g.appendChild(rect);
         g.appendChild(text);
         g.appendChild(sub);
@@ -1689,6 +1703,8 @@
         });
       }
 
+      const taskTitles = (activePlan && activePlan.task_titles) || {};
+
       edges.forEach(e => {
         const tr = document.createElement('tr');
         let badgeClass = "edge-explicit";
@@ -1701,13 +1717,16 @@
         const srcWave = taskWaveMap[e.source] !== undefined ? `<span class="wave-tag">W${taskWaveMap[e.source]}</span>` : "";
         const dstWave = taskWaveMap[e.target] !== undefined ? `<span class="wave-tag">W${taskWaveMap[e.target]}</span>` : "";
 
+        const srcTitle = taskTitles[e.source] ? `${e.source}: ${taskTitles[e.source]}` : "Click to view task details";
+        const dstTitle = taskTitles[e.target] ? `${e.target}: ${taskTitles[e.target]}` : "Click to view task details";
+
         tr.innerHTML = `
           <td>
-            <span class="clickable-task" data-task-id="${escapeHtml(e.source)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-cyan);" title="Click to view task details">${escapeHtml(e.source)}</span>
+            <span class="clickable-task" data-task-id="${escapeHtml(e.source)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-cyan);" title="${escapeHtml(srcTitle)}">${escapeHtml(e.source)}</span>
             ${srcWave}
           </td>
           <td>
-            <span class="clickable-task" data-task-id="${escapeHtml(e.target)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-blue);" title="Click to view task details">${escapeHtml(e.target)}</span>
+            <span class="clickable-task" data-task-id="${escapeHtml(e.target)}" style="font-family: var(--font-mono); font-weight: bold; color: var(--accent-blue);" title="${escapeHtml(dstTitle)}">${escapeHtml(e.target)}</span>
             ${dstWave}
           </td>
           <td><span class="edge-type-pill ${badgeClass}">${escapeHtml(e.conflict_type)}</span></td>
