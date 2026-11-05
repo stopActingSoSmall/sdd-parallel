@@ -241,3 +241,42 @@ def test_inspector_html_v3_features() -> None:
 
     # 4. Conflict Matrix Wave Number Tags
     assert "wave-tag" in html
+
+    # 5. Task Titles (Task 35b micro-patch)
+    assert "task-title" in html
+    assert "modal-task-title" in html
+    assert "Normalize telemetry payloads" in html
+    assert "Upgrade core telemetry schema" in html
+
+
+def test_inspector_task_titles_extraction_from_wave_plan() -> None:
+    from sdd_parallel.models import TaskNode
+
+    wave1 = Wave(
+        wave_number=1,
+        tracks=[
+            WaveTrack(
+                track_id="track-a",
+                task_ids=["TASK-42"],
+                effort=EffortTier.HIGH,
+                exclusive_write_files=["src/core.py"],
+            )
+        ],
+        checkpoint_gates=["pytest"],
+    )
+    plan = WavePlan(
+        sdd_kit="bmad",
+        waves=[wave1],
+        edges=[],
+        tasks=[
+            TaskNode(
+                id="TASK-42",
+                title="Implement Polymorphic Payment Gateway",
+                write_files=["src/core.py"],
+            )
+        ],
+    )
+    html = generate_inspector_html(plan_data=plan)
+    assert "Implement Polymorphic Payment Gateway" in html
+    assert "TASK-42" in html
+    assert "task-title" in html
