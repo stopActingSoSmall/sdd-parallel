@@ -38,9 +38,13 @@
 > `sdd-parallel` は、**Spec Kit / BMAD / GSD / OpenSpec / Beads** のバックログと、それを実装するコーディングエージェント（**Claude Code**、**Codex**、**Antigravity**、または任意の worktree 対応 CLI）の間に立つ、決定論的トラフィックコントローラ、worktree 隔離レイヤ、および影響半径（Blast-Radius）ガードです。
 
 <p align="center">
-  <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel ターミナルスクリーンキャスト — 5大 SDD キット検証、ベンチマーク再現率、並行 worktree">
+  <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">
+    <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel v5 ビデオウォークスルー — 潜在的マージボム、対話型 Wave Inspector、コンフリクト DAG、スコープガード、3-Way マージ">
+  </a>
   <br>
-  <em>影響半径に基づく決定論的ウェーブ計画、マージボムゼロ、クリーンな worktree スロットを 45 秒で実演。</em>
+  <em>🎬 <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">1080p フル解説動画を見る（英語音声, 03:30）</a></b> · <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">ロシア語音声（03:25）</a></b> · MP4 ダウンロード: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4">EN</a> / <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4">RU</a></em>
+  <br>
+  <sub>チャプター: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4">00:00 潜在的マージボム（45秒）</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4">00:45 Wave Inspector、DAG ＆ タスク仕様モーダル（1分39秒）</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4">02:24 スコープガードによる書き込み拒否 ＆ 3-Way マージ（1分06秒）</a></sub>
 </p>
 
 ---
@@ -205,6 +209,25 @@ sdd-parallel merge --wave 1
 ```
 
 取り消し操作：マージ前は `sdd-parallel abort-wave --wave 1`、マージ後は `sdd-parallel rollback-wave --wave 1`（LIFO 順、自動バックアップブランチ `backup/wave-<K>-before-rollback-*` の作成、SDD ステータスの復元を実行）。
+
+### 2 つのオーケストレーションモード：対話型アシスト vs 自律型 Autopilot
+
+`sdd-parallel` は 2 つの運用スタイルをネイティブにサポートします：
+1. **対話型 2 段階アシストモード (Interactive Two-Stage Assisted)：**
+   - `sdd-parallel plan` でウェーブを算出し、`sdd-parallel inspect --open` でビジュアルインスペクターを起動してコンフリクト DAG と依存関係を精査。
+   - `sdd-parallel prepare --wave 1` で固定スロット（`track-a`、`track-b`）をプロビジョニングし、お好みの IDE でスロットを開き、CLI Action Bridge が提供するネイティブコマンドで各エージェントを実行。
+   - タスク完了後、`sdd-parallel verify-wave --wave 1` で差分を監査し、`sdd-parallel merge --wave 1` で安全に統合。
+2. **自律型マルチウィンドウ / 巡回 Autopilot モード (Autonomous Multi-Window / Cyclic Autopilot)：**
+   - `sdd-parallel autopilot --wave 1 --harness claude-code --execute --policy cyclic`（または `--harness codex` / `antigravity`）を実行。
+   - エンジンが隔離されたスロット内でエージェントを自動起動し、タスク実装、品質ゲート検証、および巡回レビュー（`--max-review-rounds N`）を手動介入なしで自律実行。
+
+### 対話型 Wave Inspector ビジュアルダッシュボード (`sdd-parallel inspect --open`)
+
+単一 HTML ファイルによる完全ゼロ依存のインスペクターは、4 つの強力なビューを提供します：
+- **🌊 Waves & Tracks（ウェーブとトラック）：** ウェーブごとのスロット割り当てとタスク進行状況、およびネイティブ起動コマンドをワンクリックでコピーできる **CLI Action Bridge**（`Copy` ボタン）を配置。
+- **📊 Conflict DAG（コンフリクト有向非巡回グラフ）：** タスク間の依存とファイル衝突を可視化するインタラクティブ SVG グラフ。ノードをクリックすると **Task Spec Modal** が開き、排他的変更セット（Exclusive）、追記許可セット（Additive）、保護されたコア定義（Spine-Locked）を確認可能。
+- **⚡ Conflict Matrix（衝突マトリクス）：** すべてのタスクペア間の重複と第 2 種セマンティック衝突を総当たりで検証するカラーマトリクス。
+- **🔒 Architectural Roles（アーキテクチャロール）：** AST スキャンによって判定されたコードベースのモジュール分類（`spine`、`additive_registry`、`standard`）一覧。
 
 ---
 
@@ -617,7 +640,7 @@ flowchart TD
 | `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | `sprint-status.yaml` 用の低レベル決定論的 3-Way マージャー。 |
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | アクティブな worktree のロックマニフェストに対してファイル書き込み権限を照合。 |
 | `sdd-parallel install-plugin [--target-dir DIR]` | ポータブルな Antigravity プラグインをパッケージングしてインストール。 |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]` | モデル推論労力ルーティングを備えたマルチウィンドウ・オートパイロット起動コマンドの生成または直接実行。 |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--policy {single-shot,cyclic}] [--max-review-rounds N] [--antigravity-layout] [--execute] [--routing-file FILE]` | モデル推論労力ルーティングを備えたマルチウィンドウ・オートパイロット起動コマンドの生成または直接実行。 |
 
 </details>
 
@@ -644,7 +667,7 @@ flowchart TD
 - [x] **汚染ゼロの環境同期：** 固定スロットへの `.venv` / `node_modules` のシンボリックリンク共有。
 - [x] **ウェーブ実行前の静的シンボルリンカー ＆ スコープエスカレーション：** AST シンボル解析による書き込みセットの動的拡張と自動リスケジューリング。
 - [x] **実行マニフェストとコグニティブルーティング契約：** 決定論的 `.parallel/run-manifest.json`、AST 構造シグナル (`TaskStructuralSignals`)、および `--routing-file` 契約 (`ADR-0009`)。
-- [ ] **公式 Depth-0 ウェーブランナー (`agy` CLI / SDK)：** `TrackExecutionPolicy` による並行ヘッドレストラック実行。
+- [x] **公式 Depth-0 ウェーブランナー (`agy` CLI / SDK)：** `TrackExecutionPolicy` による並行ヘッドレストラック実行。
 
 ---
 

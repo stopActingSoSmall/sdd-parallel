@@ -849,6 +849,7 @@
     <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
       <input type="text" id="search-input" class="search-input" placeholder="Search tasks or files...">
       <input type="file" id="file-picker" accept=".json" style="display: none;">
+      <button class="btn" id="btn-video-guide" style="border-color: var(--accent-blue); color: var(--accent-blue); font-weight: 600;">🎬 Video Guide (EN / RU)</button>
       <button class="btn" id="btn-load-file">📂 Open JSON</button>
       <button class="btn" id="btn-load-demo">🧪 Demo Plan</button>
     </div>
@@ -948,6 +949,33 @@
       <button class="btn" onclick="window.open('https://github.com/stopActingSoSmall/sdd-parallel', '_blank')">⭐ GitHub Repo</button>
     </div>
   </footer>
+
+  <!-- Modal for Video Walkthrough -->
+  <div id="video-modal" class="modal-backdrop">
+    <div class="modal-box" style="max-width: 960px; width: 95%;">
+      <div class="modal-header">
+        <div class="modal-title">🎬 SDD-Parallel Video Walkthrough (1080p Voiceover)</div>
+        <button class="close-btn" id="video-modal-close">&times;</button>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div style="display: flex; gap: 8px;">
+            <button class="btn" id="btn-vid-en" style="border-color: var(--accent-blue); color: var(--accent-blue); font-weight: 600;">🇺🇸 English (03:30)</button>
+            <button class="btn" id="btn-vid-ru">🇷🇺 Русский (03:25)</button>
+          </div>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap; font-size: 11px;">
+            <button class="btn" data-seek="0">00:00 Merge-Bomb</button>
+            <button class="btn" data-seek="42">00:42 Wave Inspector</button>
+            <button class="btn" data-seek="104">01:44 Conflict DAG &amp; Spec Modal</button>
+            <button class="btn" data-seek="130">02:10 Scope Guard &amp; 3-Way Merge</button>
+          </div>
+        </div>
+        <video id="explainer-video-player" controls preload="metadata" style="width: 100%; border-radius: 8px; border: 1px solid var(--border-color); background: #000; max-height: 70vh;">
+          <source id="explainer-video-src" src="./video/sdd-parallel-explainer-en.mp4" type="video/mp4">
+        </video>
+      </div>
+    </div>
+  </div>
 
   <!-- Modal for Story Details -->
   <div id="story-modal" class="modal-backdrop">
@@ -1920,7 +1948,64 @@
         .replace(/'/g, "&#039;");
     }
 
-    window.addEventListener('DOMContentLoaded', init);
+    function initVideoModal() {
+      const vModal = document.getElementById('video-modal');
+      const vBtn = document.getElementById('btn-video-guide');
+      const vClose = document.getElementById('video-modal-close');
+      const vPlayer = document.getElementById('explainer-video-player');
+      const btnEn = document.getElementById('btn-vid-en');
+      const btnRu = document.getElementById('btn-vid-ru');
+      if (!vModal || !vBtn || !vPlayer) return;
+
+      function setLang(lang, seekSec) {
+        const src = lang === 'ru' ? './video/sdd-parallel-explainer-ru.mp4' : './video/sdd-parallel-explainer-en.mp4';
+        if (vPlayer.getAttribute('src') !== src) {
+          vPlayer.setAttribute('src', src);
+          vPlayer.load();
+        }
+        if (btnEn && btnRu) {
+          btnEn.style.borderColor = lang === 'en' ? 'var(--accent-blue)' : '';
+          btnEn.style.color = lang === 'en' ? 'var(--accent-blue)' : '';
+          btnRu.style.borderColor = lang === 'ru' ? 'var(--accent-blue)' : '';
+          btnRu.style.color = lang === 'ru' ? 'var(--accent-blue)' : '';
+        }
+        if (typeof seekSec === 'number' && !isNaN(seekSec)) {
+          vPlayer.currentTime = seekSec;
+        }
+      }
+
+      function openVideo(lang, seekSec) {
+        setLang(lang || 'en', seekSec);
+        vModal.classList.add('open');
+        vPlayer.play().catch(() => {});
+      }
+
+      function closeVideo() {
+        vPlayer.pause();
+        vModal.classList.remove('open');
+      }
+
+      vBtn.addEventListener('click', () => openVideo('en'));
+      if (vClose) vClose.addEventListener('click', closeVideo);
+      vModal.addEventListener('click', (e) => { if (e.target === vModal) closeVideo(); });
+      if (btnEn) btnEn.addEventListener('click', () => { setLang('en', 0); vPlayer.play().catch(() => {}); });
+      if (btnRu) btnRu.addEventListener('click', () => { setLang('ru', 0); vPlayer.play().catch(() => {}); });
+      vModal.querySelectorAll('[data-seek]').forEach(b => {
+        b.addEventListener('click', () => {
+          vPlayer.currentTime = Number(b.getAttribute('data-seek') || 0);
+          vPlayer.play().catch(() => {});
+        });
+      });
+
+      const params = new URLSearchParams(window.location.search);
+      const qVideo = params.get('video');
+      const qTime = params.get('t') ? Number(params.get('t')) : undefined;
+      if (qVideo === 'en' || qVideo === 'ru') {
+        openVideo(qVideo, qTime);
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => { init(); initVideoModal(); });
   </script>
 </body>
 </html>

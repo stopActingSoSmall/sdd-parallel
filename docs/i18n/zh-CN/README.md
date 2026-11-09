@@ -38,9 +38,13 @@
 > `sdd-parallel` 是连接您的 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 任务代办积压与负责落地的编程智能体（**Claude Code**、**Codex**、**Antigravity** 或任何支持 worktree 的 CLI）之间的确定性交通管制调度员、worktree 隔离器和爆炸半径护卫门禁。
 
 <p align="center">
-  <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel 终端录屏演示 — 5 大 SDD 框架验证、基准召回率与并行 Worktree">
+  <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">
+    <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel v5 演示视频导览 — 静默合并炸弹、交互式 Wave Inspector、冲突 DAG、范围守卫与三方合并">
+  </a>
   <br>
-  <em>45 秒内全景展示确定性爆炸半径波次编排、零合并炸弹与整洁的 worktree 隔离槽位。</em>
+  <em>🎬 <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">观看 1080p 完整解说视频 (英文配音, 03:30)</a></b> · <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">俄文配音 (03:25)</a></b> · MP4: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4">EN</a> / <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4">RU</a></em>
+  <br>
+  <sub>分集章节: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4">00:00 静默合并炸弹 (45秒)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4">00:45 Wave Inspector、DAG 与任务规范弹窗 (1分39秒)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4">02:24 范围守卫拦截与三方合并 (1分06秒)</a></sub>
 </p>
 
 ---
@@ -205,6 +209,25 @@ sdd-parallel merge --wave 1
 ```
 
 撤销操作：`sdd-parallel abort-wave --wave 1`（合并前中止）或 `sdd-parallel rollback-wave --wave 1`（合并后回滚；严格遵循 LIFO 逆序，自动创建 `backup/wave-<K>-before-rollback-*` 备份分支，并重置 SDD 任务状态）。
+
+### 两种编排模式：交互式辅助 vs 全自动 Autopilot
+
+`sdd-parallel` 支持两种协作工作流：
+1. **交互式两阶段辅助模式 (Interactive Two-Stage Assisted)：**
+   - 运行 `sdd-parallel plan` 生成波次调度，随后执行 `sdd-parallel inspect --open` 打开可视化检查器审查冲突 DAG。
+   - 运行 `sdd-parallel prepare --wave 1` 初始化固定工作区槽位（`track-a`、`track-b`），在 IDE 中分别打开槽位，使用 CLI Action Bridge 复制的原生命令执行开发。
+   - 运行 `sdd-parallel verify-wave --wave 1` 审计 diff，最后通过 `sdd-parallel merge --wave 1` 安全合并。
+2. **全自动多窗口 / 循环 Autopilot 模式 (Autonomous Multi-Window / Cyclic Autopilot)：**
+   - 运行 `sdd-parallel autopilot --wave 1 --harness claude-code --execute --policy cyclic`（或 `--harness codex` / `antigravity`）。
+   - 引擎自动并行启动多窗口智能体，在隔离槽位内自主完成任务实现、质量门禁与循环审查（`--max-review-rounds N`），无需人工干预。
+
+### 交互式 Wave Inspector 可视化面板 (`sdd-parallel inspect --open`)
+
+内置零依赖单文件检查器包含 4 大核心视图：
+- **🌊 Waves & Tracks（波次与轨道）：** 展示各波次槽位分配、任务状态与 **CLI Action Bridge**（一键 `Copy` 原生命令，快速在对应槽位拉起智能体）。
+- **📊 Conflict DAG（冲突有向无环图）：** 交互式 SVG 拓扑图，直观展现任务依赖与文件重叠；点击节点呼出 **Task Spec Modal**，查看任务的 Exclusive（独占）、Additive（增量共享）和 Spine-Locked（核心锁定）文件范围。
+- **⚡ Conflict Matrix（冲突矩阵）：** 任务两两交叉碰撞矩阵，红黄绿三色标示二类语义冲突与安全并发边界。
+- **🔒 Architectural Roles（架构角色）：** 代码库 AST 角色全景表，区分 `spine` 严格串行核心、`additive_registry` 安全追加集与 `standard` 业务逻辑模块。
 
 ---
 
@@ -618,7 +641,7 @@ flowchart TD
 | `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | 用于 `sprint-status.yaml` 的底层确定性三方状态合并工具。 |
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | 验证文件写入操作是否符合当前工作树的锁清单。 |
 | `sdd-parallel install-plugin [--target-dir DIR]` | 打包并安装便携式 Antigravity 插件。 |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]` | 基于模型开销路由生成或执行多窗口 Autopilot 启动命令。 |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--policy {single-shot,cyclic}] [--max-review-rounds N] [--antigravity-layout] [--execute] [--routing-file FILE]` | 基于模型开销路由生成或执行多窗口 Autopilot 启动命令。 |
 
 </details>
 
@@ -645,7 +668,7 @@ flowchart TD
 - [x] **零污染环境同步：** 将 `.venv` / `node_modules` 符号链接进固定槽位。
 - [x] **波次前静态符号链接器与动态范围提权：** 通过 AST 符号自动补全写入集，配合动态任务重排。
 - [x] **执行清单与认知路由器协议 (Execution manifest & Cognitive Router)：** 确定性 `.parallel/run-manifest.json`、AST 结构信号 (`TaskStructuralSignals`) 与 `--routing-file` 协议 (`ADR-0009`)。
-- [ ] **官方 Depth-0 波次运行器 (`agy` CLI / SDK)：** 基于 `TrackExecutionPolicy` 的并行无头轨道执行。
+- [x] **官方 Depth-0 波次运行器 (`agy` CLI / SDK)：** 基于 `TrackExecutionPolicy` 的并行无头轨道执行。
 
 ---
 

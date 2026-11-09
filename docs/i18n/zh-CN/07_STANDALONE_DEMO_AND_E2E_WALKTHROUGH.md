@@ -221,6 +221,24 @@ ALL 5 CORE INVARIANTS VERIFIED IN 3.21s
 
 ---
 
+### 可视化 Wave Inspector 与 v5 视频导览 (`sdd-parallel inspect --open`)
+
+除了终端输出外，`sdd-parallel` 还内置了纯前端、零依赖的可视化检查器 **Wave Inspector**。在任何波次规划后运行：
+
+```bash
+sdd-parallel inspect --open
+```
+
+检查器提供 4 大功能面板：
+1. **🌊 Waves & Tracks（波次与轨道）：** 清晰展示各轨道分配及状态，集成 **CLI Action Bridge**，点击 `Copy` 即可复制各框架（Spec Kit, BMAD, GSD, OpenSpec, Beads）的原生运行命令。
+2. **📊 Conflict DAG（冲突有向无环图）：** 基于 SVG 的交互式依赖拓扑图；点击任意节点弹出 **Task Spec Modal**，深入检查独占写入集 (Exclusive)、增量共享集 (Additive Registry) 及只读锁定集 (Spine-Locked)。
+3. **⚡ Conflict Matrix（冲突矩阵）：** 呈现所有任务对的交集与二类语义冲突判断依据。
+4. **🔒 Architectural Roles（架构角色）：** 展示 AST 分类器提取的代码角色分布（`spine`、`additive_registry`、`standard`）。
+
+📺 想要快速了解全貌？观看完整 1080p 视频导览：**[SDD-Parallel v5 视频解说 (EN / RU)](https://stopactingsosmall.github.io/sdd-parallel/?video=en)**。
+
+---
+
 ## 3. 交互式实战任务（保留沙箱验证）
 
 运行带有 `--keep-temp` 参数的演示：

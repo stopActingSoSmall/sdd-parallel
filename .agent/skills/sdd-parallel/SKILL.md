@@ -34,7 +34,7 @@ Present the computed wave plan to the operator and prompt for execution flow:
 1. **Execution Workflow:**
    - `(Recommended) Mode A: Two-Stage Assisted (Native SDD)` — Orchestrator provisions worktrees (`Depth 0`), operator opens independent Antigravity windows and launches native worker commands (`/bmad-build`, `/speckit.implement`, etc.) with full review lenses, then orchestrator verifies and merges.
    - `Mode B: Multi-Conversation Autopilot` — Automated Depth-0 launch across separate sessions via `sdd-parallel autopilot` (`--execute`, `--auto-merge`, `--policy`, `--timeout`).
-   - `Mode C: In-Session Flat Dispatch (Deprecated / Fallback Only)` — Monolithic subagent dispatch inside single chat session (warning: loses nested BMAD review lenses due to platform `Max Subagent Depth = 1`).
+   - `Mode C: In-Session Flat Dispatch (Deprecated / Fallback Only)` — Monolithic subagent dispatch inside single chat session (warning: lacks worktree directory isolation (`CWD`) and causes context window exhaustion in the orchestrator).
 
 ---
 
@@ -69,7 +69,7 @@ Operator opens each worktree in an independent Antigravity window and triggers t
 
 ### 3.4. (Deprecated / Fallback Only) Mode C: In-Session Flat Dispatch
 > [!WARNING]
-> Because subagents in Google Antigravity cannot spawn nested subagents (`Max Subagent Depth = 1`), running `/bmad-build` inside a subagent bypasses its review lenses. Flat Dispatch should only be used as an emergency fallback when multi-window operation is impossible.
+> While subagents support nesting up to 10 levels, `invoke_subagent` cannot bind subagents to separate `git worktree` working directories (`CWD`) or isolate Scope Guard locks. Running parallel story mutations inside a single chat session leads to shared directory conflicts and rapid context window exhaustion. Flat Dispatch should only be used as an emergency fallback when multi-window or CLI execution is impossible.
 
 ---
 

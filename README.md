@@ -38,12 +38,16 @@
 > `sdd-parallel` is the deterministic traffic controller, worktree isolator, and blast-radius guard between your **Spec Kit / BMAD / GSD / OpenSpec / Beads** backlog and the coding agents (**Claude Code**, **Codex**, **Antigravity**, or any worktree-capable CLI) that implement it.
 
 <p align="center">
-  <img src="docs/assets/demo.gif" width="100%" alt="SDD-Parallel Terminal Screencast — 5-Kit Verification, Bench Recall and Parallel Worktrees">
+  <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">
+    <img src="docs/assets/demo.gif" width="100%" alt="SDD-Parallel v5 Video Walkthrough — Silent Merge-Bomb, Interactive Wave Inspector, Conflict DAG, Scope Guard & 3-Way Merge">
+  </a>
   <br>
-  <em>Deterministic blast-radius wave plan, zero merge-bombs and clean worktree slots in under 28 seconds.</em>
+  <em>🎬 <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">Watch Full 1080p Explainer with Voiceover (EN, 03:30)</a></b> · <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">Смотреть на русском (RU, 03:25)</a></b> · Direct MP4: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4">EN</a> / <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4">RU</a></em>
+  <br>
+  <sub>Chapters: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4">00:00 Silent Merge-Bomb (45s)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4">00:45 Wave Inspector, DAG &amp; Spec Modal (1m 39s)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4">02:24 Scope Guard DENY &amp; 3-Way Merge (1m 06s)</a></sub>
 </p>
 
-Prefer to read at your own pace? See the [4-step annotated breakdown below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough) or explore the **[⚡ Live Interactive Wave Inspector (Zero-Install Web Demo)](https://stopactingsosmall.github.io/sdd-parallel/)**.
+Prefer to explore hands-on? Open the **[⚡ Live Interactive Wave Inspector (Zero-Install Web Demo + Video Player)](https://stopactingsosmall.github.io/sdd-parallel/)** or read the [4-step annotated breakdown below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough).
 
 ---
 
@@ -245,6 +249,23 @@ sdd-parallel merge --wave 1
 Undo: `sdd-parallel abort-wave --wave 1` (before merge) or `sdd-parallel rollback-wave --wave 1` (after merge; LIFO order, automatic `backup/wave-<K>-before-rollback-*` branch, SDD status reset).
 
 Visualize & Inspect: explore wave plans, blast-radius locks, and interactive SVG DAG graphs via `sdd-parallel inspect --open` (standalone zero-dependency UI at `assets/inspector.html`). Reproducible terminal screencasts are defined via `assets/demo.tape` (`charmbracelet/vhs`).
+
+### Two Orchestration Modes: Interactive Assisted vs. Autonomous Autopilot
+
+`sdd-parallel` supports two complementary operational modes designed to match your workflow:
+
+- **Mode A — Interactive Two-Stage Assisted (Wave Inspector + Fixed IDE Slots, shown in the video):** Run `sdd-parallel plan`, open `sdd-parallel inspect --open`, inspect the conflict graph, and copy `prepare --wave K` / `merge --wave K` commands in one click via the **CLI Action Bridge**, supervising coding agents in fixed slots `.worktrees/track-a`, `track-b`.
+- **Mode B — Multi-Window & Headless Cyclic Autopilot:** The command `sdd-parallel autopilot --wave 1 --harness {antigravity,claude-code,codex} [--execute] [--policy {single-shot,cyclic}] [--max-review-rounds N] [--routing-file FILE]` automatically spawns parallel slots with model effort routing (`low`/`medium`/`high`) and an optional cyclic review loop `implement -> verify -> review -> fix` (`BoundedCyclicReviewPolicy`).
+
+### 🌐 Interactive Wave Inspector Guide (`sdd-parallel inspect --open`)
+
+Run `sdd-parallel inspect --open` (or open the **[Live Web Inspector](https://stopactingsosmall.github.io/sdd-parallel/)**) to launch the zero-dependency browser cockpit visualizing the entire concurrency architecture:
+
+- **Top Summary Bar & 4-Step Pipeline Strip:** Instant metrics banner (`Waves`, `Tracks`, `Tasks`, `Conflicts Caught`, `Spine Locks`) and visual execution lifecycle (`1 plan` ➔ `2 prepare --wave K` ➔ `3 execute tracks` ➔ `4 merge --wave K`).
+- **Tab 1 — `🌊 Waves & Tracks` & CLI Action Bridge:** Interactive cards for planned waves and parallel slots (`track-a`, `track-b`). Features strict color-coded file roles (green for exclusive write, cyan for `ADDITIVE_REGISTRY` with AST function isolation e.g. `fn: register_...`, purple for `SPINE` contracts), dependency blocking rules (e.g. `T002 blocks T004`), and one-click **Copy** buttons in the wave header (`sdd-parallel prepare --wave K`) and barrier footer (`sdd-parallel merge --wave K`).
+- **Tab 2 — `📊 Conflict DAG` & Task Specification Modal:** Interactive directed acyclic graph organizing tasks into wave columns. Clicking any task node opens the **Task Spec Modal** with full blast-radius specifications (Exclusive Write Scope, Additive Shared Files & AST Function Scopes, Protected Spine Locks, and Related Conflict Constraints).
+- **Tab 3 — `⚡ Conflict Matrix`:** Exhaustive audit table of all intercepted collisions—both direct write collisions ($W_A \cap W_B \neq \emptyset$) and semantic import hazards ($W_A \cap I_B \neq \emptyset$)—explaining why conflicting tasks were separated into distinct waves.
+- **Tab 4 — `🔒 Architectural Roles`:** Consolidated codebase classification mapping repository modules to `SPINE` (strict schema/contract serialization) or `ADDITIVE_REGISTRY` (safe parallel append for routers/CLI).
 
 ---
 
@@ -657,7 +678,7 @@ flowchart TD
 | `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | Low-level deterministic 3-way merge for `sprint-status.yaml`. |
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | Check a write against the active worktree lock manifest. |
 | `sdd-parallel install-plugin [--target-dir DIR]` | Package and install the portable Antigravity plugin. |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]` | Generate or execute multi-window autopilot launch commands with model effort routing. |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--policy {single-shot,cyclic}] [--max-review-rounds N] [--routing-file FILE]` | Generate or execute multi-window autopilot launch commands with model effort routing and optional bounded cyclic review loop (`BoundedCyclicReviewPolicy`). |
 | `sdd-parallel bench [--repo REPO] [--since REV] [--until REV] [--demo] [--max-tracks N] [--kit KIT] [--format {text,json}] [--output-file FILE]` | Retrospective backtest on commit history or demo repo evaluating Merge-Bomb collision metrics (TP/FP/FN/TN, Precision, Recall, F1). |
 | `sdd-parallel inspect [--repo REPO] [--plan PATH] [--output PATH] [--open] [--kit KIT]` | Generate and view standalone offline HTML Wave Inspector visualizing wave tracks, slot boundaries, and interactive SVG DAG conflict graphs. |
 
@@ -686,7 +707,7 @@ flowchart TD
 - [x] **Zero-pollution environment sync:** `.venv` / `node_modules` symlinks into fixed slots.
 - [x] **Pre-wave static symbol linker & scope escalation:** automatic write-set expansion via AST symbols with dynamic rescheduling.
 - [x] **Execution manifest & Cognitive Router contract:** deterministic `.parallel/run-manifest.json`, AST structural signals (`TaskStructuralSignals`), and `--routing-file` contract for external System-1 routers and AgentLens (`ADR-0009`).
-- [ ] **Official Depth-0 wave runner (`agy` CLI / SDK):** parallel headless track execution with `TrackExecutionPolicy`.
+- [x] **Official Depth-0 wave runner (`agy` CLI / SDK):** parallel headless track execution with `TrackExecutionPolicy` (BoundedCyclicReviewPolicy, `--policy cyclic`).
 
 ---
 

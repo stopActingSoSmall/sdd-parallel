@@ -297,7 +297,7 @@ Executa a validação dos 5 invariantes em <5 segundos sem chaves de API ou inte
 
 ## 5. Modelos de Execução Paralela no Google Antigravity e Agentes de IA
 
-Diante da restrição de ambiente **`Max Subagent Depth = 1`** (subagentes não podem disparar subagentes aninhados), o sistema oferece dois modelos de operação:
+Embora plataformas modernas como Google Antigravity suportem até 10 níveis de aninhamento de subagentes, as APIs de subagentes não oferecem vinculação de diretório (`cwd`) a worktrees isolados e causam exaustão da janela de contexto do orquestrador. A execução dos workers como processos independentes em **`Profundidade 0` em slots de `git worktree`** preserva o orçamento completo de aninhamento de subagentes para os fluxos internos dos frameworks (como as lentes de revisão do BMAD) e mantém compatibilidade agnóstica entre diferentes ferramentas:
 
 ### 5.1. Modo A: `Two-Stage Assisted & Interactive Checkpoints` (Padrão Recomendado)
 
@@ -323,4 +323,4 @@ Orquestração multijanela automatizada sem comandos manuais:
 
 ### 5.3. Modo C: `In-Session Flat Dispatch` (Descontinuado / Apenas Contingência)
 
-O disparo de uma cadeia linear de subagentes em uma única sessão é **DESCONTINUADO** e aceito apenas como último recurso em ambientes sem suporte a múltiplas janelas.
+O disparo de subagentes em uma única sessão é **DESCONTINUADO** e aceito apenas como último recurso em ambientes sem suporte a múltiplas janelas ou CLI externo, devido à ausência de isolamento de diretório de trabalho (`CWD`) e ao rápido esgotamento de contexto da sessão principal.

@@ -221,6 +221,24 @@ ALL 5 CORE INVARIANTS VERIFIED IN 3.21s
 
 ---
 
+### 시각적 Wave Inspector 및 v5 비디오 안내 (`sdd-parallel inspect --open`)
+
+터미널 출력 외에도 `sdd-parallel`은 독립형 브라우저 UI인 **Wave Inspector**를 내장하고 있습니다. 웨이브 계획을 생성한 후 다음을 실행하세요:
+
+```bash
+sdd-parallel inspect --open
+```
+
+인스펙터는 4가지 핵심 탭을 제공합니다:
+1. **🌊 Waves & Tracks (웨이브 및 트랙):** 슬롯별 실행 계획 및 원클릭 네이티브 실행 명령어 복사를 지원하는 **CLI Action Bridge** (Spec Kit, BMAD, GSD, OpenSpec, Beads).
+2. **📊 Conflict DAG (충돌 DAG):** 인터랙티브 SVG 토폴로지 그래프. 노드 클릭 시 **Task Spec Modal**을 호출하여 배타적 쓰기(Exclusive), 추가 공유(Additive) 및 커널 보호(`spine`) 파일 범위를 감사할 수 있습니다.
+3. **⚡ Conflict Matrix (충돌 매트릭스):** 병렬 작업 간 파일 오버랩 및 제2종 충돌 판별 히트맵.
+4. **🔒 Architectural Roles (아키텍처 역할):** AST 스캐너가 감지한 파일 역할 분류(`spine`, `additive_registry`, `standard`).
+
+📺 1080p 전체 영상으로 시청하려면 다음을 확인하세요: **[SDD-Parallel v5 해설 비디오 (EN / RU)](https://stopactingsosmall.github.io/sdd-parallel/?video=en)**.
+
+---
+
 ## 3. 대화형 실습 퀘스트 (`--keep-temp`)
 
 저장소를 보존하며 데모를 실행하세요:

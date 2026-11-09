@@ -38,9 +38,13 @@
 > `sdd-parallel`은 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 백로그와 이를 구현하는 코딩 에이전트(**Claude Code**, **Codex**, **Antigravity** 및 worktree를 지원하는 모든 CLI) 사이에서 동작하는 결정론적 트래픽 컨트롤러이자 워크트리 격리기 및 영향 반경(Blast-Radius) 보호 하네스입니다.
 
 <p align="center">
-  <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel 터미널 스크린캐스트 — 5대 SDD 프레임워크 검증, 벤치마크 재현율 및 병렬 워크트리">
+  <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">
+    <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel v5 비디오 안내 — 무음 머지 폭탄, 대화형 Wave Inspector, 충돌 DAG, 스코프 가드 및 3-Way 병합">
+  </a>
   <br>
-  <em>45초 만에 확인하는 영향 반경 기반 결정론적 웨이브 플랜, 머지 폭탄 제로 및 격리된 클린 워크트리 슬롯.</em>
+  <em>🎬 <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">1080p 전체 해설 영상 보기 (영어 음성, 03:30)</a></b> · <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">러시아어 음성 (03:25)</a></b> · MP4 다운로드: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4">EN</a> / <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4">RU</a></em>
+  <br>
+  <sub>챕터별 바로가기: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4">00:00 무음 머지 폭탄 (45초)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4">00:45 Wave Inspector, DAG 및 작업 명세 모달 (1분 39초)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4">02:24 스코프 가드 거부 및 3-Way 병합 (1분 06초)</a></sub>
 </p>
 
 ---
@@ -205,6 +209,25 @@ sdd-parallel merge --wave 1
 ```
 
 실행 취소: `sdd-parallel abort-wave --wave 1` (병합 전) 또는 `sdd-parallel rollback-wave --wave 1` (병합 후; 엄격한 LIFO 순서 적용, 자동 `backup/wave-<K>-before-rollback-*` 안전 브랜치 생성, SDD 작업 상태 원복).
+
+### 두 가지 오케스트레이션 모드: 대화형 지원 vs 자율 오토파일럿
+
+`sdd-parallel`은 두 가지 개발 워크플로를 제공합니다:
+1. **대화형 2단계 지원 모드 (Interactive Two-Stage Assisted):**
+   - `sdd-parallel plan`으로 웨이브 스케줄을 계산한 뒤, `sdd-parallel inspect --open`으로 시각적 인스펙터를 열어 의존성 및 충돌 DAG를 검토합니다.
+   - `sdd-parallel prepare --wave 1`로 고정 워크트리 슬롯(`track-a`, `track-b`)을 구성하고, 선호하는 IDE에서 슬롯을 연 뒤 CLI Action Bridge가 제공하는 네이티브 실행 명령어로 작업을 진행합니다.
+   - 작업 완료 후 `sdd-parallel verify-wave --wave 1`로 diff를 감사하고 `sdd-parallel merge --wave 1`로 안전하게 병합합니다.
+2. **자율 다중 윈도우 / 순환 오토파일럿 모드 (Autonomous Multi-Window / Cyclic Autopilot):**
+   - `sdd-parallel autopilot --wave 1 --harness claude-code --execute --policy cyclic`(또는 `--harness codex` / `antigravity`)을 실행합니다.
+   - 엔진이 격리된 슬롯에 에이전트를 자동 병렬 실행하여 코드 구현, 퀄리티 게이트 검증 및 순환 리뷰(`--max-review-rounds N`)를 사람의 개입 없이 자율적으로 완수합니다.
+
+### 대화형 Wave Inspector 시각 대시보드 (`sdd-parallel inspect --open`)
+
+외부 의존성 없이 단일 HTML 파일로 실행되는 브라우저 인스펙터는 4가지 핵심 뷰를 제공합니다:
+- **🌊 Waves & Tracks (웨이브 및 트랙):** 슬롯 할당 현황, 작업 상태, 각 프레임워크별 네이티브 실행 명령어를 즉시 복사할 수 있는 **CLI Action Bridge**(`Copy` 버튼)를 제공합니다.
+- **📊 Conflict DAG (충돌 유향 비순환 그래프):** 작업 간 의존 관계 및 파일 충돌을 시각화하는 인터랙티브 SVG 그래프입니다. 노드를 클릭하면 **Task Spec Modal**이 열려 배타적 쓰기(Exclusive), 추가 공유(Additive), 코어 잠금(Spine-Locked) 범위를 정밀 확인할 수 있습니다.
+- **⚡ Conflict Matrix (충돌 매트릭스):** 모든 작업 쌍 간의 파일 교집합 및 제2종 시맨틱 충돌 여부를 한눈에 보여주는 매트릭스입니다.
+- **🔒 Architectural Roles (아키텍처 역할):** AST 분류기가 파악한 저장소 내 모듈 역할(`spine`, `additive_registry`, `standard`) 목록입니다.
 
 ---
 
@@ -618,7 +641,7 @@ flowchart TD
 | `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | `sprint-status.yaml`을 위한 저수준 결정론적 3-way 상태 병합을 수행합니다. |
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | 특정 파일의 쓰기 시도가 활성 worktree 잠금 매니페스트에 위배되는지 확인합니다. |
 | `sdd-parallel install-plugin [--target-dir DIR]` | 이식형 Antigravity 플러그인을 패키징하고 설치합니다. |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]` | 모델 노력도 라우팅(Model Effort Routing)이 적용된 멀티 윈도우 오토파일럿 실행 명령을 생성하거나 실행합니다. |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--policy {single-shot,cyclic}] [--max-review-rounds N] [--antigravity-layout] [--execute] [--routing-file FILE]` | 모델 노력도 라우팅(Model Effort Routing)이 적용된 멀티 윈도우 오토파일럿 실행 명령을 생성하거나 실행합니다. |
 
 </details>
 
@@ -645,7 +668,7 @@ flowchart TD
 - [x] **환경 오염 제로 동기화:** 고정 슬롯 내 `.venv` / `node_modules` 심볼릭 링크 지원.
 - [x] **웨이브 사전 정적 심볼 링커 및 스코프 에스컬레이션:** 동적 재스케줄링을 통한 AST 심볼 기반 쓰기 집합 자동 확장.
 - [x] **실행 매니페스트 및 인지 라우터 계약:** 결정론적 `.parallel/run-manifest.json`, AST 구조적 신호 (`TaskStructuralSignals`) 및 `--routing-file` 계약 (`ADR-0009`).
-- [ ] **공식 Depth-0 웨이브 러너 (`agy` CLI / SDK):** `TrackExecutionPolicy`를 통한 병렬 헤드리스 트랙 실행.
+- [x] **공식 Depth-0 웨이브 러너 (`agy` CLI / SDK):** `TrackExecutionPolicy`를 통한 병렬 헤드리스 트랙 실행.
 
 ---
 

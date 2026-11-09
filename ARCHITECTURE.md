@@ -332,7 +332,7 @@ In accordance with `ADR-0009`, `sdd-parallel` strictly adheres to narrow-waist L
 
 ## 5. Parallel Wave Execution Models in Google Antigravity & AI Agents
 
-Platform execution environments (including Google Antigravity) enforce **`Max Subagent Depth = 1`** (subagents cannot spawn nested subagents). Two supported operational models resolve this constraint:
+While modern platforms like Google Antigravity support subagent nesting up to 10 levels, subagent APIs lack deterministic worktree directory binding (`cwd`) and inflate orchestrator context windows. Furthermore, executing track workers as independent **`Depth 0` processes in isolated `git worktree` slots** preserves the entire subagent depth budget for internal framework workflows (e.g., BMAD review lenses) while remaining 100% harness-agnostic. Two supported operational models implement this architecture:
 
 ### 5.1. Mode A: `Two-Stage Assisted & Interactive Checkpoints` (Recommended Default)
 
@@ -359,4 +359,4 @@ Automated orchestration without manual CLI typing:
 
 ### 5.3. Mode C: `In-Session Flat Dispatch` (Deprecated / Emergency Fallback Only)
 
-Dispatching a flat chain of subagents (`Spec -> Dev -> Review`) within a single chat session is **DEPRECATED / FALLBACK ONLY**. It is reserved strictly for constrained environments where multi-window IDE execution is impossible, acknowledging the loss of nested review lenses.
+Dispatching subagents within a single chat session is **DEPRECATED / FALLBACK ONLY**. It is reserved strictly for constrained environments where multi-window IDE or external CLI execution is impossible, acknowledging the absence of worktree directory isolation (`CWD`) and context window exhaustion in long-running parent sessions.
