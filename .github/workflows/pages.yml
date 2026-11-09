@@ -33,8 +33,16 @@ jobs:
 
       - name: Build site artifact
         run: |
-          mkdir -p _site
+          mkdir -p _site/video
           cp assets/inspector.html _site/index.html
+          curl -fSL -o _site/video/sdd-parallel-explainer-en.mp4 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4
+          curl -fSL -o _site/video/sdd-parallel-explainer-ru.mp4 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4
+          curl -fSL -o _site/video/clip1-merge-bomb.mp4 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4
+          curl -fSL -o _site/video/clip2-wave-plan.mp4 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4
+          curl -fSL -o _site/video/clip3-scope-guard.mp4 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4
+          curl -fSL -o _site/video/clip1-merge-bomb-ru.mp4 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb-ru.mp4
+          curl -fSL -o _site/video/clip2-wave-plan-ru.mp4 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan-ru.mp4
+          curl -fSL -o _site/video/clip3-scope-guard-ru.mp4 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard-ru.mp4
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5

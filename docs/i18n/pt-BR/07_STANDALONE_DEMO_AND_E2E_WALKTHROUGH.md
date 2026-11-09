@@ -221,6 +221,24 @@ ALL 5 CORE INVARIANTS VERIFIED IN 3.21s
 
 ---
 
+### Painel visual Wave Inspector e tour em vídeo v5 (`sdd-parallel inspect --open`)
+
+Além da saída no terminal, o `sdd-parallel` disponibiliza uma interface visual autônoma: o **Wave Inspector**. Após planejar qualquer onda, execute:
+
+```bash
+sdd-parallel inspect --open
+```
+
+O inspetor reúne 4 áreas fundamentais:
+1. **🌊 Waves & Tracks (Ondas e trilhas):** Cronograma de execução com **CLI Action Bridge** para cópia rápida dos comandos nativos de inicialização (Spec Kit, BMAD, GSD, OpenSpec, Beads).
+2. **📊 Conflict DAG (Grafo DAG de conflitos):** Visualização interativa em SVG com **Task Spec Modal** em cada nó para auditoria de escopos de escrita exclusiva, aditiva e arquivos protegidos (`spine`).
+3. **⚡ Conflict Matrix (Matriz de conflitos):** Mapeamento direto de sobreposições de arquivos e detecção de colisões de Tipo 2 entre tarefas paralelas.
+4. **🔒 Architectural Roles (Papéis arquiteturais):** Categorização completa de arquivos extraída pelo analisador AST (`spine`, `additive_registry`, `standard`).
+
+📺 Para assistir ao walkthrough completo em 1080p, acesse: **[Vídeo explicativo do SDD-Parallel v5 (EN / RU)](https://stopactingsosmall.github.io/sdd-parallel/?video=en)**.
+
+---
+
 ## 3. Prática interativa no Sandbox (`--keep-temp`)
 
 Execute a demonstração preservando os arquivos em disco:

@@ -221,6 +221,60 @@ ALL 5 CORE INVARIANTS VERIFIED IN 3.21s
 
 ---
 
+### Frame 5. Interactive Wave Inspector & Visual DAG Walkthrough (`sdd-parallel inspect --open`)
+
+While the terminal demo verifies mathematical invariants in seconds, operators and team leads can inspect the entire blast-radius projection, dependency graph, and slot boundaries in a standalone, zero-dependency browser cockpit.
+
+#### 1. Launching the Wave Inspector
+
+You can run the inspector locally or explore it in the zero-install web showcase:
+
+```bash
+# Launch from an active repository or demo directory:
+uvx sdd-parallel inspect --open
+
+# Or inspect an explicit pre-calculated plan:
+uvx sdd-parallel inspect --plan .parallel/artifacts/wave-plan.json --open
+```
+
+Prefer an instant zero-install browser demo? Open the **[⚡ Live Interactive Wave Inspector & Video Showcase](https://stopactingsosmall.github.io/sdd-parallel/)** (includes the 1080p video player with voiceover).
+
+- 🎬 **Full Video Walkthroughs (1080p, with voiceover):**
+  - **[English Master (03:30, Gemini Puck)](https://stopactingsosmall.github.io/sdd-parallel/?video=en)** · Direct MP4: [sdd-parallel-explainer-en.mp4](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4)
+  - **[Russian Master (03:25, Gemini Fenrir)](https://stopactingsosmall.github.io/sdd-parallel/?video=ru)** · Direct MP4: [sdd-parallel-explainer-ru.mp4](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4)
+- 🎞️ **Standalone Chapter Clips:**
+  - **Clip 1 — Silent Merge-Bomb:** [EN (45s)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4) · [RU (42s)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb-ru.mp4)
+  - **Clip 2 — Wave Inspector, DAG & Spec Modal:** [EN (1m 39s)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4) · [RU (1m 43s)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan-ru.mp4)
+  - **Clip 3 — Scope Guard DENY & 3-Way Merge:** [EN (1m 06s)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4) · [RU (1m 00s)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard-ru.mp4)
+
+#### 2. Anatomy of the 4 Inspector Tabs & CLI Action Bridge
+
+The Wave Inspector layout exposes the complete internal state across four dedicated views:
+
+1. **Top Summary Bar & 4-Step Pipeline Strip:**
+   - **Metrics Banner:** Live counts of `Total Waves`, `Active Tracks`, `Planned Tasks`, `Conflicts Caught` (Type-1 write overlaps and Type-2 semantic imports), and `Spine Locks`.
+   - **4-Step Pipeline Strip:** Visual operational cycle `1 plan ➔ 2 prepare --wave K ➔ 3 execute tracks ➔ 4 merge --wave K` orienting operators on current wave progress.
+2. **Tab 1 — `🌊 Waves & Tracks` & CLI Action Bridge:**
+   - **Track Slot Cards:** Displays planned waves and parallel slots (`track-a`, `track-b`, etc.) with strict file role color-coding:
+     - 🟢 **Exclusive Write Scope:** Files exclusively owned by this task during the wave.
+     - 🔷 **Additive Registry (`ADDITIVE_REGISTRY`):** Shared files with AST function scope isolation (e.g. `fn: register_...`).
+     - 🟣 **Spine Contract (`SPINE`):** Protected schema files locked by the spine serialization invariant.
+   - **Blocking Rules Badge:** Explicit dependency annotations (e.g. `T002 blocks T004`).
+   - **CLI Action Bridge:** One-click **Copy** buttons in the wave header (`sdd-parallel prepare --wave K`) and the barrier footer (`sdd-parallel merge --wave K`) for seamless terminal execution.
+3. **Tab 2 — `📊 Conflict DAG` & Task Specification Modal:**
+   - **Interactive SVG DAG:** A directed acyclic graph organizing tasks into topological wave columns with dependency and conflict edges.
+   - **Task Specification Modal:** Clicking any task node opens a rich modal dialog displaying its blast-radius passport:
+     - *Exclusive Write Scope* — exact file set granted to the slot;
+     - *Additive Shared Files & AST Function Scopes* — safely appended functions;
+     - *Protected Spine Locks* — contracts shielded from unauthorized mutation;
+     - *Related Conflict Constraints* — why sibling tasks were scheduled in earlier or later waves.
+4. **Tab 3 — `⚡ Conflict Matrix`:**
+   - Audit table mapping pairwise task intersections. Differentiates between direct write collisions ($W_A \cap W_B \neq \emptyset$) and semantic import hazards ($W_A \cap I_B \neq \emptyset$), detailing the rationale for wave separation.
+5. **Tab 4 — `🔒 Architectural Roles`:**
+   - Consolidated repository inventory categorizing all detected source files into `SPINE` (strict sequencing of schemas, models, and core protocols) and `ADDITIVE_REGISTRY` (safe concurrent registration for CLI, routing, and plugin tables).
+
+---
+
 ## 3. Interactive Hands-on Quest: Experimenting With Live Commands
 
 Launch the demo with disk persistence:

@@ -243,6 +243,60 @@ ALL 5 CORE INVARIANTS VERIFIED IN 3.21s
 
 ---
 
+### Кадр 5. Интерактивный Wave Inspector и визуальный аудит графа (`sdd-parallel inspect --open`)
+
+В то время как терминальное демо за считанные секунды проверяет математические инварианты, операторы и техлиды могут изучить полную проекцию радиуса поражения (blast radius), граф зависимостей и границы слотов в автономном браузерном пульте управления без внешних зависимостей.
+
+#### 1. Запуск Wave Inspector
+
+Вы можете запустить инспектор локально или открыть онлайн-витрину без установки:
+
+```bash
+# Запуск из активного репозитория или директории демо:
+uvx sdd-parallel inspect --open
+
+# Или просмотр конкретного предрассчитанного плана:
+uvx sdd-parallel inspect --plan .parallel/artifacts/wave-plan.json --open
+```
+
+Предпочитаете мгновенное браузерное демо без установки? Откройте **[⚡ Интерактивный Wave Inspector и видео-витрину онлайн](https://stopactingsosmall.github.io/sdd-parallel/)** (включает встроенный плеер 1080p с озвучкой).
+
+- 🎬 **Полные видео-разборы (1080p, с озвучкой):**
+  - **[Русский мастер (03:25, Gemini Fenrir)](https://stopactingsosmall.github.io/sdd-parallel/?video=ru)** · Прямая ссылка MP4: [sdd-parallel-explainer-ru.mp4](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4)
+  - **[Английский мастер (03:30, Gemini Puck)](https://stopactingsosmall.github.io/sdd-parallel/?video=en)** · Прямая ссылка MP4: [sdd-parallel-explainer-en.mp4](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4)
+- 🎞️ **Отдельные клипы по главам:**
+  - **Клип 1 — Тихая Merge-Bomb:** [RU (42с)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb-ru.mp4) · [EN (45s)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4)
+  - **Клип 2 — Wave Inspector, граф DAG и модальное окно спеки:** [RU (1м 43с)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan-ru.mp4) · [EN (1m 39s)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4)
+  - **Клип 3 — Scope Guard DENY и 3-Way слияние:** [RU (1м 00с)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard-ru.mp4) · [EN (1m 06s)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4)
+
+#### 2. Разбор 4 вкладок Wave Inspector и CLI Action Bridge
+
+Интерфейс Wave Inspector отображает состояние планировщика через четыре специализированные вкладки:
+
+1. **Верхняя панель метрик и 4-этапный пайплайн:**
+   - **Сводка метрик:** Живой подсчёт `Total Waves`, `Active Tracks`, `Planned Tasks`, `Conflicts Caught` (коллизии 1-го рода по записи и 2-го рода по семантическим импортам) и `Spine Locks`.
+   - **4-этапный пайплайн:** Визуальный цикл исполнения `1 plan ➔ 2 prepare --wave K ➔ 3 execute tracks ➔ 4 merge --wave K`, ориентирующий оператора в фазах текущей волны.
+2. **Вкладка 1 — `🌊 Waves & Tracks` и CLI Action Bridge:**
+   - **Карточки слотов треков:** Отображают запланированные волны и параллельные слоты (`track-a`, `track-b` и т.д.) со строгой цветовой дифференциацией ролей файлов:
+     - 🟢 **Эксклюзивная запись:** Файлы, доступные на запись только данной задаче в текущей волне.
+     - 🔷 **Аддитивный реестр (`ADDITIVE_REGISTRY`):** Общие файлы с безопасной изоляцией на уровне AST-функций (например, `fn: register_...`).
+     - 🟣 **Spine-контракт (`SPINE`):** Защищённые файлы схем, заблокированные инвариантом строгой сериализации.
+   - **Бейдж правил блокировки:** Явные аннотации зависимостей (например, `T002 blocks T004`).
+   - **CLI Action Bridge:** Кнопки **Копировать** в шапке волны (`sdd-parallel prepare --wave K`) и в футере барьера (`sdd-parallel merge --wave K`) для мгновенного выполнения в терминале.
+3. **Вкладка 2 — `📊 Conflict DAG` и модальное окно Task Specification:**
+   - **Интерактивный SVG DAG:** Направленный ациклический граф, группирующий задачи по топологическим колонкам волн со связями зависимостей и конфликтов.
+   - **Модальное окно Task Spec Modal:** Клик по любому узлу задачи открывает подробный паспорт радиуса поражения:
+     - *Exclusive Write Scope* — точный список разрешённых для изменения файлов;
+     - *Additive Shared Files & AST Function Scopes* — изолированные функции в общих реестрах;
+     - *Protected Spine Locks* — неизменяемые контракты, защищённые от случайной мутации;
+     - *Related Conflict Constraints* — причины разведения зависимых задач по предыдущим или последующим волнам.
+4. **Вкладка 3 — `⚡ Conflict Matrix`:**
+   - Таблица аудита всех попарных пересечений задач. Разделяет прямые коллизии записи ($W_A \cap W_B \neq \emptyset$) и семантические коллизии импортов ($W_A \cap I_B \neq \emptyset$), наглядно объясняя распределение задач по волнам.
+5. **Вкладка 4 — `🔒 Architectural Roles`:**
+   - Сводный классификатор файлов репозитория на категории `SPINE` (строгая сериализация схем БД, моделей данных и базовых протоколов) и `ADDITIVE_REGISTRY` (параллельное дополнение таблиц маршрутизации, CLI-команд и реестров плагинов).
+
+---
+
 ## 3. Практический квест: проверяем все команды своими руками
 
 Чтобы лично пощупать живые файлы, блокировки, переиспользование слотов и откаты, запустите демо с сохранением папки:

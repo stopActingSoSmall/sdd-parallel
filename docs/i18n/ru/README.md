@@ -38,10 +38,16 @@
 > `sdd-parallel` — это детерминированный регулировщик, изолятор worktree и защитник blast radius между бэклогом ваших спецификаций (**Spec Kit / BMAD / GSD / OpenSpec / Beads**) и кодинг-агентами (**Claude Code**, **Codex**, **Antigravity** или любым CLI с поддержкой worktree), которые его реализуют.
 
 <p align="center">
-  <img src="../../assets/demo.gif" width="100%" alt="Терминальный скринкаст SDD-Parallel — верификация 5 SDD-китов, бэктест и параллельные worktrees">
+  <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">
+    <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel v5 Video Walkthrough — Silent Merge-Bomb, Interactive Wave Inspector, Conflict DAG, Scope Guard & 3-Way Merge">
+  </a>
   <br>
-  <em>Детерминированный расчёт волн blast-radius, ноль merge-bombs и чистые слоты worktree за 45 секунд.</em>
+  <em>🎬 <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">Смотреть полный 1080p видео-разбор с озвучкой (RU, 03:25)</a></b> · <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">Watch in English (EN, 03:30)</a></b> · Прямые ссылки MP4: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4">RU</a> / <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4">EN</a></em>
+  <br>
+  <sub>Главы: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb-ru.mp4">00:00 Тихая Merge-Bomb (42с)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan-ru.mp4">00:42 Wave Inspector, граф DAG и модальное окно спеки (1м 43с)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard-ru.mp4">02:25 Scope Guard DENY и 3-Way слияние (1м 00с)</a></sub>
 </p>
+
+Предпочитаете изучить своими руками? Откройте **[⚡ Интерактивный Wave Inspector онлайн (веб-демо без установки + видеоплеер)](https://stopactingsosmall.github.io/sdd-parallel/)** или прочитайте [пошаговый разбор ниже](#-попробуйте-за-5-секунд-без-api-ключей-аннотированный-разбор).
 
 ---
 
@@ -205,6 +211,23 @@ sdd-parallel merge --wave 1
 ```
 
 Откат: `sdd-parallel abort-wave --wave 1` (до слияния) или `sdd-parallel rollback-wave --wave 1` (после слияния; строгий LIFO-порядок, автоматическая страховочная ветка `backup/wave-<K>-before-rollback-*` и полиморфный сброс статусов SDD).
+
+### Два режима оркестрации: Интерактивный (Wave Inspector + IDE-слоты) и Автономный Автопилот
+
+`sdd-parallel` поддерживает два взаимодополняющих режима работы под любые сценарии разработки:
+
+- **Режим А — Интерактивный ассистируемый двухэтапный (Wave Inspector + фиксированные IDE-слоты, показан в видео):** Вы запускаете `sdd-parallel plan`, открываете `sdd-parallel inspect --open`, проверяете граф коллизий и копируете команды `prepare --wave K` / `merge --wave K` в один клик через **CLI Action Bridge**, контролируя агентов в фиксированных слотах `.worktrees/track-a`, `track-b`.
+- **Режим Б — Многооконный и автономный циклический автопилот:** Команда `sdd-parallel autopilot --wave 1 --harness {antigravity,claude-code,codex} [--execute] [--policy {single-shot,cyclic}] [--max-review-rounds N] [--routing-file FILE]` автоматически запускает параллельные слоты с маршрутизацией усилий моделей (`low`/`medium`/`high`) и опциональным циклическим контуром `implement -> verify -> review -> fix` (`BoundedCyclicReviewPolicy`).
+
+### 🌐 Руководство по интерфейсу Wave Inspector (`sdd-parallel inspect --open`)
+
+Запустите `sdd-parallel inspect --open` (или откройте **[онлайн-инспектор](https://stopactingsosmall.github.io/sdd-parallel/)**), чтобы открыть автономный браузерный пульт управления архитектурой параллелизма (без внешних зависимостей):
+
+- **Верхняя панель метрик и 4-этапный пайплайн:** мгновенная сводка (`Waves`, `Tracks`, `Tasks`, `Conflicts Caught`, `Spine Locks`) и наглядный жизненный цикл `1 plan` ➔ `2 prepare --wave K` ➔ `3 execute tracks` ➔ `4 merge --wave K`.
+- **Вкладка 1 — `🌊 Waves & Tracks` и CLI Action Bridge:** карточки волн и параллельных слотов (`track-a`, `track-b`) с цветовой маркировкой файлов (зелёный — эксклюзивная запись, бирюзовый — `ADDITIVE_REGISTRY` с изоляцией по AST-функции `fn: register_...`, фиолетовый — `SPINE` контракт), правилами блокировки (`T002 blocks T004`) и кнопками **Copy** в шапке (`sdd-parallel prepare --wave K`) и футере барьера (`sdd-parallel merge --wave K`).
+- **Вкладка 2 — `📊 Conflict DAG` и модальное окно Task Specification:** интерактивный направленный граф зависимостей между колонками волн. Клик по любому узлу задачи открывает **Task Spec Modal** с полным паспортом радиуса поражения (Exclusive Write Scope, Additive Shared Files & AST Function Scopes, Protected Spine Locks, Related Conflict Constraints).
+- **Вкладка 3 — `⚡ Conflict Matrix`:** таблица аудита всех перехваченных пересечений ($W_A \cap W_B \neq \emptyset$ и семантических импортов $W_A \cap I_B \neq \emptyset$) с причиной разведения задач по разным волнам.
+- **Вкладка 4 — `🔒 Architectural Roles`:** сводная классификация модулей репозитория на `SPINE` (строгая сериализация схем/контрактов) и `ADDITIVE_REGISTRY` (безопасное параллельное дописывание роутеров/CLI).
 
 ---
 
@@ -623,7 +646,7 @@ flowchart TD
 | `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | Низкоуровневое детерминированное 3-way слияние для `sprint-status.yaml`. |
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | Проверка операции записи на соответствие манифесту блокировок активного worktree. |
 | `sdd-parallel install-plugin [--target-dir DIR]` | Сборка и установка переносимого плагина Google Antigravity. |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]` | Генерация или выполнение многооконных команд автопилота с маршрутизацией усилий моделей. |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--policy {single-shot,cyclic}] [--max-review-rounds N] [--routing-file FILE]` | Генерация или выполнение многооконных команд автопилота с маршрутизацией усилий моделей и опциональным циклическим контуром ревью (`BoundedCyclicReviewPolicy`). |
 | `sdd-parallel bench [--repo REPO] [--since REV] [--until REV] [--demo] [--max-tracks N] [--kit KIT] [--format {text,json}] [--output-file FILE]` | Ретроспективный бэктест на истории коммитов или демо-репозитории для оценки метрик (Precision, Recall, F1). |
 | `sdd-parallel inspect [--repo REPO] [--plan PATH] [--output PATH] [--open] [--kit KIT]` | Генерация и просмотр автономного offline HTML Wave Inspector для визуализации слотов и DAG конфликтов. |
 
@@ -652,7 +675,7 @@ flowchart TD
 - [x] **Синхронизация окружения Zero-Pollution:** симлинки `.venv` / `node_modules` в фиксированные слоты.
 - [x] **Статический линковщик символов и эскалация скоупа:** автоматическое расширение набора файлов на запись по AST-символам с динамическим перепланированием волн.
 - [x] **Манифест исполнения и контракт Cognitive Router:** детерминированный `.parallel/run-manifest.json`, структурные сигналы AST (`TaskStructuralSignals`) и файл переопределений `--routing-file` (`ADR-0009`).
-- [ ] **Официальный Depth-0 раннер волн (`agy` CLI / SDK):** параллельное headless исполнение треков через протокол `TrackExecutionPolicy`.
+- [x] **Официальный Depth-0 раннер волн (`agy` CLI / SDK):** параллельное headless исполнение треков через протокол `TrackExecutionPolicy` (BoundedCyclicReviewPolicy, `--policy cyclic`).
 
 ---
 

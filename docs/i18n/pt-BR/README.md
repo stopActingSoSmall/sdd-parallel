@@ -38,9 +38,13 @@
 > O `sdd-parallel` é o controlador de tráfego determinístico, isolador de worktrees e protetor de raio de impacto (blast radius) entre o seu backlog de **Spec Kit / BMAD / GSD / OpenSpec / Beads** e os agentes de IA (**Claude Code**, **Codex**, **Antigravity** ou qualquer CLI compatível com worktrees) que o implementam.
 
 <p align="center">
-  <img src="../../assets/demo.gif" width="100%" alt="Screencast de terminal do SDD-Parallel — verificação de 5 kits SDD, recall de benchmark e worktrees paralelas">
+  <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">
+    <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel v5 Video Walkthrough — Silent Merge-Bomb, Wave Inspector interativo, DAG de conflitos, Scope Guard e merge de 3 vias">
+  </a>
   <br>
-  <em>Plano determinístico de ondas por raio de impacto, zero merge-bombs e slots de worktree limpos em menos de 45 segundos.</em>
+  <em>🎬 <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">Assista ao vídeo explicativo completo em 1080p (Locução em inglês, 03:30)</a></b> · <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">Locução em russo (03:25)</a></b> · Download MP4: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4">EN</a> / <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4">RU</a></em>
+  <br>
+  <sub>Capítulos: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4">00:00 Silent Merge-Bomb (45s)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4">00:45 Wave Inspector, DAG e modal de especificações (1m 39s)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4">02:24 Scope Guard DENY e merge de 3 vias (1m 06s)</a></sub>
 </p>
 
 ---
@@ -205,6 +209,25 @@ sdd-parallel merge --wave 1
 ```
 
 Desfazer: `sdd-parallel abort-wave --wave 1` (antes do merge) ou `sdd-parallel rollback-wave --wave 1` (após o merge; ordem LIFO estrita, branch automática `backup/wave-<K>-before-rollback-*`, restauração polimórfica de status SDD).
+
+### Dois modos de orquestração: Assistido interativo vs Autopilot cíclico
+
+O `sdd-parallel` suporta dois fluxos de trabalho principais:
+1. **Modo interativo em duas etapas (Interactive Two-Stage Assisted):**
+   - Execute `sdd-parallel plan` para calcular o cronograma de ondas e abra o painel visual com `sdd-parallel inspect --open` para auditar dependências e o DAG de conflitos.
+   - Execute `sdd-parallel prepare --wave 1` para provisionar os slots fixos (`track-a`, `track-b`), abra-os no seu editor/IDE e use os comandos nativos fornecidos pelo CLI Action Bridge.
+   - Após a conclusão, valide com `sdd-parallel verify-wave --wave 1` e realize a integração com `sdd-parallel merge --wave 1`.
+2. **Modo autônomo multi-janela / Autopilot cíclico (Autonomous Multi-Window / Cyclic Autopilot):**
+   - Dispare `sdd-parallel autopilot --wave 1 --harness claude-code --execute --policy cyclic` (ou `--harness codex` / `antigravity`).
+   - O motor inicia automaticamente instâncias paralelas em slots isolados, cuidando da implementação, verificação de gates e rodadas de revisão cíclica (`--max-review-rounds N`) sem necessidade de intervenção manual.
+
+### Painel visual interativo Wave Inspector (`sdd-parallel inspect --open`)
+
+O painel visual embutido (zero dependências externas, executado no navegador local) oferece 4 abas essenciais:
+- **🌊 Waves & Tracks (Ondas e trilhas):** Visão completa da alocação de tarefas por slot e o **CLI Action Bridge** com botões `Copy` para copiar comandos nativos instantaneamente.
+- **📊 Conflict DAG (Grafo acíclico de conflitos):** Diagrama SVG interativo de colisões e dependências; ao clicar em um nó, abre-se o **Task Spec Modal** com a divisão entre arquivos exclusivos (Exclusive), aditivos (Additive) e o núcleo protegido (Spine-Locked).
+- **⚡ Conflict Matrix (Matriz de conflitos):** Matriz de interseções de arquivos e detecção preventiva de colisões semânticas do Tipo 2.
+- **🔒 Architectural Roles (Papéis arquiteturais):** Tabela de módulos classificados pela AST (`spine`, `additive_registry`, `standard`).
 
 ---
 
@@ -617,7 +640,7 @@ flowchart TD
 | `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | Merge determinístico de 3 vias em baixo nível para `sprint-status.yaml`. |
 | `sdd-parallel check-lock --file PATH [--tool TOOL]` | Verifica uma tentativa de gravação contra o manifesto de bloqueio da worktree ativa. |
 | `sdd-parallel install-plugin [--target-dir DIR]` | Empacota e instala o plugin portátil do Antigravity. |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--routing-file FILE]` | Gera ou executa comandos de inicialização em múltiplas janelas com roteamento por esforço de modelo. |
+| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--policy {single-shot,cyclic}] [--max-review-rounds N] [--antigravity-layout] [--execute] [--routing-file FILE]` | Gera ou executa comandos de inicialização em múltiplas janelas com roteamento por esforço de modelo. |
 
 </details>
 
@@ -644,7 +667,7 @@ flowchart TD
 - [x] **Sincronização de ambiente sem poluição:** symlinks de `.venv` / `node_modules` para dentro dos slots fixos.
 - [x] **Linker estático de símbolos pré-onda e escalonamento de escopo:** expansão automática do conjunto de escrita via símbolos AST com reagendamento dinâmico.
 - [x] **Manifesto de execução e contrato de Cognitive Router:** `.parallel/run-manifest.json` determinístico, sinais estruturais AST (`TaskStructuralSignals`) e contrato `--routing-file` (`ADR-0009`).
-- [ ] **Executor oficial Depth-0 (`agy` CLI / SDK):** execução paralela headless de tracks via `TrackExecutionPolicy`.
+- [x] **Executor oficial Depth-0 (`agy` CLI / SDK):** execução paralela headless de tracks via `TrackExecutionPolicy`.
 
 ---
 
