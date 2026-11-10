@@ -37,17 +37,13 @@
 > **Run Multiple AI Coding Agents in Parallel — Up to 3x Faster, Zero Merge-Bombs.**  
 > `sdd-parallel` is the deterministic traffic controller, worktree isolator, and blast-radius guard between your **Spec Kit / BMAD / GSD / OpenSpec / Beads** backlog and the coding agents (**Claude Code**, **Codex**, **Antigravity**, or any worktree-capable CLI) that implement it.
 
+https://github.com/user-attachments/assets/c660876b-4533-4786-94da-e02a00475e1b
+
 <p align="center">
-  <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">
-    <img src="docs/assets/demo.gif" width="100%" alt="SDD-Parallel v5 Video Walkthrough — Silent Merge-Bomb, Interactive Wave Inspector, Conflict DAG, Scope Guard & 3-Way Merge">
-  </a>
-  <br>
-  <em>🎬 <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">Watch Full 1080p Explainer with Voiceover (EN, 03:30)</a></b> · <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">Смотреть на русском (RU, 03:25)</a></b> · Direct MP4: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4">EN</a> / <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4">RU</a></em>
-  <br>
-  <sub>Chapters: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4">00:00 Silent Merge-Bomb (45s)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4">00:45 Wave Inspector, DAG &amp; Spec Modal (1m 39s)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4">02:24 Scope Guard DENY &amp; 3-Way Merge (1m 06s)</a></sub>
+  <em>🎬 <b>Full 1080p Explainer Video (03:30)</b> · 🇷🇺 <a href="docs/i18n/ru/README.md">Смотреть на русском (RU, 03:25)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Live Interactive Wave Inspector</a></em>
 </p>
 
-Prefer to explore hands-on? Open the **[⚡ Live Interactive Wave Inspector (Zero-Install Web Demo + Video Player)](https://stopactingsosmall.github.io/sdd-parallel/)** or read the [4-step annotated breakdown below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough).
+Prefer to explore hands-on? Open the **[⚡ Live Interactive Wave Inspector](https://stopactingsosmall.github.io/sdd-parallel/)** (zero-install browser demo) or read the [4-step annotated walkthrough below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough).
 
 ---
 

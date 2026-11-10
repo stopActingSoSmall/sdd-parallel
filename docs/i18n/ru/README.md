@@ -37,17 +37,13 @@
 > **Параллельный запуск нескольких ИИ-агентов программирования — до 3x быстрее, без Merge-Bombs.**  
 > `sdd-parallel` — это детерминированный регулировщик, изолятор worktree и защитник blast radius между бэклогом ваших спецификаций (**Spec Kit / BMAD / GSD / OpenSpec / Beads**) и кодинг-агентами (**Claude Code**, **Codex**, **Antigravity** или любым CLI с поддержкой worktree), которые его реализуют.
 
+https://github.com/user-attachments/assets/4c42a993-72c5-4040-9047-c222a10e7d4b
+
 <p align="center">
-  <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">
-    <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel v5 Video Walkthrough — Silent Merge-Bomb, Interactive Wave Inspector, Conflict DAG, Scope Guard & 3-Way Merge">
-  </a>
-  <br>
-  <em>🎬 <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">Смотреть полный 1080p видео-разбор с озвучкой (RU, 03:25)</a></b> · <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">Watch in English (EN, 03:30)</a></b> · Прямые ссылки MP4: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4">RU</a> / <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4">EN</a></em>
-  <br>
-  <sub>Главы: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb-ru.mp4">00:00 Тихая Merge-Bomb (42с)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan-ru.mp4">00:42 Wave Inspector, граф DAG и модальное окно спеки (1м 43с)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard-ru.mp4">02:25 Scope Guard DENY и 3-Way слияние (1м 00с)</a></sub>
+  <em>🎬 <b>Полный 1080p видео-разбор с озвучкой (RU, 03:25)</b> · 🇺🇸 <a href="../../../README.md">Watch in English (EN, 03:30)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Интерактивный Wave Inspector онлайн</a></em>
 </p>
 
-Предпочитаете изучить своими руками? Откройте **[⚡ Интерактивный Wave Inspector онлайн (веб-демо без установки + видеоплеер)](https://stopactingsosmall.github.io/sdd-parallel/)** или прочитайте [пошаговый разбор ниже](#-попробуйте-за-5-секунд-без-api-ключей-аннотированный-разбор).
+Предпочитаете изучить своими руками? Откройте **[⚡ Интерактивный Wave Inspector онлайн](https://stopactingsosmall.github.io/sdd-parallel/)** (веб-демо без установки) или прочитайте [пошаговый разбор ниже](#-попробуйте-за-5-секунд-без-api-ключей-аннотированный-разбор).
 
 ---
 

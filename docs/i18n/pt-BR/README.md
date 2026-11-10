@@ -37,14 +37,10 @@
 > **Execute múltiplos agentes de codificação por IA em paralelo — até 3x mais rápido, zero Merge-Bombs.**  
 > O `sdd-parallel` é o controlador de tráfego determinístico, isolador de worktrees e protetor de raio de impacto (blast radius) entre o seu backlog de **Spec Kit / BMAD / GSD / OpenSpec / Beads** e os agentes de IA (**Claude Code**, **Codex**, **Antigravity** ou qualquer CLI compatível com worktrees) que o implementam.
 
+https://github.com/user-attachments/assets/c660876b-4533-4786-94da-e02a00475e1b
+
 <p align="center">
-  <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">
-    <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel v5 Video Walkthrough — Silent Merge-Bomb, Wave Inspector interativo, DAG de conflitos, Scope Guard e merge de 3 vias">
-  </a>
-  <br>
-  <em>🎬 <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">Assista ao vídeo explicativo completo em 1080p (Locução em inglês, 03:30)</a></b> · <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">Locução em russo (03:25)</a></b> · Download MP4: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4">EN</a> / <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4">RU</a></em>
-  <br>
-  <sub>Capítulos: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4">00:00 Silent Merge-Bomb (45s)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4">00:45 Wave Inspector, DAG e modal de especificações (1m 39s)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4">02:24 Scope Guard DENY e merge de 3 vias (1m 06s)</a></sub>
+  <em>🎬 <b>Vídeo explicativo completo em 1080p (Voz em inglês, 03:30)</b> · 🇷🇺 <a href="../ru/README.md">Voz em russo (03:25)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Wave Inspector interativo online</a></em>
 </p>
 
 ---

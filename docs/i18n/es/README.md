@@ -39,14 +39,10 @@
 > **Ejecuta múltiples agentes de codificación con IA en paralelo — hasta 3 veces más rápido, cero Merge-Bombs.**  
 > `sdd-parallel` es el controlador de tráfico determinista, aislador de worktrees y guardián de blast radius entre tu backlog de **Spec Kit / BMAD / GSD / OpenSpec / Beads** y los agentes de codificación (**Claude Code**, **Codex**, **Antigravity** o cualquier CLI con soporte para worktrees) que lo implementan.
 
+https://github.com/user-attachments/assets/c660876b-4533-4786-94da-e02a00475e1b
+
 <p align="center">
-  <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">
-    <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel v5 Video Walkthrough — Silent Merge-Bomb, Wave Inspector interactivo, DAG de conflictos, Scope Guard y fusión 3-Way">
-  </a>
-  <br>
-  <em>🎬 <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">Ver video explicativo completo en 1080p (Voz en inglés, 03:30)</a></b> · <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">Voz en ruso (03:25)</a></b> · Descarga MP4: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4">EN</a> / <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4">RU</a></em>
-  <br>
-  <sub>Capítulos: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4">00:00 Silent Merge-Bomb (45s)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4">00:45 Wave Inspector, DAG y modal de especificaciones (1m 39s)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4">02:24 Bloqueo de Scope Guard y fusión 3-Way (1m 06s)</a></sub>
+  <em>🎬 <b>Video explicativo completo en 1080p (Voz en inglés, 03:30)</b> · 🇷🇺 <a href="../ru/README.md">Voz en ruso (03:25)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Wave Inspector interactivo en vivo</a></em>
 </p>
 
 ---
