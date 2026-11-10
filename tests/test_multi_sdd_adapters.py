@@ -1340,3 +1340,355 @@ def test_gsd_archive_docstring_and_stability() -> None:
     assert "read-only" in doc
     assert "frozen" in doc.lower()
 
+
+def test_symbol_only_task_links_and_computes_semantic_impact_in_cli_and_scheduler(
+    tmp_path: Path,
+) -> None:
+    """Verify symbol-only tasks get impact_files computed and trigger Type-2 collision (Task 37)."""
+    from sdd_parallel.cli import _compute_repo_plan
+    from sdd_parallel.models import ConflictType
+
+    pkg = tmp_path / "src" / "bench_app"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "auth.py").write_text(
+        "def verify_session_token(token: str) -> bool:\n    return bool(token)\n",
+        encoding="utf-8",
+    )
+    (pkg / "api.py").write_text(
+        "from bench_app.auth import verify_session_token\n"
+        "from src.bench_app.auth import verify_session_token as _ref\n\n"
+        "def endpoint(tok: str) -> bool:\n    return verify_session_token(tok)\n",
+        encoding="utf-8",
+    )
+
+    spec_dir = tmp_path / "specs" / "001-bench"
+    spec_dir.mkdir(parents=True)
+    (spec_dir / "tasks.md").write_text(
+        "# Tasks\n"
+        "- [ ] T001 [P] Update HTTP handler in `src/bench_app/api.py`\n"
+        "- [ ] T002 [P] Refactor `verify_session_token` to enforce strict TTL\n",
+        encoding="utf-8",
+    )
+
+    _scheduler, tasks, plan = _compute_repo_plan(tmp_path, max_tracks=2, kit="spec-kit")
+    t2 = next(t for t in tasks if t.id == "T002")
+    assert "src/bench_app/auth.py" in t2.write_files
+    assert "src/bench_app/api.py" in t2.impact_files
+    assert any(e.conflict_type == ConflictType.SEMANTIC_COLLISION for e in plan.edges)
+    assert len(plan.waves) == 2
+
+
+def test_openspec_x_prefixed_vendor_keys_in_openspec_yaml(tmp_path: Path) -> None:
+    """Verify OpenSpec v1.17+ x-prefixed vendor metadata keys in .openspec.yaml (Task 37)."""
+    c1 = tmp_path / "openspec" / "changes" / "t1-base"
+    c2 = tmp_path / "openspec" / "changes" / "t2-dependent"
+    c1.mkdir(parents=True)
+    c2.mkdir(parents=True)
+
+    (c1 / ".openspec.yaml").write_text(
+        "schema: spec-driven\n"
+        "goal: Base Authentication Change\n"
+        "skip_specs: true\n"
+        "affected_areas:\n"
+        "  - src/auth/base.py\n"
+        "x-effort: high\n"
+        "x-worktree: .worktrees/custom-t1\n",
+        encoding="utf-8",
+    )
+    (c1 / "tasks.md").write_text("- [ ] 1.1 Base auth\n", encoding="utf-8")
+
+    (c2 / ".openspec.yaml").write_text(
+        "schema: spec-driven\n"
+        "goal: Dependent Change\n"
+        "skip_specs: true\n"
+        "x-files:\n"
+        "  - src/auth/dep.py\n"
+        "x-depends-on:\n"
+        "  - t1-base\n",
+        encoding="utf-8",
+    )
+    (c2 / "tasks.md").write_text("- [ ] 1.1 Dependent auth\n", encoding="utf-8")
+
+    adapter = OpenSpecAdapter(tmp_path)
+    tasks = {t.id: t for t in adapter.load_tasks()}
+    assert tasks["t1-base"].title == "Base Authentication Change"
+    assert tasks["t1-base"].effort == EffortTier.HIGH
+    assert tasks["t1-base"].write_files == ["src/auth/base.py"]
+    expected_wt = (tmp_path / ".worktrees" / "custom-t1").resolve()
+    assert adapter.get_change_worktree("t1-base") == expected_wt
+    assert tasks["t2-dependent"].depends_on == ["t1-base"]
+    assert tasks["t2-dependent"].write_files == ["src/auth/dep.py"]
+
+
+def test_beads_v1_3_4_dolt_cache_ignore_headers_and_deferred_hooked_statuses(
+    tmp_path: Path,
+) -> None:
+    """Verify Beads v1.3.4 Dolt cache ignore, headers, and hooked/deferred statuses (Task 37)."""
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "a@b.c"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "A"], cwd=tmp_path, check=True)
+
+    beads_dir = tmp_path / ".beads"
+    beads_dir.mkdir()
+    header = {"_type": "metadata", "version": "1.3.4"}
+    i1 = {"id": "bd-1", "title": "Hooked task", "status": "hooked", "files": ["src/a.py"]}
+    i2 = {"id": "bd-2", "title": "Deferred task", "status": "deferred", "files": ["src/b.py"]}
+    (beads_dir / "beads.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in (header, i1, i2)) + "\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+
+    # Create untracked Dolt/SQLite runtime files inside .beads/
+    (beads_dir / "embeddeddolt").mkdir()
+    (beads_dir / "embeddeddolt" / "data.db").write_text("bin", encoding="utf-8")
+    (beads_dir / "daemon.lock").write_text("123", encoding="utf-8")
+    (beads_dir / "cache.sqlite3").write_text("bin", encoding="utf-8")
+
+    adapter = BeadsAdapter(tmp_path)
+    assert adapter.check_wave_zero_blockers() == []
+
+    tasks = {t.id: t for t in adapter.load_tasks()}
+    assert tasks["bd-1"].status == TaskStatus.IN_PROGRESS
+    assert tasks["bd-2"].status == TaskStatus.BLOCKED
+
+    # Verify merge_beads_issues_jsonl preserves metadata header line
+    base_txt = (beads_dir / "beads.jsonl").read_text(encoding="utf-8")
+    theirs_txt = base_txt.replace('"hooked"', '"closed"')
+    merged = merge_beads_issues_jsonl(base_txt, base_txt, theirs_txt)
+    merged_lines = [json.loads(line) for line in merged.splitlines() if line.strip()]
+    assert merged_lines[0] == header
+    assert merged_lines[1]["status"] == "closed"
+
+
+def test_bmad_extended_ticket_globs_stories_yaml_and_ticket_frontmatter_merger(
+    tmp_path: Path,
+) -> None:
+    """Verify BMAD-Extended globs, status files, and 3-way merger for stories & tickets."""
+    from sdd_parallel.adapters.bmad import _IGNORED_DIRTY_PREFIXES
+    from sdd_parallel.models import WaveTrack
+    from sdd_parallel.status_merger import merge_markdown_ticket_status
+
+    assert ".bmad-loop" in _IGNORED_DIRTY_PREFIXES
+
+    (tmp_path / "bmad-loop.toml").write_text('[stories]\nsource = "tickets"\n', encoding="utf-8")
+    (tmp_path / "stories.yaml").write_text(
+        "stories:\n  11-1: ready-for-dev\n  11-2: ready-for-dev\n",
+        encoding="utf-8",
+    )
+    t_dir = tmp_path / "tickets"
+    t_dir.mkdir()
+    ticket_file = t_dir / "11-1.md"
+    ticket_file.write_text(
+        "---\nid: 11-1\nstatus: ready-for-dev\n---\n# Ticket 11-1\n- [ ] Subtask 1\n",
+        encoding="utf-8",
+    )
+
+    adapter = BMADAdapter(tmp_path)
+    track = WaveTrack(track_id="track-a", effort=EffortTier.LOW, task_ids=["11-1"])
+    globs = adapter.get_allowed_write_globs(track)
+    assert "stories.yaml" in globs
+    assert "tickets/*11-1*.md" in globs
+
+    status_files = adapter.get_status_files()
+    assert "stories.yaml" in status_files
+    assert "tickets/11-1.md" in status_files
+
+    stories_merger = get_status_merger("stories.yaml")
+    assert stories_merger is not None
+    merged_stories = stories_merger(
+        "stories:\n  11-1: ready-for-dev\n  11-2: ready-for-dev\n",
+        "stories:\n  11-1: done\n  11-2: ready-for-dev\n",
+        "stories:\n  11-1: ready-for-dev\n  11-2: done\n",
+    )
+    assert "11-1: done" in merged_stories
+    assert "11-2: done" in merged_stories
+
+    ticket_merger = get_status_merger("tickets/11-1.md")
+    assert ticket_merger is merge_markdown_ticket_status
+    base_md = "---\nid: 11-1\nstatus: ready-for-dev\n---\n- [ ] Item A\n"
+    theirs_md = "\ufeff---\nid: 11-1\nstatus: done\n---\n- [x] Item A\n"
+    merged_md = ticket_merger(base_md, base_md, theirs_md)
+    assert "status: done" in merged_md
+    assert "- [x] Item A" in merged_md
+
+
+def test_blast_radius_guard_intercepts_antigravity_write_file_and_edit_file_with_capital_path(
+    tmp_path: Path,
+) -> None:
+    """Verify PreToolUse hook checks write_file and edit_file with capital 'Path' (Task 37)."""
+    from sdd_parallel.models import LockManifest
+
+    lock_file = tmp_path / ".parallel-lock.json"
+    manifest = LockManifest(
+        wave_id=1,
+        track_id="track-a",
+        stories=["T1"],
+        repo_root=str(tmp_path),
+        worktree_root=str(tmp_path),
+        allowed_write_globs=["src/allowed.py"],
+        additive_shared_files=[],
+        forbidden_files={"openspec/config.yaml": "Locked"},
+    )
+    lock_file.write_text(json.dumps(manifest.to_dict()), encoding="utf-8")
+
+    allow_dec = evaluate_tool_access(
+        tool_name="write_file",
+        tool_input={"Path": str(tmp_path / "src" / "allowed.py")},
+        cwd=tmp_path,
+    )
+    assert allow_dec.decision == "allow"
+
+    deny_dec = evaluate_tool_access(
+        tool_name="edit_file",
+        tool_input={"Path": str(tmp_path / "openspec" / "config.yaml")},
+        cwd=tmp_path,
+    )
+    assert deny_dec.decision == "deny"
+
+
+def test_adversarial_invariant_a_context_read_does_not_pollute_write_files(
+    tmp_path: Path,
+) -> None:
+    """Invariant A: Mentioning external symbol in task with explicit write_files
+
+    adds it to impact_files (read) and does NOT pollute write_files (preventing spine locks).
+    """
+    from sdd_parallel.ast_scanner import ASTHotspotScanner
+    from sdd_parallel.models import TaskNode
+
+    # Setup mini project with models.py defining UserRecord, and api.py
+    src_dir = tmp_path / "src"
+    src_dir.mkdir(parents=True)
+    models_file = src_dir / "models.py"
+    models_file.write_text("class UserRecord:\n    id: int\n", encoding="utf-8")
+    api_file = src_dir / "api.py"
+    api_file.write_text("def handle_request(): pass\n", encoding="utf-8")
+
+    task = TaskNode(
+        id="T1",
+        title="Implement endpoint returning UserRecord",
+        description="Update handle_request in `src/api.py` to return `UserRecord` from models.",
+        write_files=["src/api.py"],
+    )
+
+    scanner = ASTHotspotScanner(tmp_path)
+    scanner.link_tasks([task])
+
+    # Invariant: write_files stays strictly ['src/api.py']
+    assert task.write_files == ["src/api.py"]
+    # UserRecord was detected as a read/context dependency and added to impact_files
+    assert any("models.py" in imp for imp in task.impact_files)
+    assert "src/models.py" not in task.write_files
+
+
+def test_adversarial_invariant_b_sub_bullet_precedence_over_plan_fallback(
+    tmp_path: Path,
+) -> None:
+    """Invariant B: Sub-bullet `- Files: src/specific.py` takes strict precedence
+
+    over epic-level plan.md fallback files.
+    """
+    from sdd_parallel.adapters.spec_kit import SpecKitAdapter
+
+    specs_dir = tmp_path / "specs" / "001-feature"
+    specs_dir.mkdir(parents=True)
+    plan_file = specs_dir / "plan.md"
+    plan_file.write_text(
+        "# Plan\n`src/models.py`\n`src/database.py`\n`src/shared_spine.py`\n",
+        encoding="utf-8",
+    )
+    tasks_file = specs_dir / "tasks.md"
+    tasks_file.write_text(
+        "# Tasks\n"
+        "- [ ] T001 Implement specific route\n"
+        "  - Files: `src/routes/specific.py`\n",
+        encoding="utf-8",
+    )
+
+    adapter = SpecKitAdapter(tmp_path)
+    tasks = adapter.load_tasks(include_done=False)
+
+    assert len(tasks) == 1
+    t = tasks[0]
+    # Invariant: write_files must contain ONLY the sub-bullet file, NOT the plan.md fallback
+    assert t.write_files == ["src/routes/specific.py"]
+    assert "src/shared_spine.py" not in t.write_files
+    assert "src/models.py" not in t.write_files
+
+
+def test_adversarial_invariant_c_multifeature_bidirectional_id_resolution(
+    tmp_path: Path,
+) -> None:
+    """Invariant C: SpecKitAdapter.reset_tasks_status resets tasks matching either
+
+    local ID ('T001') or full scoped ID ('001-feature:T001').
+    """
+    from sdd_parallel.adapters.spec_kit import SpecKitAdapter
+
+    specs_dir = tmp_path / "specs" / "001-feature"
+    specs_dir.mkdir(parents=True)
+    tasks_file = specs_dir / "tasks.md"
+    tasks_file.write_text(
+        "# Tasks\n"
+        "- [x] T001 Done item 1\n"
+        "- [x] T002 Done item 2\n",
+        encoding="utf-8",
+    )
+
+    adapter = SpecKitAdapter(tmp_path)
+
+    # 1. Reset using full scoped ID
+    adapter.reset_tasks_status(["001-feature:T001"])
+    content1 = tasks_file.read_text(encoding="utf-8")
+    assert "- [ ] T001 Done item 1" in content1
+    assert "- [x] T002 Done item 2" in content1
+
+    # 2. Reset using local ID
+    adapter.reset_tasks_status(["T002"])
+    content2 = tasks_file.read_text(encoding="utf-8")
+    assert "- [ ] T001 Done item 1" in content2
+    assert "- [ ] T002 Done item 2" in content2
+
+
+def test_adversarial_invariant_d_dual_layer_database_sync_update_state_on_merge(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant D: update_state_on_merge invokes `bd import --allow-stale` when bd is present."""
+    from sdd_parallel.adapters.beads import BeadsAdapter
+
+    beads_dir = tmp_path / ".beads"
+    beads_dir.mkdir(parents=True)
+    jsonl = beads_dir / "beads.jsonl"
+    jsonl.write_text('{"id": "issue-1", "title": "Test"}\n', encoding="utf-8")
+
+    called_cmds: list[list[str]] = []
+
+    def fake_which(cmd: str) -> str | None:
+        return f"/usr/bin/{cmd}" if cmd == "bd" else None
+
+    def fake_run(
+        cmd: list[str],
+        cwd: Path | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        timeout: int | None = None,
+        check: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        called_cmds.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("shutil.which", fake_which)
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    adapter = BeadsAdapter(tmp_path)
+    res = adapter.update_state_on_merge(wave_number=1, merged_task_ids=["issue-1"])
+    assert res is None
+
+    assert len(called_cmds) == 1
+    assert called_cmds[0] == ["bd", "import", "--allow-stale", "-i", ".beads/beads.jsonl"]
+
+

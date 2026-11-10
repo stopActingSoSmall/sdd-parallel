@@ -180,6 +180,8 @@ class OpenSpecAdapter:
                         data.get("worktree")
                         or data.get("worktree_path")
                         or data.get("workspace")
+                        or data.get("x-worktree")
+                        or data.get("x_worktree")
                     )
                     if wt_val and isinstance(wt_val, str) and wt_val.strip():
                         p = Path(wt_val.strip())
@@ -306,7 +308,12 @@ class OpenSpecAdapter:
                         if m.group(1).lower() == "x":
                             done_items += 1
 
-            fm_status = str(yaml_data.get("status") or fm.get("status", "")).lower()
+            fm_status = str(
+                yaml_data.get("status")
+                or yaml_data.get("x-status")
+                or yaml_data.get("x_status")
+                or fm.get("status", "")
+            ).lower()
             if fm_status in {"done", "merged", "completed"}:
                 status = TaskStatus.DONE
             elif total_items > 0 and done_items == total_items:
@@ -325,6 +332,8 @@ class OpenSpecAdapter:
                 yaml_data.get("affected_areas")
                 or yaml_data.get("files")
                 or yaml_data.get("files_modified")
+                or yaml_data.get("x-files")
+                or yaml_data.get("x_files")
                 or fm.get("affected_areas")
                 or fm.get("files")
                 or fm.get("files_modified")
@@ -342,9 +351,13 @@ class OpenSpecAdapter:
             depends_on: list[str] = []
             raw_deps = (
                 yaml_data.get("depends_on")
+                or yaml_data.get("x-depends-on")
+                or yaml_data.get("x_depends_on")
                 or yaml_data.get("dependencies")
+                or yaml_data.get("x-dependencies")
                 or yaml_data.get("requires")
                 or fm.get("depends_on")
+                or fm.get("x-depends-on")
                 or fm.get("dependencies")
                 or fm.get("requires")
             )
@@ -378,7 +391,7 @@ class OpenSpecAdapter:
                         depends_on.append(dep_id)
 
             # Determine title
-            title = yaml_data.get("title") or fm.get("title")
+            title = yaml_data.get("title") or yaml_data.get("goal") or fm.get("title")
             if not title and prop_text:
                 tm = _TITLE_RE.search(prop_text)
                 if tm:
@@ -397,7 +410,12 @@ class OpenSpecAdapter:
 
             # Determine effort
             effort = EffortTier.MEDIUM
-            fm_eff = yaml_data.get("effort") or fm.get("effort")
+            fm_eff = (
+                yaml_data.get("effort")
+                or yaml_data.get("x-effort")
+                or yaml_data.get("x_effort")
+                or fm.get("effort")
+            )
             if isinstance(fm_eff, str):
                 eff_lower = fm_eff.lower()
                 if eff_lower == "low":
@@ -649,3 +667,11 @@ class OpenSpecAdapter:
             except ValueError:
                 pass
         return files
+
+    def update_state_on_merge(
+        self,
+        wave_number: int,
+        merged_task_ids: Sequence[str],
+    ) -> Path | None:
+        """Post-merge hook for OpenSpec state synchronization."""
+        return None

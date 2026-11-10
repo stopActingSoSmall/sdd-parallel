@@ -87,7 +87,15 @@ class BSPWaveScheduler:
     def build_edges(self, tasks: Sequence[TaskNode]) -> list[ConflictEdge]:
         """Construct directed dependencies and undirected collision edges across tasks."""
         if self.ast_scanner is not None:
-            self.ast_scanner.link_tasks(tasks)
+            linked_map = self.ast_scanner.link_tasks(tasks)
+            if isinstance(linked_map, dict) and linked_map:
+                for task in tasks:
+                    if linked_map.get(task.id):
+                        importers: set[str] = set(task.impact_files)
+                        for wf in task.write_files:
+                            importers.update(self.ast_scanner.get_importers(wf))
+                        importers.difference_update(task.write_files)
+                        task.impact_files = sorted(importers)
 
         edges: list[ConflictEdge] = []
         task_map = {t.id: t for t in tasks}

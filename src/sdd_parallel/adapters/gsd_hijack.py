@@ -240,7 +240,7 @@ class GSDHijackAdapter:
     def update_state_on_merge(
         self,
         wave_number: int,
-        merged_task_ids: list[str],
+        merged_task_ids: Sequence[str],
     ) -> Path | None:
         """Centrally update .planning/STATE.md upon Wave K barrier merge checkpoint.
 

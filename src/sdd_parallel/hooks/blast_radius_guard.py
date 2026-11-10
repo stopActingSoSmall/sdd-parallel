@@ -19,9 +19,12 @@ _WRITE_TOOLS = frozenset(
         "write_to_file",
         "replace_file_content",
         "multi_replace_file_content",
+        "write_file",
+        "edit_file",
         "Write",
         "Edit",
         "MultiEdit",
+        "NotebookEdit",
     }
 )
 
@@ -40,8 +43,11 @@ _EXEC_TOOLS = frozenset(
 
 _TARGET_PATH_KEYS = (
     "TargetFile",
+    "Path",
     "file_path",
+    "filePath",
     "path",
+    "notebook_path",
     "AbsolutePath",
 )
 

@@ -114,6 +114,7 @@ The architectural boundary cleanly isolates framework-specific parsing from univ
 | **Worker Launch Instructions** | `SDDAdapter` | Produces native agent commands (`/speckit.implement`, `/gsd-execute-phase`, `/opsx:apply`, `bd update`, `/bmad-build`). |
 | **Multi-Tier Scope Guard** | `Core Engine` | Enforces `PreToolUse` hook, Terminal Guard command interception (`Bash`, `run_command`), and OS read-only locks. |
 | **3-Way Monotonic Status Merge** | `SDDAdapter` + `Core` | Engine orchestrates barrier git merge; specialized semi-lattice reconciler (`status_merger.py`) merges status files with zero conflict markers. |
+| **Post-Merge State & DB Co-Consistency** | `SDDAdapter` + `Core` | Polymorphic `update_state_on_merge()` hook ensures embedded engines (e.g., Beads Dolt DB via `bd import --allow-stale`) and monolithic state logs (`.planning/STATE.md`) sync immediately after 3-way merge. |
 | **LIFO Transactional Rollback** | `Core Engine` + `Adapter` | Engine creates safety backup branches (`backup/wave-<K>-before-rollback-*`) and resets `HEAD`; adapter polymorphically resets task statuses. |
 
 ### 1.3. Multi-Kit Coexistence & Inactive Sandboxing Protocol

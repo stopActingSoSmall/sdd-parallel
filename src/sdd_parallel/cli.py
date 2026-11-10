@@ -534,6 +534,7 @@ def _compute_repo_plan(
     crg = CRGSidecarAdapter(repo_root, ast_scanner=scanner)
 
     tasks = adapter.load_tasks(include_done=include_done, plan_source=plan_source)
+    scanner.link_tasks(tasks)
     for task in tasks:
         if task.write_files and not task.impact_files:
             task.impact_files = sorted(crg.compute_impact_files(task.write_files))

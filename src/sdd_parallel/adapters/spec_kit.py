@@ -191,9 +191,8 @@ class SpecKitAdapter:
                     if fp not in write_files:
                         write_files.append(fp)
 
-                # Fallback to plan.md files if task doesn't list files
-                if not write_files and plan_fallback_files:
-                    write_files = [f for f in plan_fallback_files if not f.startswith("tests/")]
+                # Fallback to plan.md is deferred until after sub-bullets and symbols
+                # (Invariant B: Sub-Bullet Precedence & Fallback Preemption)
 
                 # Extract dependencies
                 depends_on: list[str] = []
@@ -248,6 +247,19 @@ class SpecKitAdapter:
                 )
                 tasks.append(task_node)
                 current_task = task_node
+
+            # Deferred coarse-grained fallback to plan.md files (Invariant B)
+            # Only apply if task has no inline files, no sub-bullet files, and no AST symbol tokens
+            if plan_fallback_files:
+                for t in tasks:
+                    if not t.write_files:
+                        has_symbol_token = bool(
+                            re.search(r"`[A-Za-z_][A-Za-z0-9_]*`", t.title + " " + t.description)
+                        )
+                        if not has_symbol_token:
+                            t.write_files = [
+                                f for f in plan_fallback_files if not f.startswith("tests/")
+                            ]
 
         return tasks
 
@@ -330,13 +342,19 @@ class SpecKitAdapter:
         """Reset checkboxes in tasks.md files for task_ids to unchecked (- [ ])."""
         target_set = set(task_ids)
         for tf in self._find_tasks_files():
+            feature_slug = tf.parent.name
             lines = tf.read_text(encoding="utf-8-sig").splitlines()
             new_lines: list[str] = []
             for line in lines:
                 m = _TASK_LINE_RE.match(line)
                 if m:
                     t_id = m.group(2)
-                    if t_id in target_set:
+                    full_id = f"{feature_slug}:{t_id}"
+                    if (
+                        t_id in target_set
+                        or full_id in target_set
+                        or any(t == full_id or t.endswith(f":{t_id}") for t in target_set)
+                    ):
                         line = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
                 new_lines.append(line)
             tf.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
@@ -544,4 +562,12 @@ class SpecKitAdapter:
         if isinstance(cmds, list):
             return [str(c.get("name", "")) for c in cmds if isinstance(c, dict) and "name" in c]
         return []
+
+    def update_state_on_merge(
+        self,
+        wave_number: int,
+        merged_task_ids: Sequence[str],
+    ) -> Path | None:
+        """Post-merge hook for Spec Kit state synchronization."""
+        return None
 

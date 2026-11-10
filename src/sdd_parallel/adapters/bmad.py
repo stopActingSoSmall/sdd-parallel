@@ -52,6 +52,7 @@ _IGNORED_DIRTY_PREFIXES = (
     "_bmad-output/ucg",
     ".ultracode",
     ".ucg",
+    ".bmad-loop",
     "ultracode-verdicts",
     "_bmad-output/verdicts",
 )
@@ -997,11 +998,26 @@ class BMADAdapter:
                 f.unlink(missing_ok=True)
 
     def get_allowed_write_globs(self, track: WaveTrack) -> list[str]:
-        """Return allowed write globs for BMAD sprint-status and story specs."""
-        return [
+        """Return allowed write globs for BMAD status files and story specs/tickets."""
+        globs: list[str] = [
             "_bmad-output/implementation-artifacts/sprint-status.yaml",
+            "stories.yaml",
+            "_bmad-output/**/stories.yaml",
             *[f"_bmad-output/implementation-artifacts/spec-{sid}*.md" for sid in track.task_ids],
+            *[f"_bmad-output/implementation-artifacts/*{sid}*.md" for sid in track.task_ids],
+            *[f"tickets/*{sid}*.md" for sid in track.task_ids],
+            *[f"stories/*{sid}*.md" for sid in track.task_ids],
+            *[f".scratch/**/issues/*{sid}*.md" for sid in track.task_ids],
         ]
+        stories_yaml = self._find_stories_yaml()
+        if stories_yaml and stories_yaml.is_file():
+            try:
+                rel = stories_yaml.relative_to(self.repo_root).as_posix()
+                if rel not in globs:
+                    globs.append(rel)
+            except ValueError:
+                pass
+        return globs
 
     def get_forbidden_files(self, wave: Wave, track: WaveTrack) -> dict[str, str]:
         """Return immutable epic context files during wave execution."""
@@ -1121,10 +1137,25 @@ class BMADAdapter:
                     files.append(rel)
             except ValueError:
                 pass
+        for tf in self._find_ticket_files():
+            try:
+                rel = tf.relative_to(self.repo_root).as_posix()
+                if rel not in files:
+                    files.append(rel)
+            except ValueError:
+                pass
         if not files:
             files.append("_bmad-output/implementation-artifacts/sprint-status.yaml")
         return files
 
     def get_change_worktree(self, change_id: str) -> Path | None:
         """Return Path to assigned worktree if supported by framework or None."""
+        return None
+
+    def update_state_on_merge(
+        self,
+        wave_number: int,
+        merged_task_ids: Sequence[str],
+    ) -> Path | None:
+        """Post-merge hook for BMAD state synchronization."""
         return None
