@@ -581,6 +581,21 @@ You keep your agent and your prompts. After `sdd-parallel prepare --wave 1`, `sd
 | OpenSpec | `/opsx:apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
+> 📦 **GitHub Spec Kit Official Extension (`extension.yml` & `commands/`):**
+> Install `sdd-parallel` directly as a first-class Spec Kit extension:
+> ```bash
+> # Direct Zero-Wait installation (v0.2.1):
+> specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip
+>
+> # Or via Community Catalog:
+> specify extension add sdd-parallel
+> ```
+> Native Spec Kit slash commands:
+> - `/specify plan-waves` — deterministic parallel wave planning from `specs/*/tasks.md`
+> - `/specify prepare-wave --wave 1` — provisions isolated `track-a/b/c` worktrees and scope locks
+> - `/specify merge-wave --wave 1` — barrier gates, monotonic 3-way checkbox merge, and slot teardown
+
+
 | Harness | How it plugs in |
 | :--- | :--- |
 | **Claude Code** (`claude`) | Open `claude` inside `.worktrees/track-a`; out-of-scope writes are blocked by native `permissions.blockWritesOutsideWorkingDirectories: true` plus `PreToolUse` hook and OS `chmod a-w`. Or spawn all tracks with `sdd-parallel autopilot --wave 1 --harness claude-code` (fixed slots `track-a/b/c`, explicit `--model`). |

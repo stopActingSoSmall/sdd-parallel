@@ -504,3 +504,44 @@ class SpecKitAdapter:
     def get_change_worktree(self, change_id: str) -> Path | None:
         """Return Path to assigned worktree if supported by framework or None."""
         return None
+
+    def get_extension_manifest_path(self) -> Path:
+        """Return path to extension.yml in the repository root."""
+        return self.repo_root / "extension.yml"
+
+    def has_extension_manifest(self) -> bool:
+        """Return True if extension.yml exists in repository root."""
+        return self.get_extension_manifest_path().is_file()
+
+    def load_extension_manifest(self) -> dict[str, Any] | None:
+        """Load parsed extension.yml if present."""
+        path = self.get_extension_manifest_path()
+        if not path.is_file():
+            return None
+        from ruamel.yaml import YAML
+
+        yaml_parser = YAML(typ="safe")
+        try:
+            data = yaml_parser.load(path.read_text(encoding="utf-8-sig"))
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    def validate_extension(self) -> dict[str, Any]:
+        """Validate extension.yml and command markdown templates."""
+        from sdd_parallel.plugin_installer import validate_spec_kit_extension
+
+        return validate_spec_kit_extension(package_root=self.repo_root)
+
+    def get_extension_commands(self) -> list[str]:
+        """Return list of command names declared in extension.yml."""
+        manifest = self.load_extension_manifest()
+        if not manifest or "commands" not in manifest:
+            return []
+        cmds = manifest["commands"]
+        if isinstance(cmds, dict):
+            return [str(k) for k in cmds.keys()]
+        if isinstance(cmds, list):
+            return [str(c.get("name", "")) for c in cmds if isinstance(c, dict) and "name" in c]
+        return []
+

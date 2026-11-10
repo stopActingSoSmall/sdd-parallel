@@ -1,0 +1,27 @@
+schema_version: "1.0"
+id: "sdd-parallel"
+name: "SDD-Parallel Waves & Worktrees"
+version: "0.2.1"
+description: "Deterministic BSP wave scheduler and isolated git worktrees for Spec Kit"
+homepage: "https://github.com/stopActingSoSmall/sdd-parallel"
+repository: "https://github.com/stopActingSoSmall/sdd-parallel"
+license: "MIT"
+author: "stopActingSoSmall"
+keywords:
+  - "spec-kit"
+  - "parallel"
+  - "bsp"
+  - "git-worktree"
+  - "sdd"
+  - "merge-conflicts"
+requires:
+  speckit_version: ">=0.1.0"
+commands:
+  plan-waves: commands/plan-waves.md
+  prepare-wave: commands/prepare-wave.md
+  merge-wave: commands/merge-wave.md
+extension:
+  id: "sdd-parallel"
+  name: "SDD-Parallel Waves & Worktrees"
+  version: "0.2.1"
+  description: "Deterministic BSP wave scheduler and isolated git worktrees for Spec Kit"
