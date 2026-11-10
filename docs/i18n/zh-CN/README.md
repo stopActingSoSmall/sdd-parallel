@@ -37,10 +37,10 @@
 > **并行运行多个 AI 编程智能体 —— 提速高达 3 倍，彻底告别合并炸弹 (Zero Merge-Bombs)。**  
 > `sdd-parallel` 是连接您的 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 任务代办积压与负责落地的编程智能体（**Claude Code**、**Codex**、**Antigravity** 或任何支持 worktree 的 CLI）之间的确定性交通管制调度员、worktree 隔离器和爆炸半径护卫门禁。
 
-https://github.com/user-attachments/assets/c660876b-4533-4786-94da-e02a00475e1b
+https://github.com/user-attachments/assets/76b8c429-3146-43b9-9ba9-89de15f97b13
 
 <p align="center">
-  <em>🎬 <b>1080p 完整视频导览 (英文配音, 03:30)</b> · 🇷🇺 <a href="../ru/README.md">俄文配音 (03:25)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">在线交互式 Wave Inspector</a></em>
+  <em>🎬 <b>1080p 完整视频导览 (英文配音, 03:49)</b> · 🇷🇺 <a href="../ru/README.md">俄文配音 (03:55)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">在线交互式 Wave Inspector</a></em>
 </p>
 
 ---
@@ -683,4 +683,4 @@ uv run sdd-parallel demo --kit all     # 离线 5 大套件全量演示
 
 - **参与贡献：** 请参阅 **[贡献指南](../../../CONTRIBUTING.md)** 了解开发环境搭建与拉取请求（PR）门禁规范。
 - **安全策略：** 发现漏洞请按照 **[安全策略](../../../SECURITY.md)** 中的说明进行报告。
-- **许可证：** MIT 授权 —— 详见 [LICENSE](../../../LICENSE)。
+- **许可证：** MIT 授权 —— 详见 [LICENSE](../../../LICENSE)（语音旁白基于 [ElevenLabs](https://elevenlabs.io) 技术生成）。
