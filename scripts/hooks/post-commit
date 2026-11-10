@@ -1,0 +1,9 @@
+#!/bin/sh
+# sdd-parallel post-commit hook (syncs docs mirror to Google Drive)
+# Triggered automatically after successful git commit (<0.5s execution)
+
+if [ "$SKIP_DOCS_MIRROR" = "1" ]; then
+    exit 0
+fi
+
+uv run python -X utf8 scripts/sync_docs_mirror.py

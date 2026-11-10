@@ -37,10 +37,10 @@
 > **Run Multiple AI Coding Agents in Parallel — Up to 3x Faster, Zero Merge-Bombs.**  
 > `sdd-parallel` is the deterministic traffic controller, worktree isolator, and blast-radius guard between your **Spec Kit / BMAD / GSD / OpenSpec / Beads** backlog and the coding agents (**Claude Code**, **Codex**, **Antigravity**, or any worktree-capable CLI) that implement it.
 
-https://github.com/user-attachments/assets/c660876b-4533-4786-94da-e02a00475e1b
+https://github.com/user-attachments/assets/76b8c429-3146-43b9-9ba9-89de15f97b13
 
 <p align="center">
-  <em>🎬 <b>Full 1080p Explainer Video (03:30)</b> · 🇷🇺 <a href="docs/i18n/ru/README.md">Смотреть на русском (RU, 03:25)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Live Interactive Wave Inspector</a></em>
+  <em>🎬 <b>Full 1080p Explainer Video (03:49)</b> · 🇷🇺 <a href="docs/i18n/ru/README.md">Смотреть на русском (RU, 03:55)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Live Interactive Wave Inspector</a></em>
 </p>
 
 Prefer to explore hands-on? Open the **[⚡ Live Interactive Wave Inspector](https://stopactingsosmall.github.io/sdd-parallel/)** (zero-install browser demo) or read the [4-step annotated walkthrough below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough).
@@ -722,7 +722,7 @@ uv run sdd-parallel demo --kit all     # offline 5-kit demo
 
 - **Contributing:** see the **[Contributing Guide](CONTRIBUTING.md)** for environment setup and pull-request gates.
 - **Security:** report vulnerabilities as described in the **[Security Policy](SECURITY.md)**.
-- **License:** MIT — see [LICENSE](LICENSE).
+- **License:** MIT — see [LICENSE](LICENSE) (Voiceover narration powered by [ElevenLabs](https://elevenlabs.io)).
 
 ### 💼 Commercial Audits & Enterprise Monorepo Support
 
