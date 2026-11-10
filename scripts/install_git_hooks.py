@@ -55,9 +55,20 @@ echo "[drift-sentinel] Running repository integrity and architecture drift check
 uv run python -X utf8 scripts/drift_sentinel.py --strict
 """
 
+_POST_COMMIT_SCRIPT = """#!/bin/sh
+# sdd-parallel post-commit hook (installed by scripts/install_git_hooks.py)
+# Automatically syncs decoupled documentation mirror to Google Drive (<0.5s)
 
-def install_hooks(repo_root: Path) -> tuple[Path, Path]:
-    """Install pre-commit and pre-push hooks in .git/hooks directory."""
+if [ "$SKIP_DOCS_MIRROR" = "1" ]; then
+    exit 0
+fi
+
+uv run python -X utf8 scripts/sync_docs_mirror.py
+"""
+
+
+def install_hooks(repo_root: Path) -> tuple[Path, Path, Path]:
+    """Install pre-commit, pre-push, and post-commit hooks in .git/hooks directory."""
     git_dir = repo_root / ".git"
     if not git_dir.is_dir():
         raise FileNotFoundError(
@@ -69,27 +80,29 @@ def install_hooks(repo_root: Path) -> tuple[Path, Path]:
 
     pre_commit = hooks_dir / "pre-commit"
     pre_push = hooks_dir / "pre-push"
+    post_commit = hooks_dir / "post-commit"
 
     # Write hook contents using LF line endings for bash compatibility
     pre_commit.write_bytes(_PRE_COMMIT_SCRIPT.encode("utf-8"))
     pre_push.write_bytes(_PRE_PUSH_SCRIPT.encode("utf-8"))
+    post_commit.write_bytes(_POST_COMMIT_SCRIPT.encode("utf-8"))
 
     # Make hooks executable
-    for p in (pre_commit, pre_push):
+    for p in (pre_commit, pre_push, post_commit):
         current_mode = p.stat().st_mode
         p.chmod(current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-    return pre_commit, pre_push
+    return pre_commit, pre_push, post_commit
 
 
 def uninstall_hooks(repo_root: Path) -> None:
     """Remove installed sdd-parallel git hooks."""
     hooks_dir = repo_root / ".git" / "hooks"
-    for hook_name in ("pre-commit", "pre-push"):
+    for hook_name in ("pre-commit", "pre-push", "post-commit"):
         hook_path = hooks_dir / hook_name
         if hook_path.is_file():
             text = hook_path.read_text(encoding="utf-8", errors="ignore")
-            if "sdd-parallel" in text or "drift_sentinel" in text:
+            if any(k in text for k in ("sdd-parallel", "drift_sentinel", "sync_docs_mirror")):
                 hook_path.unlink()
                 print(f"[install_git_hooks] Removed hook: {hook_path}")
 
@@ -120,12 +133,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     try:
-        pre_commit, pre_push = install_hooks(repo_root)
-        print(f"[install_git_hooks] Installed pre-commit hook: {pre_commit}")
-        print(f"[install_git_hooks] Installed pre-push hook:   {pre_push}")
+        pre_commit, pre_push, post_commit = install_hooks(repo_root)
+        print(f"[install_git_hooks] Installed pre-commit hook:  {pre_commit}")
+        print(f"[install_git_hooks] Installed pre-push hook:    {pre_push}")
+        print(f"[install_git_hooks] Installed post-commit hook:  {post_commit}")
         print(
             "[install_git_hooks] Hooks are active "
-            "(bypass with SKIP_DRIFT_SENTINEL=1 or --no-verify)."
+            "(bypass sentinel with SKIP_DRIFT_SENTINEL=1, docs mirror with SKIP_DOCS_MIRROR=1)."
         )
         return 0
     except Exception as e:

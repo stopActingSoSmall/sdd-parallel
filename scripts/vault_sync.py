@@ -277,6 +277,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"({res['private_files_count']} private files, {res['private_bytes']} B): "
                 f"{res['message']}"
             )
+            if os.environ.get("SKIP_DOCS_MIRROR") != "1":
+                try:
+                    try:
+                        from scripts.sync_docs_mirror import sync_docs_mirror
+                    except ModuleNotFoundError:
+                        from sync_docs_mirror import sync_docs_mirror  # type: ignore[no-redef]
+                    m_res = sync_docs_mirror(repo_root=repo_root)
+                    print(
+                        f"[vault_sync] Mirror synced ({m_res.total_source_files} files) -> "
+                        f"{m_res.target_dir}"
+                    )
+                except Exception as m_err:
+                    print(f"[vault_sync] Notice: Docs mirror sync skipped ({m_err})")
             return 0
 
         if args.cmd == "push":
