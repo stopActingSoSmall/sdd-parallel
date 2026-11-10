@@ -37,14 +37,10 @@
 > **여러 AI 코딩 에이전트를 안전하게 병렬 실행 — 최대 3배 빠른 개발, 머지 충돌 폭탄(Merge-Bomb) 제로.**  
 > `sdd-parallel`은 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 백로그와 이를 구현하는 코딩 에이전트(**Claude Code**, **Codex**, **Antigravity** 및 worktree를 지원하는 모든 CLI) 사이에서 동작하는 결정론적 트래픽 컨트롤러이자 워크트리 격리기 및 영향 반경(Blast-Radius) 보호 하네스입니다.
 
+https://github.com/user-attachments/assets/c660876b-4533-4786-94da-e02a00475e1b
+
 <p align="center">
-  <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">
-    <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel v5 비디오 안내 — 무음 머지 폭탄, 대화형 Wave Inspector, 충돌 DAG, 스코프 가드 및 3-Way 병합">
-  </a>
-  <br>
-  <em>🎬 <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">1080p 전체 해설 영상 보기 (영어 음성, 03:30)</a></b> · <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">러시아어 음성 (03:25)</a></b> · MP4 다운로드: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4">EN</a> / <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4">RU</a></em>
-  <br>
-  <sub>챕터별 바로가기: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4">00:00 무음 머지 폭탄 (45초)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4">00:45 Wave Inspector, DAG 및 작업 명세 모달 (1분 39초)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4">02:24 스코프 가드 거부 및 3-Way 병합 (1분 06초)</a></sub>
+  <em>🎬 <b>1080p 전체 안내 영상 (영어 음성, 03:30)</b> · 🇷🇺 <a href="../ru/README.md">러시아어 음성 (03:25)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">온라인 인터랙티브 Wave Inspector</a></em>
 </p>
 
 ---

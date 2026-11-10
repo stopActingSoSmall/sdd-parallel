@@ -37,14 +37,10 @@
 > **并行运行多个 AI 编程智能体 —— 提速高达 3 倍，彻底告别合并炸弹 (Zero Merge-Bombs)。**  
 > `sdd-parallel` 是连接您的 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 任务代办积压与负责落地的编程智能体（**Claude Code**、**Codex**、**Antigravity** 或任何支持 worktree 的 CLI）之间的确定性交通管制调度员、worktree 隔离器和爆炸半径护卫门禁。
 
+https://github.com/user-attachments/assets/c660876b-4533-4786-94da-e02a00475e1b
+
 <p align="center">
-  <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">
-    <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel v5 演示视频导览 — 静默合并炸弹、交互式 Wave Inspector、冲突 DAG、范围守卫与三方合并">
-  </a>
-  <br>
-  <em>🎬 <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">观看 1080p 完整解说视频 (英文配音, 03:30)</a></b> · <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">俄文配音 (03:25)</a></b> · MP4: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4">EN</a> / <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4">RU</a></em>
-  <br>
-  <sub>分集章节: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4">00:00 静默合并炸弹 (45秒)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4">00:45 Wave Inspector、DAG 与任务规范弹窗 (1分39秒)</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4">02:24 范围守卫拦截与三方合并 (1分06秒)</a></sub>
+  <em>🎬 <b>1080p 完整视频导览 (英文配音, 03:30)</b> · 🇷🇺 <a href="../ru/README.md">俄文配音 (03:25)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">在线交互式 Wave Inspector</a></em>
 </p>
 
 ---

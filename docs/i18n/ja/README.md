@@ -37,14 +37,10 @@
 > **複数の AI コーディングエージェントを安全に並行実行 — 最大 3 倍高速化、マージボム（Merge-Bomb）はゼロ。**  
 > `sdd-parallel` は、**Spec Kit / BMAD / GSD / OpenSpec / Beads** のバックログと、それを実装するコーディングエージェント（**Claude Code**、**Codex**、**Antigravity**、または任意の worktree 対応 CLI）の間に立つ、決定論的トラフィックコントローラ、worktree 隔離レイヤ、および影響半径（Blast-Radius）ガードです。
 
+https://github.com/user-attachments/assets/c660876b-4533-4786-94da-e02a00475e1b
+
 <p align="center">
-  <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">
-    <img src="../../assets/demo.gif" width="100%" alt="SDD-Parallel v5 ビデオウォークスルー — 潜在的マージボム、対話型 Wave Inspector、コンフリクト DAG、スコープガード、3-Way マージ">
-  </a>
-  <br>
-  <em>🎬 <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=en">1080p フル解説動画を見る（英語音声, 03:30）</a></b> · <b><a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ru">ロシア語音声（03:25）</a></b> · MP4 ダウンロード: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4">EN</a> / <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4">RU</a></em>
-  <br>
-  <sub>チャプター: <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4">00:00 潜在的マージボム（45秒）</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4">00:45 Wave Inspector、DAG ＆ タスク仕様モーダル（1分39秒）</a> · <a href="https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip3-scope-guard.mp4">02:24 スコープガードによる書き込み拒否 ＆ 3-Way マージ（1分06秒）</a></sub>
+  <em>🎬 <b>1080p フル解説動画（英語音声, 03:30）</b> · 🇷🇺 <a href="../ru/README.md">ロシア語音声（03:25）</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">インタラクティブ Wave Inspector オンライン</a></em>
 </p>
 
 ---

@@ -814,6 +814,7 @@
       <span id="kit-badge" class="kit-badge">KIT: AUTO</span>
       <span id="mode-badge" class="mode-badge">Mode: Local Plan</span>
       <span class="mode-hint">CLI: uvx sdd-parallel inspect --open</span>
+      <a href="https://github.com/stopActingSoSmall/sdd-parallel" class="btn" style="text-decoration: none; font-size: 11px; margin-left: 8px;">← Back to GitHub</a>
     </div>
 
     <div class="stat-summary-bar">
@@ -849,9 +850,10 @@
     <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
       <input type="text" id="search-input" class="search-input" placeholder="Search tasks or files...">
       <input type="file" id="file-picker" accept=".json" style="display: none;">
-      <button class="btn" id="btn-video-guide" style="border-color: var(--accent-blue); color: var(--accent-blue); font-weight: 600;">🎬 Video Guide (EN / RU)</button>
-      <button class="btn" id="btn-load-file">📂 Open JSON</button>
-      <button class="btn" id="btn-load-demo">🧪 Demo Plan</button>
+      <button class="btn" id="btn-video-guide" style="border-color: var(--accent-blue); color: var(--accent-blue); font-weight: 600;" title="Watch full 1080p video walkthrough with voiceover (EN / RU)">🎬 Video Guide (EN / RU)</button>
+      <button class="btn" id="btn-load-demo" title="Reset to the interactive demo preset (T001-T005)">🧪 Demo Plan (Active)</button>
+      <button class="btn" id="btn-load-file" title="Load your project's plan.json generated via: sdd-parallel plan --json > plan.json">📂 Load Custom JSON</button>
+      <span title="How to get plan.json: run 'uvx sdd-parallel plan --json > plan.json' in your repository to export its dependency DAG and wave schedule. What you see now is the built-in interactive demo plan." style="cursor: help; color: var(--text-muted); font-size: 13px; padding: 2px 6px; border: 1px solid var(--border-muted); border-radius: 50%; font-family: var(--font-mono);">?</span>
     </div>
   </div>
 
@@ -970,8 +972,7 @@
             <button class="btn" data-seek="130">02:10 Scope Guard &amp; 3-Way Merge</button>
           </div>
         </div>
-        <video id="explainer-video-player" controls preload="metadata" style="width: 100%; border-radius: 8px; border: 1px solid var(--border-color); background: #000; max-height: 70vh;">
-          <source id="explainer-video-src" src="./video/sdd-parallel-explainer-en.mp4" type="video/mp4">
+        <video id="explainer-video-player" controls preload="metadata" playsinline style="width: 100%; border-radius: 8px; border: 1px solid var(--border-color); background: #000; max-height: 70vh;">
         </video>
       </div>
     </div>
@@ -1296,12 +1297,34 @@
 
       const modeBadge = document.getElementById('mode-badge');
       const isDemo = plan.is_demo === true || plan.sdd_kit === "spec-kit" && (plan.waves && plan.waves.length === 3 && plan.waves[0].tracks && plan.waves[0].tracks[0].track_id === "track-a");
+      const btnDemo = document.getElementById('btn-load-demo');
+      const btnFile = document.getElementById('btn-load-file');
       if (isDemo) {
         modeBadge.textContent = "Mode: Interactive Demo Preset";
         modeBadge.className = "mode-badge demo";
+        if (btnDemo) {
+          btnDemo.innerHTML = "🧪 Demo Plan <span style='font-size:10px; opacity:0.8;'>(Active)</span>";
+          btnDemo.style.borderColor = "var(--accent-amber)";
+          btnDemo.style.color = "var(--accent-amber)";
+        }
+        if (btnFile) {
+          btnFile.innerHTML = "📂 Load Custom JSON";
+          btnFile.style.borderColor = "";
+          btnFile.style.color = "";
+        }
       } else {
         modeBadge.textContent = "Mode: Local Project Plan";
         modeBadge.className = "mode-badge";
+        if (btnDemo) {
+          btnDemo.innerHTML = "🧪 Demo Plan";
+          btnDemo.style.borderColor = "";
+          btnDemo.style.color = "";
+        }
+        if (btnFile) {
+          btnFile.innerHTML = "📂 Custom Plan <span style='font-size:10px; opacity:0.8;'>(Active)</span>";
+          btnFile.style.borderColor = "var(--accent-green)";
+          btnFile.style.color = "var(--accent-green)";
+        }
       }
 
       const waves = plan.waves || [];
@@ -1957,17 +1980,25 @@
       const btnRu = document.getElementById('btn-vid-ru');
       if (!vModal || !vBtn || !vPlayer) return;
 
+      const VIDEO_SRCS = {
+        en: 'https://github.com/user-attachments/assets/c660876b-4533-4786-94da-e02a00475e1b',
+        ru: 'https://github.com/user-attachments/assets/4c42a993-72c5-4040-9047-c222a10e7d4b'
+      };
+
+      let currentLang = 'en';
+
       function setLang(lang, seekSec) {
-        const src = lang === 'ru' ? './video/sdd-parallel-explainer-ru.mp4' : './video/sdd-parallel-explainer-en.mp4';
-        if (vPlayer.getAttribute('src') !== src) {
-          vPlayer.setAttribute('src', src);
+        currentLang = (lang === 'ru') ? 'ru' : 'en';
+        const targetSrc = VIDEO_SRCS[currentLang];
+        if (vPlayer.src !== targetSrc) {
+          vPlayer.src = targetSrc;
           vPlayer.load();
         }
         if (btnEn && btnRu) {
-          btnEn.style.borderColor = lang === 'en' ? 'var(--accent-blue)' : '';
-          btnEn.style.color = lang === 'en' ? 'var(--accent-blue)' : '';
-          btnRu.style.borderColor = lang === 'ru' ? 'var(--accent-blue)' : '';
-          btnRu.style.color = lang === 'ru' ? 'var(--accent-blue)' : '';
+          btnEn.style.borderColor = currentLang === 'en' ? 'var(--accent-blue)' : '';
+          btnEn.style.color = currentLang === 'en' ? 'var(--accent-blue)' : '';
+          btnRu.style.borderColor = currentLang === 'ru' ? 'var(--accent-blue)' : '';
+          btnRu.style.color = currentLang === 'ru' ? 'var(--accent-blue)' : '';
         }
         if (typeof seekSec === 'number' && !isNaN(seekSec)) {
           vPlayer.currentTime = seekSec;
