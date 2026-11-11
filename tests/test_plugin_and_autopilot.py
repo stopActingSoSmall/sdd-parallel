@@ -44,6 +44,7 @@ def test_configure_claude_settings_creates_and_preserves(tmp_path: Path) -> None
     assert settings_file.is_file()
     data = json.loads(settings_file.read_text(encoding="utf-8"))
     assert data["permissions"]["blockWritesOutsideWorkingDirectories"] is True
+    assert data["permissions"]["denyInsteadOfPrompting"] is True
 
     # Test preserving existing properties and permissions
     (slot_dir / ".claude" / "settings.local.json").write_text(
@@ -55,6 +56,7 @@ def test_configure_claude_settings_creates_and_preserves(tmp_path: Path) -> None
     assert updated["existingKey"] == "value"
     assert updated["permissions"]["customPerm"] is True
     assert updated["permissions"]["blockWritesOutsideWorkingDirectories"] is True
+    assert updated["permissions"]["denyInsteadOfPrompting"] is True
 
 
 def test_install_plugin_falls_back_to_embedded_skill_resource(tmp_path: Path) -> None:
@@ -164,6 +166,10 @@ def test_autopilot_launcher_routes_models_across_harnesses(tmp_path: Path) -> No
     cc_specs = launcher.build_launch_specs(plan, wave_number=1, harness="claude-code")
     assert cc_specs[0]["model"] == "claude-opus-4-6"
     assert cc_specs[1]["model"] == "claude-haiku-4-5"
+    assert cc_specs[0]["env"]["CLAUDE_CODE_SUBAGENT_EFFORT"] == "high"
+    assert cc_specs[0]["env"]["CLAUDE_CODE_PLUGIN_DIR_WATCH"] == "0"
+    assert cc_specs[0]["env"]["CLAUDE_CODE_DISABLE_MCP_TASK_BACKGROUND"] == "1"
+    assert cc_specs[1]["env"]["CLAUDE_CODE_SUBAGENT_EFFORT"] == "low"
     assert cc_specs[0]["argv"] == [
         "claude",
         "-p",

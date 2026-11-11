@@ -607,6 +607,15 @@ class WorktreeManager:
             for k, v in sorted(lock.env_vars.items()):
                 lines.append(f"- `export {k}={v}` (Bash) / `$env:{k}=\"{v}\"` (PowerShell)")
 
+        lines.extend(
+            [
+                "",
+                "## Context & Token Hygiene (Read Cache Protection)",
+                "- Do NOT repeatedly re-read unchanged contract, spec, or context "
+                "files already loaded in the session.",
+            ]
+        )
+
         if headless:
             lines.extend(
                 [

@@ -50,6 +50,9 @@ def test_get_adapter_instantiates_all_supported_kits(tmp_path: Path) -> None:
     kit, adapter = get_adapter(tmp_path, kit="beads")
     assert kit == "beads" and isinstance(adapter, BeadsAdapter)
 
+    kit, adapter = get_adapter(tmp_path, kit="custom")
+    assert kit == "custom" and adapter.__class__.__name__ == "CustomManifestAdapter"
+
 
 def test_detect_sdd_kits_discovers_all_five_ecosystems(tmp_path: Path) -> None:
     (tmp_path / "_bmad").mkdir()

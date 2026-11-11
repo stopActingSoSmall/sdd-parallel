@@ -317,6 +317,28 @@ def test_terminal_guard_denies_bash_write_to_forbidden_files(tmp_path: Path) -> 
     )
     assert d_rm.decision == "deny"
 
+    # 3b. Deny absolute binary path /bin/rm, /usr/bin/cp, /bin/mv (Claude Code v2.1.321 parity)
+    d_bin_rm = evaluate_tool_access(
+        tool_name="Bash",
+        tool_input={"command": "/bin/rm src/agentlens/canonical/manifest.py"},
+        cwd=wt_root,
+    )
+    assert d_bin_rm.decision == "deny"
+
+    d_usr_cp = evaluate_tool_access(
+        tool_name="Bash",
+        tool_input={"command": "/usr/bin/cp evil.py src/agentlens/canonical/manifest.py"},
+        cwd=wt_root,
+    )
+    assert d_usr_cp.decision == "deny"
+
+    d_bin_mv = evaluate_tool_access(
+        tool_name="run_command",
+        tool_input={"CommandLine": "/bin/mv evil.py src/agentlens/canonical/manifest.py"},
+        cwd=wt_root,
+    )
+    assert d_bin_mv.decision == "deny"
+
     # 4. Deny sed -i in-place editing of spine file
     d_sed = evaluate_tool_access(
         tool_name="Bash",

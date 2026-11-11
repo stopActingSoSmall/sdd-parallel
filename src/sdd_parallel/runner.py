@@ -148,6 +148,11 @@ def _create_default_invoker(
                 "json",
             ]
         elif h_norm == "claude-code":
+            if effort is not None:
+                env.setdefault("CLAUDE_CODE_SUBAGENT_EFFORT", effort.value)
+            env.setdefault("CLAUDE_CODE_PLUGIN_DIR_WATCH", "0")
+            env.setdefault("CLAUDE_CODE_DISABLE_MCP_TASK_BACKGROUND", "1")
+            env_full = {**dict(os.environ), **env}
             argv = [
                 "claude",
                 "-p",
@@ -589,6 +594,11 @@ class WaveRunner:
                 wt_path = self.worktrees_dir / track.track_id
             else:
                 wt_path = self.worktrees_dir / f"wave-{wave_number}-{track.track_id}"
+            extra_env: dict[str, str] = {}
+            if self.harness == "claude-code":
+                extra_env["CLAUDE_CODE_SUBAGENT_EFFORT"] = track.effort.value
+                extra_env["CLAUDE_CODE_PLUGIN_DIR_WATCH"] = "0"
+                extra_env["CLAUDE_CODE_DISABLE_MCP_TASK_BACKGROUND"] = "1"
             ctx = TrackExecutionContext(
                 repo_root=self.repo_root,
                 worktree_path=wt_path,
@@ -599,6 +609,7 @@ class WaveRunner:
                 timeout_seconds=self.timeout_seconds,
                 invoker=self.invoker,
                 reviewer_fn=self.reviewer_fn,
+                extra_env=extra_env,
             )
             contexts.append(ctx)
 

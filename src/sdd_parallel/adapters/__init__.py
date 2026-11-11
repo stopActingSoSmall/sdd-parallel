@@ -10,6 +10,7 @@ from typing import Protocol
 
 from sdd_parallel.adapters.beads import BeadsAdapter
 from sdd_parallel.adapters.bmad import BMADAdapter
+from sdd_parallel.adapters.custom import CustomManifestAdapter
 from sdd_parallel.adapters.gsd_hijack import GSDHijackAdapter
 from sdd_parallel.adapters.openspec import OpenSpecAdapter
 from sdd_parallel.adapters.spec_kit import SpecKitAdapter
@@ -105,6 +106,7 @@ ADAPTER_REGISTRY: dict[str, type[SDDAdapterProtocol]] = {
     "gsd": GSDHijackAdapter,
     "openspec": OpenSpecAdapter,
     "beads": BeadsAdapter,
+    "custom": CustomManifestAdapter,
 }
 
 
@@ -166,6 +168,7 @@ __all__ = [
     "ADAPTER_REGISTRY",
     "BMADAdapter",
     "BeadsAdapter",
+    "CustomManifestAdapter",
     "GSDHijackAdapter",
     "OpenSpecAdapter",
     "SDDAdapterProtocol",

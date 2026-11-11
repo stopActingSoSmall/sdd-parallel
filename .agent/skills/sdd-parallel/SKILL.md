@@ -131,3 +131,4 @@ All subcommands exposed by `sdd-parallel`:
 - `demo`: Run standalone 5-second Merge-Bomb demo and multi-kit verification.
 - `bench`: Run retrospective benchmark & confusion matrix evaluation on git history or synthetic demo.
 - `inspect`: Launch or generate standalone interactive HTML Wave Inspector for wave plans and slot status.
+- `init-custom`: Interactive onboarding wizard to configure custom SDD roadmap (.parallel/custom-kit.yaml).
