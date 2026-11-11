@@ -164,9 +164,10 @@ def sanitize_antigravity_settings_hooks(
 
 
 def configure_claude_settings(target_dir: Path) -> Path:
-    """Configure Claude Code settings.local.json with blockWritesOutsideWorkingDirectories.
+    """Configure Claude Code settings.local.json with directory lock and non-blocking refusal.
 
-    Ensures native directory write protection (Claude Code v2.1.314+) without
+    Ensures native directory write protection (Claude Code v2.1.314+) and
+    non-blocking refusal (denyInsteadOfPrompting in v2.1.319+) without
     polluting git status (when paired with git info/exclude).
     """
     claude_dir = target_dir / ".claude"
@@ -181,8 +182,12 @@ def configure_claude_settings(target_dir: Path) -> Path:
     perms = data.setdefault("permissions", {})
     if isinstance(perms, dict):
         perms["blockWritesOutsideWorkingDirectories"] = True
+        perms["denyInsteadOfPrompting"] = True
     else:
-        data["permissions"] = {"blockWritesOutsideWorkingDirectories": True}
+        data["permissions"] = {
+            "blockWritesOutsideWorkingDirectories": True,
+            "denyInsteadOfPrompting": True,
+        }
     settings_file.write_text(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",

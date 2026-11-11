@@ -310,9 +310,30 @@ class ASTHotspotScanner:
         task: TaskNode,
         extra_text: str = "",
     ) -> list[str]:
-        """Scan task description/title/notes for symbol references and enrich task.write_files."""
+        """Scan task description/title/notes for symbol references and enrich task files.
+
+        Invariant A (Context-Read vs Target-Write Disambiguation):
+        - If task.write_files is initially empty: resolved symbols identify target files for
+          symbol-only tasks and are added to task.write_files. Symbols found in task.title
+          take precedence over context symbols in task.description.
+        - If task.write_files is already non-empty: resolved symbols from other files represent
+          context-read references (input dependencies). They are added to task.impact_files
+          to enforce Type-2 semantic collision detection (W_A ∩ I_B != ∅) without falsely
+          claiming Spine Locks or polluting task.write_files.
+        """
         if not self._symbols_to_files:
             self.scan()
+
+        newly_added: list[str] = []
+
+        # 1. If write_files is empty, prioritize title symbols as primary write targets
+        if not task.write_files and task.title:
+            found_title_files = self.resolve_symbols_in_text(task.title)
+            for file_path in sorted(found_title_files):
+                norm = file_path.replace("\\", "/")
+                if norm not in task.write_files:
+                    task.write_files.append(norm)
+                    newly_added.append(norm)
 
         combined_text = "\n".join(
             filter(
@@ -326,12 +347,20 @@ class ASTHotspotScanner:
             )
         )
         found_files = self.resolve_symbols_in_text(combined_text)
-        newly_added: list[str] = []
+        is_write_empty = not task.write_files
+
         for file_path in sorted(found_files):
             norm = file_path.replace("\\", "/")
-            if norm not in task.write_files:
-                task.write_files.append(norm)
-                newly_added.append(norm)
+            if is_write_empty:
+                if norm not in task.write_files:
+                    task.write_files.append(norm)
+                    newly_added.append(norm)
+            else:
+                # Context-Read symbol: enrich impact_files for semantic collision checking
+                if norm not in task.write_files and norm not in task.impact_files:
+                    task.impact_files.append(norm)
+                    newly_added.append(norm)
+
         return newly_added
 
     def link_tasks(

@@ -98,7 +98,12 @@ All framework adapters adhere to a **Read-Only ACL** contract during scheduling:
 - **OpenSpec:** Scans `openspec/changes/` directory (`proposal.md`, `tasks.md`, `.openspec.yaml` manifests per `WRK-01..04`). Syncs canonical specifications to track overlay per `WRK-03` and dispatches worker command `/opsx:apply <id>`.
 - **Beads:** Parses the streaming JSONL task log at `.beads/issues.jsonl` or `.beads/beads.jsonl` with `blocks` / `blocked_by` relational links.
 
-### 2.5. Summary Protection, Isolation & Merge Matrix for 5 SDD Ecosystems
+### 2.5. Pluggable Custom SDD Adapter (`custom`)
+- **Target Manifest:** `.parallel/custom-kit.yaml` or `.parallel/custom-adapter.yaml`.
+- **Purpose:** Onboards arbitrary in-house and proprietary SDD workflows (two-tier roadmaps, custom Markdown task files, YAML issue backlogs, custom status semi-lattices) via the `CustomManifestAdapter`.
+- **Wizard Setup:** Interactive CLI onboarding via `sdd-parallel init-custom`.
+
+### 2.6. Summary Protection, Isolation & Merge Matrix for SDD Ecosystems
 
 | SDD Framework (`kit`) | Input Roadmaps / Tasks | Permitted Metadata Files (`allowed_write_globs`) | Protected System Files (`forbidden_files`) | 3-Way Status Merge Strategy | Worker Launch Command (`run-guide`) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -107,6 +112,7 @@ All framework adapters adhere to a **Read-Only ACL** contract during scheduling:
 | **GSD** (`gsd`) | `.planning/phases/*-PLAN.md` | `.planning/phases/**` | `STATE.md`, `ROADMAP.md`, `PROJECT.md`, `REQUIREMENTS.md` | Worktree isolation (*Artifact Hijack*) | `/gsd-execute-phase <id>` |
 | **OpenSpec** (`openspec`) | `openspec/changes/*/tasks.md`, `.openspec.yaml` | `openspec/changes/{sid}/**` | `openspec/project.md`, `openspec/specs/**`, sibling changes | `merge_markdown_task_checklists` (monotonic `[x]`) | `/opsx:apply <id>` |
 | **Beads** (`beads`) | `.beads/issues.jsonl` | `.beads/issues.jsonl` | `.beads/config.yaml` | `merge_beads_issues_jsonl` (monotonic by ID) | `bd update <id> --status in-progress` |
+| **Custom SDD** (`custom`) | `.parallel/custom-kit.yaml`, `specs/**`, `phases/**` | Declared in `allowed_write_globs` | Declared in `forbidden_files` | Monotonic status merge via `status_ranks` | Templated `worker_command` |
 
 ---
 

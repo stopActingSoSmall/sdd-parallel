@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
@@ -147,12 +148,39 @@ class BeadsAdapter:
             return EffortTier.LOW
         return EffortTier.MEDIUM
 
+    def _try_export_from_bd_cli(self) -> bool:
+        """Export Dolt database to JSONL using native bd CLI if available."""
+        try:
+            res = subprocess.run(
+                ["bd", "export", "-o", str(self.issues_path)],
+                cwd=self.repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return (
+                res.returncode == 0
+                and self.issues_path.is_file()
+                and self.issues_path.stat().st_size > 0
+            )
+        except OSError:
+            return False
+
     def load_tasks(
         self,
         include_done: bool = False,
         plan_source: str = "auto",
     ) -> list[TaskNode]:
         """Load issues from .beads/issues.jsonl and enrich with file footprints."""
+        if (
+            not self.issues_path.is_file()
+            or self.issues_path.stat().st_size == 0
+        ) and (
+            (self.beads_dir / "embeddeddolt").is_dir()
+            or (self.beads_dir / "config.yaml").is_file()
+        ):
+            self._try_export_from_bd_cli()
+
         if not self.issues_path.is_file():
             return []
 
@@ -173,9 +201,16 @@ class BeadsAdapter:
             raw_status = str(record.get("status") or "backlog").lower()
             if raw_status in {"closed", "done", "resolved", "completed"}:
                 status = TaskStatus.DONE
-            elif raw_status in {"in_progress", "in-progress", "started", "active", "wip"}:
+            elif raw_status in {
+                "in_progress",
+                "in-progress",
+                "started",
+                "active",
+                "wip",
+                "hooked",
+            }:
                 status = TaskStatus.IN_PROGRESS
-            elif raw_status in {"blocked"}:
+            elif raw_status in {"blocked", "deferred"}:
                 status = TaskStatus.BLOCKED
             else:
                 status = TaskStatus.READY_FOR_DEV
@@ -239,6 +274,17 @@ class BeadsAdapter:
                 rec["closed_at"] = None
             new_lines.append(json.dumps(rec, ensure_ascii=False))
         self.issues_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        if (self.beads_dir / "embeddeddolt").is_dir() or (self.beads_dir / "config.yaml").is_file():
+            try:
+                subprocess.run(
+                    ["bd", "import", "--allow-stale", "-i", str(self.issues_path)],
+                    cwd=self.repo_root,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            except OSError:
+                pass
 
     def cleanup_wave_artifacts(self, wave_id: int, task_ids: Sequence[str]) -> None:
         """Reset tasks and clean wave artifacts."""
@@ -268,7 +314,16 @@ class BeadsAdapter:
                         ".parallel",
                         ".worktrees",
                         ".parallel-lock.json",
+                        ".beads/dolt",
+                        ".beads/embeddeddolt",
+                        ".beads/proxieddb",
+                        ".beads/export-state",
                     )
+                ):
+                    continue
+                if path_part.startswith(".beads/") and (
+                    path_part.endswith((".db", ".db-wal", ".db-shm", ".lock", ".sqlite3"))
+                    or Path(path_part).name.startswith("daemon.")
                 ):
                     continue
                 dirty_lines.append(raw_line.strip())
@@ -337,4 +392,28 @@ class BeadsAdapter:
 
     def get_change_worktree(self, change_id: str) -> Path | None:
         """Return Path to assigned worktree if supported by framework or None."""
+        return None
+
+    def update_state_on_merge(
+        self,
+        wave_number: int,
+        merged_task_ids: Sequence[str],
+    ) -> Path | None:
+        """Synchronize Beads embedded dolt database with merged beads.jsonl."""
+        if not shutil.which("bd"):
+            return None
+        target_file = self.issues_path
+        if target_file.is_file():
+            try:
+                rel_path = target_file.relative_to(self.repo_root).as_posix()
+                subprocess.run(
+                    ["bd", "import", "--allow-stale", "-i", rel_path],
+                    cwd=self.repo_root,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+            except Exception:
+                pass
         return None

@@ -607,6 +607,15 @@ class WorktreeManager:
             for k, v in sorted(lock.env_vars.items()):
                 lines.append(f"- `export {k}={v}` (Bash) / `$env:{k}=\"{v}\"` (PowerShell)")
 
+        lines.extend(
+            [
+                "",
+                "## Context & Token Hygiene (Read Cache Protection)",
+                "- Do NOT repeatedly re-read unchanged contract, spec, or context "
+                "files already loaded in the session.",
+            ]
+        )
+
         if headless:
             lines.extend(
                 [
@@ -1610,30 +1619,30 @@ class WorktreeManager:
                             check=False,
                         )
 
-        if plan.sdd_kit == "gsd" and merged_branches:
-            from sdd_parallel.adapters.gsd_hijack import GSDHijackAdapter
-
-            gsd_adapter = GSDHijackAdapter(self.repo_root)
-            updated_state = gsd_adapter.update_state_on_merge(
-                wave_number=wave_number,
-                merged_task_ids=target_wave.all_task_ids,
-            )
-            if updated_state and updated_state.is_file():
-                subprocess.run(
-                    ["git", "add", updated_state.relative_to(self.repo_root).as_posix()],
-                    cwd=self.repo_root,
-                    check=False,
+        if merged_branches:
+            try:
+                _, adapter = get_adapter(self.repo_root, kit=plan.sdd_kit or "auto")
+                updated_state = adapter.update_state_on_merge(
+                    wave_number=wave_number,
+                    merged_task_ids=target_wave.all_task_ids,
                 )
-                subprocess.run(
-                    [
-                        "git",
-                        "commit",
-                        "-m",
-                        f"chore(gsd): update STATE.md after Wave {wave_number} checkpoint merge",
-                    ],
-                    cwd=self.repo_root,
-                    check=False,
-                )
+                if updated_state and updated_state.is_file():
+                    subprocess.run(
+                        ["git", "add", updated_state.relative_to(self.repo_root).as_posix()],
+                        cwd=self.repo_root,
+                        check=False,
+                    )
+                    msg = (
+                        f"chore({adapter.kit_id}): update state after Wave {wave_number} "
+                        "checkpoint merge"
+                    )
+                    subprocess.run(
+                        ["git", "commit", "-m", msg],
+                        cwd=self.repo_root,
+                        check=False,
+                    )
+            except Exception:
+                pass
 
         if run_quality_gates and merged_branches:
             gates = (

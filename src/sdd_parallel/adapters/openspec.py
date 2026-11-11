@@ -11,6 +11,7 @@ from typing import Any
 from sdd_parallel.models import EffortTier, TaskNode, TaskStatus, Wave, WaveTrack
 
 _CHECKLIST_RE = re.compile(r"^\s*[-*]\s*\[([ xX])\]\s*(.+)$")
+_SECTION_HEADER_RE = re.compile(r"^##\s+(.+?)(?:\s+#+)?\s*$")
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL)
 _TITLE_RE = re.compile(r"^#+\s+(?:Proposal|Change|RFC)?[:\s]*(.+)$", re.IGNORECASE | re.MULTILINE)
 _BACKTICK_PATH_RE = re.compile(
@@ -180,6 +181,8 @@ class OpenSpecAdapter:
                         data.get("worktree")
                         or data.get("worktree_path")
                         or data.get("workspace")
+                        or data.get("x-worktree")
+                        or data.get("x_worktree")
                     )
                     if wt_val and isinstance(wt_val, str) and wt_val.strip():
                         p = Path(wt_val.strip())
@@ -234,8 +237,9 @@ class OpenSpecAdapter:
             order_idx = 0
             for line in project_file.read_text(encoding="utf-8-sig").splitlines():
                 sline = line.strip()
-                if sline.startswith("## "):
-                    cur_phase = sline[3:].strip()
+                sec_m = _SECTION_HEADER_RE.match(sline)
+                if sec_m:
+                    cur_phase = sec_m.group(1).strip()
                 elif sline.startswith("- ") or sline.startswith("* "):
                     cid = sline[2:].strip().strip("`'\"")
                     if cid:
@@ -306,7 +310,12 @@ class OpenSpecAdapter:
                         if m.group(1).lower() == "x":
                             done_items += 1
 
-            fm_status = str(yaml_data.get("status") or fm.get("status", "")).lower()
+            fm_status = str(
+                yaml_data.get("status")
+                or yaml_data.get("x-status")
+                or yaml_data.get("x_status")
+                or fm.get("status", "")
+            ).lower()
             if fm_status in {"done", "merged", "completed"}:
                 status = TaskStatus.DONE
             elif total_items > 0 and done_items == total_items:
@@ -325,6 +334,8 @@ class OpenSpecAdapter:
                 yaml_data.get("affected_areas")
                 or yaml_data.get("files")
                 or yaml_data.get("files_modified")
+                or yaml_data.get("x-files")
+                or yaml_data.get("x_files")
                 or fm.get("affected_areas")
                 or fm.get("files")
                 or fm.get("files_modified")
@@ -342,9 +353,13 @@ class OpenSpecAdapter:
             depends_on: list[str] = []
             raw_deps = (
                 yaml_data.get("depends_on")
+                or yaml_data.get("x-depends-on")
+                or yaml_data.get("x_depends_on")
                 or yaml_data.get("dependencies")
+                or yaml_data.get("x-dependencies")
                 or yaml_data.get("requires")
                 or fm.get("depends_on")
+                or fm.get("x-depends-on")
                 or fm.get("dependencies")
                 or fm.get("requires")
             )
@@ -378,7 +393,7 @@ class OpenSpecAdapter:
                         depends_on.append(dep_id)
 
             # Determine title
-            title = yaml_data.get("title") or fm.get("title")
+            title = yaml_data.get("title") or yaml_data.get("goal") or fm.get("title")
             if not title and prop_text:
                 tm = _TITLE_RE.search(prop_text)
                 if tm:
@@ -397,7 +412,12 @@ class OpenSpecAdapter:
 
             # Determine effort
             effort = EffortTier.MEDIUM
-            fm_eff = yaml_data.get("effort") or fm.get("effort")
+            fm_eff = (
+                yaml_data.get("effort")
+                or yaml_data.get("x-effort")
+                or yaml_data.get("x_effort")
+                or fm.get("effort")
+            )
             if isinstance(fm_eff, str):
                 eff_lower = fm_eff.lower()
                 if eff_lower == "low":
@@ -649,3 +669,11 @@ class OpenSpecAdapter:
             except ValueError:
                 pass
         return files
+
+    def update_state_on_merge(
+        self,
+        wave_number: int,
+        merged_task_ids: Sequence[str],
+    ) -> Path | None:
+        """Post-merge hook for OpenSpec state synchronization."""
+        return None

@@ -93,8 +93,10 @@ class TaskStatus(StrEnum):
         for member in cls:
             if member.value == normalized:
                 return member
-        if normalized in {"completed", "complete", "x"}:
+        if normalized in {"completed", "complete", "x", "dropped"}:
             return cls.DONE
+        if normalized in {"built", "in-review", "review"}:
+            return cls.REVIEW
         if normalized in {"blocked"}:
             return cls.BLOCKED
         if normalized in {"escalated-deferred", "escalated_deferred", "escalated"}:

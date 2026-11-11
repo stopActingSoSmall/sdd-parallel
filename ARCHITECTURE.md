@@ -23,11 +23,12 @@ The `sdd-parallel` system is structured into three loosely coupled subsystems or
 ```mermaid
 flowchart LR
     subgraph Adapters["Subsystem 1: Polymorphic SDD Kit Adapters (SDDAdapterProtocol & Read-Only ACL)"]
-        A1["BMAD Adapter\n(sprint-status.yaml + epics.md + specs)"]
-        A2["Spec Kit Adapter\n(.specify/specs/*/tasks.md + constitution)"]
+        A1["BMAD Adapter\n(v6 sprint-status.yaml & v7 initiative tickets.toml)"]
+        A2["Spec Kit Adapter\n(.specify/specs/*/tasks.md + official extension)"]
         A3["GSD Adapter\n(.planning/phases/*-PLAN.md + STATE.md)"]
-        A4["OpenSpec Adapter\n(openspec/changes/*/tasks.md + proposal)"]
-        A5["Beads Adapter\n(.beads/issues.jsonl + dependencies)"]
+        A4["OpenSpec Adapter\n(openspec/changes/*/tasks.md + v1.16+ headings)"]
+        A5["Beads Adapter\n(.beads/issues.jsonl + dolt DB sync)"]
+        A6["Custom Manifest Adapter\n(.parallel/custom-kit.yaml)"]
     end
 
     subgraph Engine["Subsystem 2: Hexagonal DAG Engine & Conflict Solver"]
@@ -114,6 +115,7 @@ The architectural boundary cleanly isolates framework-specific parsing from univ
 | **Worker Launch Instructions** | `SDDAdapter` | Produces native agent commands (`/speckit.implement`, `/gsd-execute-phase`, `/opsx:apply`, `bd update`, `/bmad-build`). |
 | **Multi-Tier Scope Guard** | `Core Engine` | Enforces `PreToolUse` hook, Terminal Guard command interception (`Bash`, `run_command`), and OS read-only locks. |
 | **3-Way Monotonic Status Merge** | `SDDAdapter` + `Core` | Engine orchestrates barrier git merge; specialized semi-lattice reconciler (`status_merger.py`) merges status files with zero conflict markers. |
+| **Post-Merge State & DB Co-Consistency** | `SDDAdapter` + `Core` | Polymorphic `update_state_on_merge()` hook ensures embedded engines (e.g., Beads Dolt DB via `bd import --allow-stale`) and monolithic state logs (`.planning/STATE.md`) sync immediately after 3-way merge. |
 | **LIFO Transactional Rollback** | `Core Engine` + `Adapter` | Engine creates safety backup branches (`backup/wave-<K>-before-rollback-*`) and resets `HEAD`; adapter polymorphically resets task statuses. |
 
 ### 1.3. Multi-Kit Coexistence & Inactive Sandboxing Protocol
@@ -232,11 +234,12 @@ To guarantee that agent workers start in an environment with `git status --porce
 ### 4.2. Pre-Flight SDD Contract Validation & Immutable Specification Protection
 
 Before wave planning or execution begins, `sdd-parallel` audits the repository for prerequisite readiness and freezes canonical contracts (`FORBIDDEN_STATE_FILES`):
-- **GitHub Spec Kit:** Validates `.specify/specs/**/tasks.md`. Enforces read-only protection on `.specify/memory/constitution.md`, `.specify/feature.json`, `spec.md`, and `plan.md`.
+- **GitHub Spec Kit:** Validates `.specify/specs/**/tasks.md` and provides the official extension package (`extension.yml` & `commands/`). Enforces read-only protection on `.specify/memory/constitution.md`, `.specify/feature.json`, `spec.md`, and `plan.md`.
 - **GSD (Get Shit Done):** Ingests phase plans `.planning/phases/*-PLAN.md` via **Artifact Hijack**, protecting `.planning/STATE.md`, `ROADMAP.md`, and `PROJECT.md` from concurrent corruption.
-- **OpenSpec:** Ingests change proposals `openspec/changes/*/tasks.md`, protecting `openspec/project.md`, `openspec/specs/**`, and `openspec/config.yaml`.
-- **Beads:** Parses `.beads/issues.jsonl`, protecting `.beads/config.yaml` and `.beads/metadata.json`.
-- **BMAD Method:** Pre-Flight Context Gate validates compiled `epic-<N>-context.md` in `implementation-artifacts` or `planning-artifacts` (**Zero Cache Invalidation**).
+- **OpenSpec:** Ingests change proposals `openspec/changes/*/tasks.md` supporting CommonMark trailing hashes (`## Title ##`, v1.16.1 `#2205`), protecting `openspec/project.md`, `openspec/specs/**`, and `openspec/config.yaml`.
+- **Beads:** Parses `.beads/issues.jsonl`, protecting `.beads/config.yaml` and `.beads/metadata.json`, with automated Dolt DB sync upon merge via `bd import --allow-stale`.
+- **BMAD Method:** Supports v6 legacy artifacts and v7 native initiative trees (`tickets.toml`, `story-*-plan.md`, `built` status mapping to `REVIEW`); pre-flight gates validate compiled `epic-<N>-context.md` in v6 or `tickets.toml` immutability in v7 (**Zero Cache Invalidation**).
+- **Custom SDD Manifest:** Ingests declarative `.parallel/custom-kit.yaml` manifests initialized via `sdd-parallel init-custom`.
 
 ### 4.3. Semantic Blast Radius Computation via `CRGSidecarAdapter`
 
@@ -248,13 +251,14 @@ To catch Type-2 collisions without destabilizing developer environments:
 ### 4.4. Polymorphic Deterministic 3-Way Status Merger
 
 At barrier wave merge checkpoints (`sdd-parallel merge --wave K`), task progression is reconciled deterministically across frameworks:
-1. **BMAD (`sprint-status.yaml`):** Monotonic rank semi-lattice:
-   $$\text{Rank}: \quad \texttt{backlog} (0) < \texttt{ready-for-dev} (1) < \texttt{in-progress} (2) < \texttt{review} (3) < \texttt{done} (4)$$
+1. **BMAD (`sprint-status.yaml`, `stories.yaml`, `story-*-plan.md`):** Monotonic rank semi-lattice:
+   $$\text{Rank}: \quad \texttt{backlog} (0) < \texttt{ready-for-dev} (1) < \texttt{in-progress} (2) < \texttt{review / built} (3) < \texttt{done / dropped} (4)$$
    Selects $\max(\text{rank}(base), \text{rank}(ours), \text{rank}(theirs))$ while preserving YAML styling and comments.
 2. **GitHub Spec Kit & OpenSpec (`tasks.md` Markdown Checklists):** `merge_markdown_task_checklists(base, ours, theirs)` reconciles items matching `- [ ] <id>: <desc>` or `- [ ] <desc>`. Any branch marking a task complete transitions the final status to `[x]` ($\max(\text{todo}, \text{done}) = \text{done}$).
 3. **Beads (`.beads/issues.jsonl`):** `merge_beads_issues_jsonl(base, ours, theirs)` streams JSONL records, matches by `id`, and monotonically advances issue status (`open < in-progress < closed`).
 4. **GSD Post-Merge Commit:** Synthesizes completed phase tasks and commits updated phase state to `.planning/STATE.md`.
-5. **UTF-8 BOM Protection (`utf-8-sig`):** All status and config file I/O uses `utf-8-sig` encoding, neutralizing invisible Windows PowerShell BOM markers (`\ufeff`).
+5. **Custom Manifest:** Monotonically merges custom roadmaps according to user-defined `status_ranks` in `.parallel/custom-kit.yaml`.
+6. **UTF-8 BOM Protection (`utf-8-sig`):** All status and config file I/O uses `utf-8-sig` encoding, neutralizing invisible Windows PowerShell BOM markers (`\ufeff`).
 
 ### 4.5. Fixed Track Slots (`track-<id>`) & In-Place Reset ($O(1)$ Footprint, ADR-0003)
 

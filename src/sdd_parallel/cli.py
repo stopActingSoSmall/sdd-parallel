@@ -341,7 +341,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_demo.add_argument(
         "--kit",
         type=str,
-        choices=["bmad", "spec-kit", "gsd", "openspec", "beads", "all"],
+        choices=["bmad", "spec-kit", "gsd", "openspec", "beads", "custom", "all"],
         default="bmad",
         help="Target SDD kit framework to demonstrate (or 'all' for complete 5-kit validation)",
     )
@@ -451,6 +451,42 @@ def _build_parser() -> argparse.ArgumentParser:
         help="SDD kit adapter if generating plan on the fly",
     )
 
+    # init-custom
+    p_init = sub.add_parser(
+        "init-custom",
+        help="Onboarding wizard to configure custom SDD roadmap (.parallel/custom-kit.yaml)",
+    )
+    p_init.add_argument("--repo", type=Path, default=Path.cwd(), help="Target repository root")
+    p_init.add_argument(
+        "--specs-dir",
+        type=str,
+        default=None,
+        help="Directory containing specification/task files (e.g. specs, phases)",
+    )
+    p_init.add_argument(
+        "--format",
+        type=str,
+        default=None,
+        choices=["markdown", "yaml"],
+        help="Format of roadmap specification files",
+    )
+    p_init.add_argument(
+        "--test-cmd",
+        type=str,
+        default=None,
+        help="Test command for quality gates (e.g. 'uv run pytest')",
+    )
+    p_init.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Run without interactive prompts using auto-detected settings",
+    )
+    p_init.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print detected configuration without writing .parallel/custom-kit.yaml",
+    )
+
     return parser
 
 
@@ -534,6 +570,7 @@ def _compute_repo_plan(
     crg = CRGSidecarAdapter(repo_root, ast_scanner=scanner)
 
     tasks = adapter.load_tasks(include_done=include_done, plan_source=plan_source)
+    scanner.link_tasks(tasks)
     for task in tasks:
         if task.write_files and not task.impact_files:
             task.impact_files = sorted(crg.compute_impact_files(task.write_files))
@@ -1023,7 +1060,157 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[SDD-Parallel] Wave Inspector generated at: {out_file}")
         return 0
 
+    if args.command == "init-custom":
+        return run_init_custom(args)
+
     return 1
+
+
+def run_init_custom(args: argparse.Namespace) -> int:
+    """Run interactive onboarding wizard for custom SDD kit."""
+    from ruamel.yaml import YAML
+
+    repo_root = args.repo.resolve()
+    target_config = repo_root / ".parallel" / "custom-kit.yaml"
+
+    # 1. Spec directory discovery
+    specs_dir_arg = getattr(args, "specs_dir", None)
+    detected_specs_dir = "specs"
+    if specs_dir_arg:
+        detected_specs_dir = specs_dir_arg.strip().replace("\\", "/").rstrip("/")
+    else:
+        candidates = ["specs", "phases", "tasks", "docs/specs", "features", "roadmap"]
+        for cand in candidates:
+            cand_p = repo_root / cand
+            if cand_p.is_dir() and any(cand_p.iterdir()):
+                detected_specs_dir = cand
+                break
+
+    # 2. Format detection
+    fmt_arg = getattr(args, "format", None)
+    detected_format = "markdown"
+    if fmt_arg:
+        detected_format = fmt_arg.strip().lower()
+    else:
+        specs_path = repo_root / detected_specs_dir
+        if specs_path.is_dir():
+            yaml_files = list(specs_path.glob("*.yaml")) + list(specs_path.glob("*.yml"))
+            md_files = list(specs_path.glob("*.md"))
+            if yaml_files and not md_files:
+                detected_format = "yaml"
+
+    # 3. Test command detection
+    test_cmd_arg = getattr(args, "test_cmd", None)
+    test_cmd = "uv run pytest"
+    if test_cmd_arg:
+        test_cmd = test_cmd_arg.strip()
+    elif (repo_root / "Cargo.toml").is_file():
+        test_cmd = "cargo test"
+    elif (repo_root / "package.json").is_file():
+        test_cmd = "npm test"
+    elif (repo_root / "go.mod").is_file():
+        test_cmd = "go test ./..."
+    elif (repo_root / "pyproject.toml").is_file():
+        test_cmd = "uv run pytest"
+
+    # 4. Interactive prompt if tty and not non_interactive
+    non_interactive = getattr(args, "non_interactive", False)
+    if not non_interactive and sys.stdin.isatty():
+        try:
+            print("🚀 SDD-Parallel Custom Kit Onboarding Wizard")
+            val = input(f"Directory containing specifications [{detected_specs_dir}]: ").strip()
+            if val:
+                detected_specs_dir = val.replace("\\", "/").rstrip("/")
+            val_fmt = (
+                input(f"Specification format (markdown/yaml) [{detected_format}]: ").strip().lower()
+            )
+            if val_fmt in {"markdown", "yaml"}:
+                detected_format = val_fmt
+            val_cmd = input(f"Test command for checkpoint gates [{test_cmd}]: ").strip()
+            if val_cmd:
+                test_cmd = val_cmd
+        except (KeyboardInterrupt, EOFError):
+            print("\nInitialization aborted.")
+            return 1
+
+    manifest_data: dict[str, Any] = {
+        "version": "1.0",
+        "kit_id": "custom",
+        "name": f"Custom SDD ({repo_root.name})",
+        "roadmap_sources": [
+            {
+                "path": (
+                    f"{detected_specs_dir}/*.md"
+                    if detected_format == "markdown"
+                    else f"{detected_specs_dir}/*.yaml"
+                ),
+                "format": detected_format,
+            }
+        ],
+        "status_ranks": {
+            "planned": "ready-for-dev",
+            "ready": "ready-for-dev",
+            "todo": "ready-for-dev",
+            "in-progress": "in-progress",
+            "review": "review",
+            "built": "review",
+            "done": "done",
+            "closed": "done",
+        },
+        "forbidden_files": [
+            "MASTER_INDEX.md",
+            "constitution.md",
+            ".specify/memory/constitution.md",
+        ],
+        "allowed_write_globs": [
+            f"{detected_specs_dir}/**",
+            "src/**",
+            "tests/**",
+        ],
+        "worker_command": "/implement {task_id}",
+        "checkpoint_gates": [test_cmd],
+    }
+
+    if getattr(args, "dry_run", False):
+        print(f"[SDD-Parallel] Dry-run detected custom configuration for {repo_root}:")
+        print(json.dumps(manifest_data, indent=2, ensure_ascii=False))
+        return 0
+
+    target_config.parent.mkdir(parents=True, exist_ok=True)
+    yaml_engine = YAML()
+    yaml_engine.default_flow_style = False
+    with target_config.open("w", encoding="utf-8") as f:
+        yaml_engine.dump(manifest_data, f)
+
+    try:
+        rel_cfg = target_config.relative_to(repo_root).as_posix()
+    except ValueError:
+        rel_cfg = target_config.as_posix()
+    print(f"[SDD-Parallel] Generated custom SDD manifest: {rel_cfg}")
+
+    # Validate configuration and run dry-run planning
+    try:
+        from sdd_parallel.adapters.custom import CustomManifestAdapter
+        from sdd_parallel.scheduler import BSPWaveScheduler
+
+        adapter = CustomManifestAdapter(repo_root)
+        tasks = adapter.load_tasks(include_done=True)
+        if tasks:
+            scheduler = BSPWaveScheduler(max_tracks=3)
+            plan = scheduler.schedule(tasks)
+            print(
+                f"[SDD-Parallel] Validation SUCCESS: {len(tasks)} tasks discovered across "
+                f"{len(plan.waves)} wave(s)."
+            )
+        else:
+            print(
+                f"[SDD-Parallel] Config valid (0 tasks detected in '{detected_specs_dir}'). "
+                "Ready for specifications."
+            )
+    except Exception as exc:
+        print(f"[SDD-Parallel] Warning during plan validation: {exc}")
+
+    return 0
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -140,6 +141,7 @@ class AutopilotLauncher:
                 wave_number, track, wt_path, sdd_kit=plan.sdd_kit
             )
 
+            env: dict[str, str] = {}
             if h_norm == "antigravity":
                 argv = [
                     self.agy_cmd,
@@ -155,6 +157,9 @@ class AutopilotLauncher:
                     "json",
                 ]
             elif h_norm == "claude-code":
+                env["CLAUDE_CODE_SUBAGENT_EFFORT"] = track.effort.value
+                env["CLAUDE_CODE_PLUGIN_DIR_WATCH"] = "0"
+                env["CLAUDE_CODE_DISABLE_MCP_TASK_BACKGROUND"] = "1"
                 argv = [
                     "claude",
                     "-p",
@@ -190,6 +195,7 @@ class AutopilotLauncher:
                     "prompt": prompt,
                     "argv": argv,
                     "command_line": " ".join(f'"{a}"' if " " in a else a for a in argv),
+                    "env": env,
                 }
             )
         return specs
@@ -217,12 +223,16 @@ class AutopilotLauncher:
                 if Path(item["worktree"]).is_dir()
                 else self.repo_root
             )
+            target_env = dict(os.environ)
+            if item.get("env"):
+                target_env.update(item["env"])
             proc = subprocess.run(
                 argv,
                 cwd=target_cwd,
                 capture_output=True,
                 text=True,
                 check=False,
+                env=target_env,
             )
             item["returncode"] = proc.returncode
             item["stdout"] = proc.stdout.strip()

@@ -10,6 +10,7 @@ from typing import Protocol
 
 from sdd_parallel.adapters.beads import BeadsAdapter
 from sdd_parallel.adapters.bmad import BMADAdapter
+from sdd_parallel.adapters.custom import CustomManifestAdapter
 from sdd_parallel.adapters.gsd_hijack import GSDHijackAdapter
 from sdd_parallel.adapters.openspec import OpenSpecAdapter
 from sdd_parallel.adapters.spec_kit import SpecKitAdapter
@@ -54,6 +55,11 @@ class SDDAdapterProtocol(Protocol):
     def default_artifacts_dir(self) -> Path: ...
     def get_status_files(self) -> list[str]: ...
     def get_change_worktree(self, change_id: str) -> Path | None: ...
+    def update_state_on_merge(
+        self,
+        wave_number: int,
+        merged_task_ids: Sequence[str],
+    ) -> Path | None: ...
 
 
 def detect_sdd_kits(repo_root: Path) -> list[str]:
@@ -100,6 +106,7 @@ ADAPTER_REGISTRY: dict[str, type[SDDAdapterProtocol]] = {
     "gsd": GSDHijackAdapter,
     "openspec": OpenSpecAdapter,
     "beads": BeadsAdapter,
+    "custom": CustomManifestAdapter,
 }
 
 
@@ -161,6 +168,7 @@ __all__ = [
     "ADAPTER_REGISTRY",
     "BMADAdapter",
     "BeadsAdapter",
+    "CustomManifestAdapter",
     "GSDHijackAdapter",
     "OpenSpecAdapter",
     "SDDAdapterProtocol",

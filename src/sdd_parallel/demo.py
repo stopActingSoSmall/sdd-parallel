@@ -100,6 +100,13 @@ _DEMO_KIT_TASKS: dict[str, dict[str, str]] = {
         "s4_api": "bd-201",
         "s5_audit": "bd-202",
     },
+    "custom": {
+        "s1_spine": "C001",
+        "s2_norm": "C002",
+        "s3_exp": "C003",
+        "s4_api": "C004",
+        "s5_audit": "C005",
+    },
 }
 
 
@@ -553,6 +560,43 @@ def create_demo_repository(repo_root: Path, kit: str = "bmad") -> None:
         jsonl_text = "\n".join(json.dumps(iss, ensure_ascii=False) for iss in issues) + "\n"
         (b_dir / "beads.jsonl").write_text(jsonl_text, encoding="utf-8")
         (b_dir / "issues.jsonl").write_text(jsonl_text, encoding="utf-8")
+    elif norm_kit == "custom":
+        p_dir = repo_root / ".parallel"
+        p_dir.mkdir(parents=True, exist_ok=True)
+        specs_dir = repo_root / "specs"
+        specs_dir.mkdir(parents=True, exist_ok=True)
+
+        manifest_content = (
+            "version: '1.0'\n"
+            "kit_id: 'custom'\n"
+            "name: 'Demo Custom SDD'\n"
+            "roadmap_sources:\n"
+            "  - path: 'specs/tasks.md'\n"
+            "    format: 'checklist'\n"
+            "status_ranks:\n"
+            "  planned: 'ready-for-dev'\n"
+            "  done: 'done'\n"
+            "forbidden_files:\n"
+            "  - 'MASTER_INDEX.md'\n"
+            "worker_command: '/implement {task_id}'\n"
+        )
+        (p_dir / "custom-kit.yaml").write_text(manifest_content, encoding="utf-8")
+        tasks_content = (
+            "# Tasks for Custom Demo\n\n"
+            "- [ ] `C001`: Upgrade schema in `src/demo_app/schema.py` (depends on `C002`)\n"
+            "  - Files: `src/demo_app/schema.py`\n"
+            "  - Depends on: `C002`\n"
+            "- [ ] `C002`: Normalize `src/demo_app/normalizer.py`, `src/demo_app/cli.py`\n"
+            "  - Files: `src/demo_app/normalizer.py`, `src/demo_app/cli.py`\n"
+            "- [ ] `C003`: Export `src/demo_app/exporter.py`, `src/demo_app/cli.py`\n"
+            "  - Files: `src/demo_app/exporter.py`, `src/demo_app/cli.py`\n"
+            "- [ ] `C004`: Expose ingestion in `src/demo_app/api.py`\n"
+            "  - Files: `src/demo_app/api.py`\n"
+            "- [ ] `C005`: Add audit log in `src/demo_app/schema.py` (depends on `C001`)\n"
+            "  - Files: `src/demo_app/schema.py`\n"
+            "  - Depends on: `C001`\n"
+        )
+        (specs_dir / "tasks.md").write_text(tasks_content, encoding="utf-8")
     else:
         raise ValueError(f"Unsupported demo kit: '{kit}'")
 

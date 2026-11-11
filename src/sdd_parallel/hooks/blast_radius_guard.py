@@ -19,9 +19,12 @@ _WRITE_TOOLS = frozenset(
         "write_to_file",
         "replace_file_content",
         "multi_replace_file_content",
+        "write_file",
+        "edit_file",
         "Write",
         "Edit",
         "MultiEdit",
+        "NotebookEdit",
     }
 )
 
@@ -40,8 +43,11 @@ _EXEC_TOOLS = frozenset(
 
 _TARGET_PATH_KEYS = (
     "TargetFile",
+    "Path",
     "file_path",
+    "filePath",
     "path",
+    "notebook_path",
     "AbsolutePath",
 )
 
@@ -57,14 +63,26 @@ _CMD_WRITE_INDICATORS = (
     ">",
     ">>",
     "sed -i",
+    "/bin/sed",
+    "/usr/bin/sed",
     "tee ",
+    "/bin/tee ",
+    "/usr/bin/tee ",
     "rm ",
+    "/bin/rm ",
+    "/usr/bin/rm ",
     "rmdir ",
+    "/bin/rmdir ",
+    "/usr/bin/rmdir ",
     "del ",
     "erase ",
     "mv ",
+    "/bin/mv ",
+    "/usr/bin/mv ",
     "move ",
     "cp ",
+    "/bin/cp ",
+    "/usr/bin/cp ",
     "copy ",
     "Set-Content",
     "Out-File",
@@ -182,8 +200,18 @@ def _evaluate_command_access(
     worktree_root, lock = found
     norm_cmd = cmd_str.replace("\\", "/")
 
+    # Normalize absolute binary paths (/bin/cp, /usr/bin/cp, etc.) to match bare commands
+    normalized_bin_cmd = re.sub(
+        r"(?:/usr)?/bin/(cp|mv|rm|rmdir|sed|tee)\b",
+        r"\1",
+        norm_cmd,
+    )
+
     # Check 1: Forbidden files referenced with write indicators
-    has_write_indicator = any(ind in cmd_str for ind in _CMD_WRITE_INDICATORS)
+    has_write_indicator = any(
+        ind in cmd_str or ind in norm_cmd or ind in normalized_bin_cmd
+        for ind in _CMD_WRITE_INDICATORS
+    )
 
     for forbid_path, reason in lock.forbidden_files.items():
         norm_forbid = forbid_path.replace("\\", "/")

@@ -13,9 +13,10 @@ from typing import Any
 
 from sdd_parallel.models import TaskStatus
 
-_DEV_STATUS_HEADER_RE = re.compile(r"^development_status:\s*$")
+_DEV_STATUS_HEADER_RE = re.compile(r"^(?:development_status|stories):\s*$")
 _KV_LINE_RE = re.compile(r"^(\s+)([A-Za-z0-9_.-]+):\s*([A-Za-z0-9_.-]+)(\s*(?:#.*)?)$")
 _LAST_UPDATED_RE = re.compile(r"^(last_updated:\s*).*$")
+_FM_STATUS_LINE_RE = re.compile(r"^(\s*status:\s*)([A-Za-z0-9_.-]+)(\s*(?:#.*)?)$", re.IGNORECASE)
 
 _CHECKLIST_LINE_RE = re.compile(r"^(\s*[-*]\s*\[)([ xX])(\]\s*)(.+)$")
 _CHECKLIST_KEY_RE = re.compile(r"^`?([A-Za-z]+[-_]?\d+|\d+[-_]\d+)`?\b", re.IGNORECASE)
@@ -227,7 +228,8 @@ def merge_beads_issues_jsonl(
     ours_text = ours_text.lstrip("\ufeff")
     theirs_text = theirs_text.lstrip("\ufeff")
 
-    def parse_jsonl(text: str) -> dict[str, dict[str, Any]]:
+    def parse_jsonl(text: str) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+        headers: list[dict[str, Any]] = []
         records: dict[str, dict[str, Any]] = {}
         for line in text.splitlines():
             line_str = line.strip()
@@ -235,18 +237,21 @@ def merge_beads_issues_jsonl(
                 continue
             try:
                 obj = json.loads(line_str)
-                if isinstance(obj, dict) and "id" in obj:
-                    records[str(obj["id"])] = obj
+                if isinstance(obj, dict):
+                    if "id" in obj:
+                        records[str(obj["id"])] = obj
+                    else:
+                        headers.append(obj)
             except json.JSONDecodeError:
                 continue
-        return records
+        return headers, records
 
-    base_map = parse_jsonl(base_text)
-    ours_map = parse_jsonl(ours_text)
-    theirs_map = parse_jsonl(theirs_text)
+    _base_headers, base_map = parse_jsonl(base_text)
+    ours_headers, ours_map = parse_jsonl(ours_text)
+    _theirs_headers, theirs_map = parse_jsonl(theirs_text)
 
     all_ids = list(dict.fromkeys([*ours_map.keys(), *theirs_map.keys(), *base_map.keys()]))
-    merged_records: list[dict[str, Any]] = []
+    merged_records: list[dict[str, Any]] = list(ours_headers)
 
     for issue_id in all_ids:
         base_obj = base_map.get(issue_id)
@@ -277,6 +282,54 @@ def merge_beads_issues_jsonl(
     return "\n".join(lines) + ("\n" if lines else "")
 
 
+def merge_markdown_ticket_status(
+    base_text: str,
+    ours_text: str,
+    theirs_text: str,
+) -> str:
+    """Monotonic 3-way status merge for Markdown tickets with frontmatter and checklists."""
+    base_clean = base_text.lstrip("\ufeff")
+    ours_clean = ours_text.lstrip("\ufeff")
+    theirs_clean = theirs_text.lstrip("\ufeff")
+
+    def extract_fm_status(text: str) -> str | None:
+        lines = text.splitlines()
+        if not lines or lines[0].strip() != "---":
+            return None
+        for line in lines[1:]:
+            if line.strip() == "---":
+                break
+            m = _FM_STATUS_LINE_RE.match(line)
+            if m:
+                return m.group(2).strip().strip("'\"")
+        return None
+
+    best_status = _pick_highest_status(
+        extract_fm_status(base_clean),
+        extract_fm_status(ours_clean),
+        extract_fm_status(theirs_clean),
+    )
+
+    merged_body = merge_markdown_task_checklists(base_clean, ours_clean, theirs_clean)
+    lines = merged_body.splitlines()
+    if lines and lines[0].strip() == "---":
+        out_lines: list[str] = [lines[0]]
+        in_fm = True
+        for line in lines[1:]:
+            if in_fm and line.strip() == "---":
+                in_fm = False
+                out_lines.append(line)
+                continue
+            if in_fm:
+                m = _FM_STATUS_LINE_RE.match(line)
+                if m:
+                    out_lines.append(f"{m.group(1)}{best_status}{m.group(3)}")
+                    continue
+            out_lines.append(line)
+        return "\n".join(out_lines) + "\n"
+    return merged_body
+
+
 StatusMergerFn = Callable[[str, str, str], str]
 
 
@@ -285,10 +338,17 @@ def get_status_merger(rel_path: str) -> StatusMergerFn | None:
     norm = rel_path.replace("\\", "/").strip().lstrip("/")
     filename = Path(norm).name.lower()
 
-    if filename in {"sprint-status.yaml", "sprint-status.yml"}:
+    if filename in {"sprint-status.yaml", "sprint-status.yml", "stories.yaml", "stories.yml"}:
         return merge_sprint_status_yaml
     if filename.endswith("tasks.md"):
         return merge_markdown_task_checklists
+    if filename.endswith(".md") and (
+        norm.startswith(("tickets/", "stories/", ".scratch/"))
+        or "/tickets/" in norm
+        or "/issues/" in norm
+        or filename.endswith("-plan.md")
+    ):
+        return merge_markdown_ticket_status
     if (norm.startswith(".beads/") or "/.beads/" in norm) and filename.endswith(".jsonl"):
         return merge_beads_issues_jsonl
     return None
@@ -299,6 +359,7 @@ __all__ = [
     "get_status_merger",
     "merge_beads_issues_jsonl",
     "merge_markdown_task_checklists",
+    "merge_markdown_ticket_status",
     "merge_sprint_status_files",
     "merge_sprint_status_yaml",
 ]
