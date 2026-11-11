@@ -346,6 +346,7 @@ def get_status_merger(rel_path: str) -> StatusMergerFn | None:
         norm.startswith(("tickets/", "stories/", ".scratch/"))
         or "/tickets/" in norm
         or "/issues/" in norm
+        or filename.endswith("-plan.md")
     ):
         return merge_markdown_ticket_status
     if (norm.startswith(".beads/") or "/.beads/" in norm) and filename.endswith(".jsonl"):

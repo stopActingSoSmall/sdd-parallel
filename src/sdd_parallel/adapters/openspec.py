@@ -11,6 +11,7 @@ from typing import Any
 from sdd_parallel.models import EffortTier, TaskNode, TaskStatus, Wave, WaveTrack
 
 _CHECKLIST_RE = re.compile(r"^\s*[-*]\s*\[([ xX])\]\s*(.+)$")
+_SECTION_HEADER_RE = re.compile(r"^##\s+(.+?)(?:\s+#+)?\s*$")
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL)
 _TITLE_RE = re.compile(r"^#+\s+(?:Proposal|Change|RFC)?[:\s]*(.+)$", re.IGNORECASE | re.MULTILINE)
 _BACKTICK_PATH_RE = re.compile(
@@ -236,8 +237,9 @@ class OpenSpecAdapter:
             order_idx = 0
             for line in project_file.read_text(encoding="utf-8-sig").splitlines():
                 sline = line.strip()
-                if sline.startswith("## "):
-                    cur_phase = sline[3:].strip()
+                sec_m = _SECTION_HEADER_RE.match(sline)
+                if sec_m:
+                    cur_phase = sec_m.group(1).strip()
                 elif sline.startswith("- ") or sline.startswith("* "):
                     cid = sline[2:].strip().strip("`'\"")
                     if cid:

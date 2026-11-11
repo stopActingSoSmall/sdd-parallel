@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **BMAD v7 Native Initiative Ticket-Tree Support (`Task 38`):**
+  - Resolves initiative output directories and active initiatives via `_bmad/custom/config.toml` and `_bmad/custom/config.user.toml`.
+  - Supports two-tier ticket hierarchy (`tickets.toml` at initiative and epic levels) without mandatory story Markdown files.
+  - Natural sorting (`natural_sort_key`) for alphanumeric ticket IDs (e.g. `"1.2a"`, `"6a"`) with `after` dependency linking.
+  - Normalization of `status: built` in companion `story-*-plan.md` to `TaskStatus.REVIEW` (rank 3) and `dropped` to `TaskStatus.DONE` (rank 4).
+  - Scope Guard protection of `tickets.toml` under `get_forbidden_files()`, while allowing companion `*-plan.md` mutations.
+- **OpenSpec v1.16.1 Heading Parity (`Task 38`):**
+  - Supports CommonMark-compliant section headings with optional trailing hashes (`## Title ##`, OpenSpec `#2205`).
+- **Pluggable Custom SDD Adapter (`CustomManifestAdapter`, `Task 34a`):**
+  - Declarative roadmap manifests in `.parallel/custom-kit.yaml`.
+  - Interactive onboarding wizard via `sdd-parallel init-custom`.
+  - Defense-in-depth Terminal Guard enhancements for `/bin/cp` and `/bin/mv` commands.
+  - Integration of Claude Code v2.1.317–2.1.322 non-blocking rejection (`denyInsteadOfPrompting`).
+- **GitHub Spec Kit Official Extension Package (`Task 36`):**
+  - Packaged canonical extension schema `1.0` in `extension.yml`.
+  - Slash commands `/specify plan-waves`, `/specify prepare-wave`, and `/specify merge-wave`.
+- **Gate 8 Adversarial Invariants Hardening (`Task 37`):**
+  - Auto-synchronization of Dolt embedded databases via `bd import --allow-stale` upon wave merge.
+  - Dual-matching of scoped and local task IDs in Spec Kit status reset.
+  - Context-read symbol separation from write impact files to prevent false spine locks.
+
 ## [0.1.1] - 2026-10-30
 
 ### Added

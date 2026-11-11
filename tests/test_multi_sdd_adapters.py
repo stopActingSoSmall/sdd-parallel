@@ -23,7 +23,7 @@ from sdd_parallel.ast_scanner import ASTHotspotScanner
 from sdd_parallel.crg_sidecar import CRGSidecarAdapter
 from sdd_parallel.demo import _DEMO_KIT_TASKS, create_demo_repository
 from sdd_parallel.hooks.blast_radius_guard import evaluate_tool_access
-from sdd_parallel.models import EffortTier, FileRole, TaskStatus
+from sdd_parallel.models import EffortTier, FileRole, TaskStatus, Wave, WaveTrack
 from sdd_parallel.scheduler import BSPWaveScheduler
 from sdd_parallel.status_merger import (
     get_status_merger,
@@ -1693,5 +1693,132 @@ def test_adversarial_invariant_d_dual_layer_database_sync_update_state_on_merge(
 
     assert len(called_cmds) == 1
     assert called_cmds[0] == ["bd", "import", "--allow-stale", "-i", ".beads/beads.jsonl"]
+
+
+def test_bmad_v7_native_initiative_tree_and_built_status(tmp_path: Path) -> None:
+    """Verify BMAD v7 initiative store, tickets.toml, alphanumeric IDs, and status 'built'."""
+    # 1. Setup config
+    custom_dir = tmp_path / "_bmad" / "custom"
+    custom_dir.mkdir(parents=True)
+    (custom_dir / "config.toml").write_text(
+        '[core]\noutput_folder = "_bmad-output"\n',
+        encoding="utf-8",
+    )
+    (custom_dir / "config.user.toml").write_text(
+        '[core]\nactive_initiative = "initiative-checkout"\n',
+        encoding="utf-8",
+    )
+
+    init_dir = tmp_path / "_bmad-output" / "initiative-checkout"
+    tickets_root = init_dir / "tickets"
+    epic_dir = tickets_root / "epic-payments"
+    epic_tickets = epic_dir / "tickets"
+    epic_tickets.mkdir(parents=True)
+
+    # Initiative-level tickets.toml (epics)
+    (tickets_root / "tickets.toml").write_text(
+        '[[tickets]]\nid = "payments"\ntitle = "Payments Epic"\ntype = "epic"\n',
+        encoding="utf-8",
+    )
+
+    # Epic-level tickets.toml (stories with alphanumeric IDs)
+    (epic_tickets / "tickets.toml").write_text(
+        '[[tickets]]\n'
+        'id = "1.2a"\n'
+        'title = "Authorize payment"\n'
+        'type = "story"\n'
+        'files = ["src/payments/auth.py"]\n'
+        'after = ["1.1"]\n\n'
+        '[[tickets]]\n'
+        'id = "1.1"\n'
+        'title = "Payment base models"\n'
+        'type = "story"\n'
+        'files = ["src/payments/models.py"]\n\n'
+        '[[tickets]]\n'
+        'id = "6a"\n'
+        'title = "Webhook notifications"\n'
+        'type = "story"\n'
+        'files = ["src/payments/webhook.py"]\n'
+        'after = ["1.2a"]\n',
+        encoding="utf-8",
+    )
+
+    # Accompanying plan file with 'built' status
+    (epic_tickets / "story-1.2a-plan.md").write_text(
+        "---\nstatus: built\n---\n# Plan 1.2a\n",
+        encoding="utf-8",
+    )
+
+    adapter = BMADAdapter(tmp_path)
+    assert adapter.detect() is True
+
+    tasks = adapter.load_tasks(include_done=True)
+    task_map = {t.id: t for t in tasks}
+
+    assert list(task_map.keys()) == ["1.1", "1.2a", "6a"]
+    assert task_map["1.1"].status == TaskStatus.READY_FOR_DEV
+    assert task_map["1.2a"].status == TaskStatus.REVIEW  # 'built' status
+    assert task_map["1.2a"].depends_on == ["1.1"]
+    assert task_map["6a"].depends_on == ["1.2a"]
+    assert "src/payments/auth.py" in task_map["1.2a"].write_files
+
+    # Check status merger recognizes *-plan.md
+    plan_rel = "_bmad-output/initiative-checkout/tickets/epic-payments/tickets/story-1.2a-plan.md"
+    merger = get_status_merger(plan_rel)
+    assert merger is not None
+
+    merged_plan = merger(
+        "---\nstatus: ready-for-dev\n---\n# Plan\n",
+        "---\nstatus: built\n---\n# Plan\n",
+        "---\nstatus: done\n---\n# Plan\n",
+    )
+    assert "status: done" in merged_plan
+
+    # Check forbidden files protect tickets.toml
+    wave = Wave(wave_number=1, tracks=[])
+    track = WaveTrack(track_id="track-a", task_ids=["1.1", "1.2a"], effort=EffortTier.LOW)
+    forbidden = adapter.get_forbidden_files(wave, track)
+    assert any("tickets.toml" in p for p in forbidden)
+
+    # Check allowed write globs include *-plan.md
+    allowed = adapter.get_allowed_write_globs(track)
+    assert any("*-plan.md" in g for g in allowed)
+
+
+def test_openspec_v1_16_1_trailing_hash_headings(tmp_path: Path) -> None:
+    """Verify OpenSpecAdapter handles trailing # in markdown headings."""
+    openspec_dir = tmp_path / "openspec"
+    changes_dir = openspec_dir / "changes"
+    change_dir = changes_dir / "001-trailing-hashes"
+    change_dir.mkdir(parents=True)
+
+    (change_dir / "proposal.md").write_text(
+        "# Proposal: Modernize Headings ##\n"
+        "## Why ##\n"
+        "Need compliance with OpenSpec v1.16.1.\n"
+        "## What Changes ###\n"
+        "Edit `src/app/core.py` to support CommonMark trailing hashes.\n",
+        encoding="utf-8",
+    )
+    (change_dir / "tasks.md").write_text(
+        "- [ ] Implement trailing hashes\n",
+        encoding="utf-8",
+    )
+
+    (openspec_dir / "project.md").write_text(
+        "## Phase 1: Core Engine ##\n"
+        "- 001-trailing-hashes\n",
+        encoding="utf-8",
+    )
+
+    adapter = OpenSpecAdapter(tmp_path)
+    assert adapter.detect() is True
+
+    tasks = adapter.load_tasks(include_done=True)
+    assert len(tasks) == 1
+    task = tasks[0]
+    assert task.id == "001-trailing-hashes"
+    assert task.epic_id == "Phase 1: Core Engine"
+    assert "src/app/core.py" in task.write_files
 
 

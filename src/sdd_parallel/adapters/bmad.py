@@ -142,6 +142,88 @@ class BMADAdapter:
                     pass
         return {}
 
+    def _resolve_bmad_v7_output_folder(self) -> Path:
+        """Resolve BMAD v7 output folder from _bmad/custom/config.toml or _bmad/config.toml."""
+        import tomllib
+
+        for cfg_rel in (
+            Path("_bmad/custom/config.toml"),
+            Path("_bmad/config.toml"),
+        ):
+            p = self.repo_root / cfg_rel
+            if p.is_file():
+                try:
+                    data = tomllib.loads(p.read_text(encoding="utf-8-sig"))
+                    core = data.get("core", {})
+                    if isinstance(core, dict) and "output_folder" in core:
+                        out = str(core["output_folder"]).strip()
+                        if out:
+                            out_p = Path(out)
+                            if out_p.is_absolute():
+                                return out_p
+                            return (self.repo_root / out_p).resolve()
+                except Exception:
+                    pass
+        return (self.repo_root / "_bmad-output").resolve()
+
+    def _resolve_bmad_v7_active_initiative(self) -> str | None:
+        """Resolve active initiative slug from config.user.toml or config.toml."""
+        import tomllib
+
+        for cfg_rel in (
+            Path("_bmad/custom/config.user.toml"),
+            Path("_bmad/config.user.toml"),
+            Path("_bmad/custom/config.toml"),
+            Path("_bmad/config.toml"),
+        ):
+            p = self.repo_root / cfg_rel
+            if p.is_file():
+                try:
+                    data = tomllib.loads(p.read_text(encoding="utf-8-sig"))
+                    core = data.get("core", {})
+                    if isinstance(core, dict) and "active_initiative" in core:
+                        val = str(core["active_initiative"]).strip()
+                        if val:
+                            return val
+                    modules = data.get("modules", {})
+                    if isinstance(modules, dict):
+                        bmm = modules.get("bmm", {})
+                        if isinstance(bmm, dict) and "active_initiative" in bmm:
+                            val = str(bmm["active_initiative"]).strip()
+                            if val:
+                                return val
+                except Exception:
+                    pass
+        return None
+
+    def _find_bmad_v7_initiative_dir(self) -> Path | None:
+        """Find active or first available BMAD v7 initiative directory with tickets.toml."""
+        out_dir = self._resolve_bmad_v7_output_folder()
+        if not out_dir.is_dir():
+            return None
+
+        active_slug = self._resolve_bmad_v7_active_initiative()
+        if active_slug:
+            cand = out_dir / active_slug
+            if cand.is_dir() and (cand / "tickets" / "tickets.toml").is_file():
+                return cand
+            if cand.is_dir():
+                return cand
+
+        for cand in sorted(out_dir.glob("initiative-*")):
+            if cand.is_dir() and (cand / "tickets" / "tickets.toml").is_file():
+                return cand
+
+        for cand in sorted(out_dir.iterdir()):
+            if cand.is_dir() and (cand / "tickets" / "tickets.toml").is_file():
+                return cand
+
+        return None
+
+    def _has_bmad_v7_initiative(self) -> bool:
+        """Return True if a valid BMAD v7 initiative directory with tickets.toml exists."""
+        return self._find_bmad_v7_initiative_dir() is not None
+
     def _find_ticket_files(self) -> list[Path]:
         """Find markdown ticket/issue files in tickets/, stories/, or .scratch/."""
         candidates: list[Path] = []
@@ -173,6 +255,7 @@ class BMADAdapter:
             or (self.repo_root / "_bmad").is_dir()
             or self._find_stories_yaml() is not None
             or self._has_bmad_loop_config()
+            or self._has_bmad_v7_initiative()
             or (self.repo_root / ".scratch").is_dir()
             or (self.repo_root / "tickets").is_dir()
         )
@@ -258,13 +341,37 @@ class BMADAdapter:
                     )
 
         if wave is not None:
-            missing_contexts = self.check_epic_contexts(wave)
-            for ctx_path in missing_contexts:
-                blockers.append(
-                    f"Missing pre-compiled epic context: '{ctx_path}'. "
-                    "Compile it on master before spawning parallel tracks "
-                    "to prevent fatal add/add git merge conflicts."
-                )
+            # In BMAD v7 native initiative tree, pre-compiled epic contexts are obsolete
+            if not self._has_bmad_v7_initiative():
+                missing_contexts = self.check_epic_contexts(wave)
+                for ctx_path in missing_contexts:
+                    blockers.append(
+                        f"Missing pre-compiled epic context: '{ctx_path}'. "
+                        "Compile it on master before spawning parallel tracks "
+                        "to prevent fatal add/add git merge conflicts."
+                    )
+
+        # Check deferred-work.md gate directives
+        init_dir = self._find_bmad_v7_initiative_dir()
+        out_folder = self._resolve_bmad_v7_output_folder()
+        deferred_files = []
+        if init_dir and (init_dir / "deferred-work.md").is_file():
+            deferred_files.append(init_dir / "deferred-work.md")
+        if out_folder.is_dir() and (out_folder / "deferred-work.md").is_file():
+            deferred_files.append(out_folder / "deferred-work.md")
+
+        for df in deferred_files:
+            try:
+                for line in df.read_text(encoding="utf-8-sig").splitlines():
+                    sline = line.strip()
+                    if "gate:" in sline.lower():
+                        val = sline.split("gate:", 1)[-1].strip().strip("`'\"")
+                        if val:
+                            blockers.append(
+                                f"Deferred work gate blocking task '{val}' defined in {df.name}."
+                            )
+            except Exception:
+                pass
 
         return blockers
 
@@ -884,17 +991,209 @@ class BMADAdapter:
 
         return tasks
 
+    def _load_bmad_v7_initiative_tasks(self, include_done: bool = False) -> list[TaskNode]:
+        """Load tasks from BMAD v7 initiative tree (tickets.toml and story-*-plan.md)."""
+        import tomllib
+
+        init_dir = self._find_bmad_v7_initiative_dir()
+        if not init_dir:
+            return []
+
+        def natural_sort_key(s: str) -> list[int | str]:
+            return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", str(s))]
+
+        def parse_tickets_toml(p: Path) -> list[dict[str, Any]]:
+            if not p.is_file():
+                return []
+            try:
+                data = tomllib.loads(p.read_text(encoding="utf-8-sig"))
+            except Exception:
+                return []
+            raw_entries: list[dict[str, Any]] = []
+            if "tickets" in data and isinstance(data["tickets"], list):
+                raw_entries.extend(data["tickets"])
+            elif "tickets" in data and isinstance(data["tickets"], dict):
+                for k, v in data["tickets"].items():
+                    if isinstance(v, dict):
+                        item = dict(v)
+                        item.setdefault("id", k)
+                        raw_entries.append(item)
+            else:
+                for k, v in data.items():
+                    if isinstance(v, dict):
+                        item = dict(v)
+                        item.setdefault("id", k)
+                        raw_entries.append(item)
+            return raw_entries
+
+        def find_plan_or_leaf_file(tickets_dir: Path, tid: str, slug: str) -> Path | None:
+            # Check story-<slug>-plan.md or <type>-<slug>-plan.md
+            for cand in sorted(tickets_dir.glob(f"*{tid}*-plan.md")):
+                if cand.is_file():
+                    return cand
+            for cand in sorted(tickets_dir.glob(f"*{slug}*-plan.md")):
+                if cand.is_file():
+                    return cand
+            # Check leaf markdown file
+            for cand in sorted(tickets_dir.glob(f"*{tid}*.md")):
+                if cand.is_file() and not cand.name.endswith("-plan.md"):
+                    return cand
+            for cand in sorted(tickets_dir.glob(f"*{slug}*.md")):
+                if cand.is_file() and not cand.name.endswith("-plan.md"):
+                    return cand
+            return None
+
+        # Level 1: Initiative-level tickets.toml (epics)
+        init_tickets_file = init_dir / "tickets" / "tickets.toml"
+        _ = parse_tickets_toml(init_tickets_file)
+
+        # Level 2: Epic-level tickets.toml (stories / tickets)
+        tasks: list[TaskNode] = []
+        tickets_base = init_dir / "tickets"
+
+        epic_dirs = [d for d in sorted(tickets_base.iterdir()) if d.is_dir()]
+        for edir in epic_dirs:
+            epic_slug = edir.name
+            epic_toml = edir / "tickets" / "tickets.toml"
+            if not epic_toml.is_file():
+                # If tickets.toml is directly inside edir
+                if (edir / "tickets.toml").is_file():
+                    epic_toml = edir / "tickets.toml"
+                else:
+                    continue
+
+            story_entries = parse_tickets_toml(epic_toml)
+            for sentry in story_entries:
+                tid = str(sentry.get("id", "")).strip()
+                if not tid:
+                    continue
+
+                raw_title = sentry.get("title") or sentry.get("description") or f"Ticket {tid}"
+                title = str(raw_title).strip()
+                desc = str(sentry.get("description") or title)
+
+                # Check accompanying plan or leaf file
+                tickets_folder = epic_toml.parent
+                companion = find_plan_or_leaf_file(tickets_folder, tid, tid)
+                companion_text = ""
+                fm: dict[str, Any] = {}
+                plan_status: str | None = None
+
+                if companion and companion.is_file():
+                    companion_text = companion.read_text(encoding="utf-8-sig")
+                    fm = self._parse_frontmatter_dict(companion_text)
+                    plan_status = fm.get("status")
+                    if not plan_status:
+                        for line in companion_text.splitlines():
+                            sline = line.strip().lower()
+                            if sline.startswith("status:"):
+                                plan_status = sline.split("status:", 1)[-1].strip().strip("'\"")
+                                break
+                    if not plan_status:
+                        # Check checklist
+                        total_items = 0
+                        done_items = 0
+                        for line in companion_text.splitlines():
+                            m = re.match(r"^\s*[-*]\s*\[([ xX])\]\s*(.+)$", line)
+                            if m:
+                                total_items += 1
+                                if m.group(1).lower() == "x":
+                                    done_items += 1
+                        if total_items > 0 and done_items == total_items:
+                            plan_status = "done"
+                        elif done_items > 0:
+                            plan_status = "in-progress"
+
+                if plan_status:
+                    status = self._normalize_status(plan_status)
+                else:
+                    status = TaskStatus.READY_FOR_DEV
+
+                if status == TaskStatus.DONE and not include_done:
+                    continue
+
+                # Write files extraction
+                write_files: list[str] = []
+                fm_files = sentry.get("files") or sentry.get("affected_areas") or fm.get("files")
+                if isinstance(fm_files, list):
+                    for f in fm_files:
+                        res = self._resolve_short_module(str(f))
+                        tf = res if res else str(f)
+                        if tf.startswith("src/") and tf not in write_files:
+                            write_files.append(tf)
+
+                full_text = f"{desc}\n{companion_text}"
+                for m_full in _FILE_PATH_RE.finditer(full_text):
+                    fp = m_full.group(1)
+                    if fp.startswith("src/") and fp not in write_files:
+                        write_files.append(fp)
+                for m_short in _SHORT_MOD_RE.finditer(full_text):
+                    resolved = self._resolve_short_module(m_short.group(1))
+                    if resolved.startswith("src/") and resolved not in write_files:
+                        write_files.append(resolved)
+
+                # Dependencies (after, depends_on)
+                depends_on: list[str] = []
+                raw_after = sentry.get("after") or sentry.get("depends_on") or fm.get("depends_on")
+                if isinstance(raw_after, list):
+                    for a in raw_after:
+                        d_str = str(a).strip().strip("`'\"")
+                        if d_str and d_str != tid and d_str not in depends_on:
+                            depends_on.append(d_str)
+                elif isinstance(raw_after, str):
+                    for part in re.split(r"[,; ]+", raw_after):
+                        d_str = part.strip().strip("`'\"")
+                        if d_str and d_str != tid and d_str not in depends_on:
+                            depends_on.append(d_str)
+
+                # Effort
+                effort = EffortTier.MEDIUM
+                raw_eff = sentry.get("effort") or fm.get("effort")
+                if isinstance(raw_eff, str):
+                    try:
+                        effort = EffortTier(raw_eff.lower())
+                    except ValueError:
+                        pass
+                elif len(write_files) >= 5 or (
+                    len(write_files) >= 3 and any("schema" in f for f in write_files)
+                ):
+                    effort = EffortTier.HIGH
+                elif len(write_files) <= 1:
+                    effort = EffortTier.LOW
+
+                tasks.append(
+                    TaskNode(
+                        id=tid,
+                        title=title,
+                        epic_id=epic_slug,
+                        status=status,
+                        effort=effort,
+                        write_files=write_files,
+                        depends_on=depends_on,
+                        description=full_text,
+                    )
+                )
+
+        tasks.sort(key=lambda t: natural_sort_key(t.id))
+        return tasks
+
     def load_tasks(
         self,
         include_done: bool = False,
         plan_source: str = "auto",
     ) -> list[TaskNode]:
-        """Load BMAD stories from sprint-status.yaml, stories.yaml, or ticket files."""
-        # 1. Classical sprint-status.yaml
+        """Load BMAD stories from initiative tree, sprint-status.yaml, stories.yaml, or tickets."""
+        # 1. Native BMAD v7 Initiative Tree
+        if self._has_bmad_v7_initiative():
+            v7_tasks = self._load_bmad_v7_initiative_tasks(include_done=include_done)
+            if v7_tasks:
+                return v7_tasks
+
+        # 2. Classical sprint-status.yaml
         if self.sprint_status_path.is_file():
             return self._load_from_sprint_status(include_done=include_done, plan_source=plan_source)
 
-        # 2. bmad-loop.toml with [stories] source = "tickets" OR ticket files
+        # 3. bmad-loop.toml with [stories] source = "tickets" OR ticket files
         loop_cfg = self._get_bmad_loop_config()
         stories_cfg = loop_cfg.get("stories", {})
         source_cfg = stories_cfg.get("source") if isinstance(stories_cfg, dict) else None
@@ -904,7 +1203,7 @@ class BMADAdapter:
             if ticket_tasks:
                 return ticket_tasks
 
-        # 3. stories.yaml
+        # 4. stories.yaml
         stories_yaml = self._find_stories_yaml()
         if stories_yaml is not None:
             return self._load_from_stories_yaml(
@@ -913,7 +1212,7 @@ class BMADAdapter:
                 plan_source=plan_source,
             )
 
-        # 4. Fallback: ticket files
+        # 5. Fallback: ticket files
         ticket_tasks = self._load_ticket_nodes(include_done=include_done)
         if ticket_tasks:
             return ticket_tasks
@@ -984,6 +1283,21 @@ class BMADAdapter:
                     t_lines.append(line)
                 tf.write_text("\n".join(t_lines) + "\n", encoding="utf-8")
 
+        # Support BMAD v7 plan files (e.g. story-*-plan.md or *-<tid>*-plan.md)
+        init_dir = self._find_bmad_v7_initiative_dir()
+        if init_dir and (init_dir / "tickets").is_dir():
+            for plan_f in (init_dir / "tickets").rglob("*-plan.md"):
+                if plan_f.is_file() and any(tid in plan_f.name for tid in target_set):
+                    lines = plan_f.read_text(encoding="utf-8-sig").splitlines()
+                    p_lines = []
+                    for line in lines:
+                        if line.strip().startswith("status:"):
+                            indent = line[: len(line) - len(line.lstrip())]
+                            line = f"{indent}status: {target_status}"
+                        line = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
+                        p_lines.append(line)
+                    plan_f.write_text("\n".join(p_lines) + "\n", encoding="utf-8")
+
         if self.impl_dir.is_dir():
             for tid in target_set:
                 for p in list(self.impl_dir.glob(f"spec-{tid}*.md")):
@@ -1003,11 +1317,13 @@ class BMADAdapter:
             "_bmad-output/implementation-artifacts/sprint-status.yaml",
             "stories.yaml",
             "_bmad-output/**/stories.yaml",
+            "**/tickets/*-plan.md",
             *[f"_bmad-output/implementation-artifacts/spec-{sid}*.md" for sid in track.task_ids],
             *[f"_bmad-output/implementation-artifacts/*{sid}*.md" for sid in track.task_ids],
             *[f"tickets/*{sid}*.md" for sid in track.task_ids],
             *[f"stories/*{sid}*.md" for sid in track.task_ids],
             *[f".scratch/**/issues/*{sid}*.md" for sid in track.task_ids],
+            *[f"**/tickets/*{sid}*.md" for sid in track.task_ids],
         ]
         stories_yaml = self._find_stories_yaml()
         if stories_yaml and stories_yaml.is_file():
@@ -1020,12 +1336,35 @@ class BMADAdapter:
         return globs
 
     def get_forbidden_files(self, wave: Wave, track: WaveTrack) -> dict[str, str]:
-        """Return immutable epic context files during wave execution."""
+        """Return immutable epic context files and initiative tickets.toml during wave execution."""
         forbidden: dict[str, str] = {}
         epic_reason = (
             "Pre-compiled Epic Context is immutable during wave execution "
             "(Zero Cache Invalidation invariant)"
         )
+        toml_reason = (
+            "BMAD v7 ticket structure is immutable during worker execution; "
+            "update accompanying plan markdown files instead"
+        )
+        # Protect tickets.toml
+        init_dir = self._find_bmad_v7_initiative_dir()
+        if init_dir and (init_dir / "tickets").is_dir():
+            for toml_path in (init_dir / "tickets").rglob("tickets.toml"):
+                if toml_path.is_file():
+                    try:
+                        rel = toml_path.relative_to(self.repo_root).as_posix()
+                        forbidden[rel] = toml_reason
+                    except ValueError:
+                        pass
+        out_folder = self._resolve_bmad_v7_output_folder()
+        if out_folder.is_dir():
+            for toml_path in out_folder.rglob("tickets.toml"):
+                if toml_path.is_file():
+                    try:
+                        rel = toml_path.relative_to(self.repo_root).as_posix()
+                        forbidden.setdefault(rel, toml_reason)
+                    except ValueError:
+                        pass
         for search_dir in (self.plan_dir, self.impl_dir):
             if search_dir.is_dir():
                 for ctx_path in sorted(search_dir.glob("epic-*-context.md")):
@@ -1144,6 +1483,17 @@ class BMADAdapter:
                     files.append(rel)
             except ValueError:
                 pass
+        # Include BMAD v7 plan files
+        init_dir = self._find_bmad_v7_initiative_dir()
+        if init_dir and (init_dir / "tickets").is_dir():
+            for plan_f in (init_dir / "tickets").rglob("*-plan.md"):
+                if plan_f.is_file():
+                    try:
+                        rel = plan_f.relative_to(self.repo_root).as_posix()
+                        if rel not in files:
+                            files.append(rel)
+                    except ValueError:
+                        pass
         if not files:
             files.append("_bmad-output/implementation-artifacts/sprint-status.yaml")
         return files
