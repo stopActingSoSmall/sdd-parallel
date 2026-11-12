@@ -37,10 +37,10 @@
 > **複数の AI コーディングエージェントを安全に並行実行 — 最大 3 倍高速化、マージボム（Merge-Bomb）はゼロ。**  
 > `sdd-parallel` は、**Spec Kit / BMAD / GSD / OpenSpec / Beads** のバックログと、それを実装するコーディングエージェント（**Claude Code**、**Codex**、**Antigravity**、または任意の worktree 対応 CLI）の間に立つ、決定論的トラフィックコントローラ、worktree 隔離レイヤ、および影響半径（Blast-Radius）ガードです。
 
-https://github.com/user-attachments/assets/76b8c429-3146-43b9-9ba9-89de15f97b13
+https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ja.mp4
 
 <p align="center">
-  <em>🎬 <b>1080p フル解説動画（英語音声, 03:49）</b> · 🇷🇺 <a href="../ru/README.md">ロシア語音声（03:55）</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">インタラクティブ Wave Inspector オンライン</a></em>
+  <em>🎬 <b>1080p フル解説動画（日本語音声, Gemini 3.8）</b> · 🇺🇸 <a href="../../../README.md">EN (03:49)</a> · 🇷🇺 <a href="../ru/README.md">RU (03:55)</a> · 🇪🇸 <a href="../es/README.md">ES</a> · 🇧🇷 <a href="../pt-BR/README.md">PT-BR</a> · 🇰🇷 <a href="../ko/README.md">KO</a> · 🇨🇳 <a href="../zh-CN/README.md">ZH-CN</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ja">インタラクティブ Wave Inspector オンライン</a></em>
 </p>
 
 ---
@@ -682,4 +682,4 @@ uv run sdd-parallel demo --kit all     # 5 大キットのオフラインデモ
 
 - **コントリビューション：** 開発環境のセットアップおよびプルリクエストの品質ゲートについては **[Contributing Guide](../../../CONTRIBUTING.md)** を参照してください。
 - **セキュリティ：** 脆弱性の報告手順については **[Security Policy](../../../SECURITY.md)** を参照してください。
-- **ライセンス：** MIT — 詳細は [LICENSE](../../../LICENSE) を参照してください（音声ナレーション提供: [ElevenLabs](https://elevenlabs.io)）。
+- **ライセンス：** MIT — 詳細は [LICENSE](../../../LICENSE) を参照してください（音声ナレーション提供: [ElevenLabs](https://elevenlabs.io) / [Google Gemini](https://ai.google.dev/)）。
