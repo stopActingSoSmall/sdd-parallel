@@ -188,6 +188,11 @@ def configure_claude_settings(target_dir: Path) -> Path:
             "blockWritesOutsideWorkingDirectories": True,
             "denyInsteadOfPrompting": True,
         }
+    sandbox = data.setdefault("sandbox", {})
+    if isinstance(sandbox, dict):
+        sandbox["autoAllowBashIfSandboxed"] = True
+    else:
+        data["sandbox"] = {"autoAllowBashIfSandboxed": True}
     settings_file.write_text(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",

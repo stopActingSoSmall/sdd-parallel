@@ -168,6 +168,7 @@ def _create_default_invoker(
                 "exec",
                 "--cd",
                 cwd.as_posix(),
+                "--trust",
                 "--model",
                 model or "codex-medium",
                 prompt,

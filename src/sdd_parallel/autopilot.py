@@ -175,6 +175,7 @@ class AutopilotLauncher:
                     "exec",
                     "--cd",
                     wt_path.as_posix(),
+                    "--trust",
                     "--model",
                     model_id,
                     prompt,

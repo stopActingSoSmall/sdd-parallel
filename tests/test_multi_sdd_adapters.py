@@ -1181,7 +1181,7 @@ def test_openspec_wrk_changes_workspaces_and_opsx_command(tmp_path: Path) -> Non
 
     track = WaveTrack(track_id="track-a", effort=EffortTier.HIGH, task_ids=["user-auth"])
     cmd = adapter.render_worker_command(track)
-    assert cmd == "`/opsx:apply user-auth`"
+    assert cmd == "`/openspec-apply user-auth`"
 
     # Verify forbidden files include sibling .openspec.yaml
     sibling_track = WaveTrack(track_id="track-b", effort=EffortTier.LOW, task_ids=["billing"])

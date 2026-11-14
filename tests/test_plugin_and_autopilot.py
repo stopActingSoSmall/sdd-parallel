@@ -45,10 +45,17 @@ def test_configure_claude_settings_creates_and_preserves(tmp_path: Path) -> None
     data = json.loads(settings_file.read_text(encoding="utf-8"))
     assert data["permissions"]["blockWritesOutsideWorkingDirectories"] is True
     assert data["permissions"]["denyInsteadOfPrompting"] is True
+    assert data["sandbox"]["autoAllowBashIfSandboxed"] is True
 
     # Test preserving existing properties and permissions
     (slot_dir / ".claude" / "settings.local.json").write_text(
-        json.dumps({"existingKey": "value", "permissions": {"customPerm": True}}),
+        json.dumps(
+            {
+                "existingKey": "value",
+                "permissions": {"customPerm": True},
+                "sandbox": {"customSandbox": False},
+            }
+        ),
         encoding="utf-8",
     )
     configure_claude_settings(slot_dir)
@@ -57,6 +64,8 @@ def test_configure_claude_settings_creates_and_preserves(tmp_path: Path) -> None
     assert updated["permissions"]["customPerm"] is True
     assert updated["permissions"]["blockWritesOutsideWorkingDirectories"] is True
     assert updated["permissions"]["denyInsteadOfPrompting"] is True
+    assert updated["sandbox"]["customSandbox"] is False
+    assert updated["sandbox"]["autoAllowBashIfSandboxed"] is True
 
 
 def test_install_plugin_falls_back_to_embedded_skill_resource(tmp_path: Path) -> None:
@@ -188,6 +197,7 @@ def test_autopilot_launcher_routes_models_across_harnesses(tmp_path: Path) -> No
         "exec",
         "--cd",
         cx_specs[0]["worktree"],
+        "--trust",
         "--model",
         "o3-high",
         cx_specs[0]["prompt"],
