@@ -16,11 +16,11 @@
 <p align="center">
   <b>🌐 Idioma / Language:</b>
   <a href="../../../README.md">English</a> |
-  <a href="../zh-CN/README.md">简体中文</a> |
   <b>Español</b> |
   <a href="../pt-BR/README.md">Português (BR)</a> |
   <a href="../ja/README.md">日本語</a> |
   <a href="../ko/README.md">한국어</a> |
+  <a href="../zh-CN/README.md">简体中文</a> |
   <a href="../ru/README.md">Русский</a>
 </p>
 
@@ -42,7 +42,15 @@
 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-es.mp4
 
 <p align="center">
-  <em>🎬 <b>Video explicativo completo en 1080p (Voz en español, Gemini 3.8)</b> · 🇺🇸 <a href="../../../README.md">EN (03:49)</a> · 🇷🇺 <a href="../ru/README.md">RU (03:55)</a> · 🇧🇷 <a href="../pt-BR/README.md">PT-BR</a> · 🇯🇵 <a href="../ja/README.md">JA</a> · 🇰🇷 <a href="../ko/README.md">KO</a> · 🇨🇳 <a href="../zh-CN/README.md">ZH-CN</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=es">Wave Inspector interactivo en vivo</a></em>
+  <em>🎬 <b>Video explicativo completo en 1080p</b> — Ver con narración localizada:</em><br>
+  <a href="../../../README.md">🇺🇸 English</a> ·
+  <b>🇪🇸 Español</b> ·
+  <a href="../pt-BR/README.md">🇧🇷 Português (BR)</a> ·
+  <a href="../ja/README.md">🇯🇵 日本語</a> ·
+  <a href="../ko/README.md">🇰🇷 한국어</a> ·
+  <a href="../zh-CN/README.md">🇨🇳 简体中文</a> ·
+  <a href="../ru/README.md">🇷🇺 Русский</a> ·
+  ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=es">Wave Inspector interactivo en vivo</a>
 </p>
 
 ---
