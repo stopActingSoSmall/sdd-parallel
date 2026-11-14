@@ -41,15 +41,16 @@ https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-p
 
 <p align="center">
   <em>🎬 <b>1080p 전체 안내 영상</b> — 모국어 음성 안내로 시청:</em><br>
-  <a href="../../../README.md">🇺🇸 Video in English</a> ·
-  <a href="../es/README.md">🇪🇸 Vídeo en español</a> ·
-  <a href="../pt-BR/README.md">🇧🇷 Vídeo em português</a> ·
-  <a href="../ja/README.md">🇯🇵 日本語の解説動画</a> ·
-  <b>🇰🇷 한국어 설명 영상</b> ·
-  <a href="../zh-CN/README.md">🇨🇳 中文讲解视频</a> ·
-  <a href="../ru/README.md">🇷🇺 Видео на русском</a><br>
-  ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ko">온라인 인터랙티브 Wave Inspector</a>
+  <a href="../../../README.md">🇺🇸&nbsp;Video&nbsp;in&nbsp;English</a> &nbsp;|&nbsp;
+  <a href="../es/README.md">🇪🇸&nbsp;Vídeo&nbsp;en&nbsp;español</a> &nbsp;|&nbsp;
+  <a href="../pt-BR/README.md">🇧🇷&nbsp;Vídeo&nbsp;em&nbsp;português</a> &nbsp;|&nbsp;
+  <a href="../ru/README.md">🇷🇺&nbsp;Видео&nbsp;на&nbsp;русском</a><br>
+  <a href="../ja/README.md">🇯🇵&nbsp;日本語の解説動画</a> &nbsp;|&nbsp;
+  <b>🇰🇷&nbsp;한국어&nbsp;설명&nbsp;영상</b> &nbsp;|&nbsp;
+  <a href="../zh-CN/README.md">🇨🇳&nbsp;中文讲解视频</a>
 </p>
+
+직접 체험해 보고 싶으신가요? **[⚡ 온라인 인터랙티브 Wave Inspector](https://stopactingsosmall.github.io/sdd-parallel/?video=ko)** (설치 없이 브라우저에서 바로 실행)를 열거나 [아래의 상세 튜토리얼](#-5초-만에-체험하기-api-키-불필요-상세-튜토리얼)을 확인하세요.
 
 ---
 
