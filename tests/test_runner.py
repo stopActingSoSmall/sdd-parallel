@@ -607,3 +607,32 @@ def test_cli_autopilot_dry_run_and_execution(
     assert summary["succeeded_tracks"] == 1
     assert "track-a" in summary["track_results"]
 
+
+def test_default_invoker_codex_includes_trust_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sdd_parallel.runner import _create_default_invoker
+
+    captured: dict[str, Any] = {}
+
+    def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        captured["argv"] = argv
+        captured["cwd"] = kwargs.get("cwd")
+        return subprocess.CompletedProcess(args=argv, returncode=0, stdout="{}", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    invoker = _create_default_invoker("codex", timeout_seconds=30.0)
+    invoker("do task", "codex-medium", EffortTier.MEDIUM, tmp_path)
+
+    assert captured["argv"] == [
+        "codex",
+        "exec",
+        "--cd",
+        tmp_path.as_posix(),
+        "--trust",
+        "--model",
+        "codex-medium",
+        "do task",
+    ]
+
+

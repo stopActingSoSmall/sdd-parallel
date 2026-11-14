@@ -650,7 +650,11 @@ class OpenSpecAdapter:
 
     def render_worker_command(self, track: WaveTrack) -> str:
         """Render operator worker command for OpenSpec track."""
-        return f"`/opsx:apply {track.task_ids[0]}`" if track.task_ids else "`/opsx:apply`"
+        return (
+            f"`/openspec-apply {track.task_ids[0]}`"
+            if track.task_ids
+            else "`/openspec-apply`"
+        )
 
     def default_artifacts_dir(self) -> Path:
         """Return default artifacts directory for OpenSpec."""
