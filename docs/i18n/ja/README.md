@@ -16,11 +16,11 @@
 <p align="center">
   <b>🌐 Language:</b>
   <a href="../../../README.md">English</a> |
-  <a href="../zh-CN/README.md">简体中文</a> |
   <a href="../es/README.md">Español</a> |
   <a href="../pt-BR/README.md">Português (BR)</a> |
   <b>日本語</b> |
   <a href="../ko/README.md">한국어</a> |
+  <a href="../zh-CN/README.md">简体中文</a> |
   <a href="../ru/README.md">Русский</a>
 </p>
 
@@ -40,7 +40,15 @@
 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ja.mp4
 
 <p align="center">
-  <em>🎬 <b>1080p フル解説動画（日本語音声, Gemini 3.8）</b> · 🇺🇸 <a href="../../../README.md">EN (03:49)</a> · 🇷🇺 <a href="../ru/README.md">RU (03:55)</a> · 🇪🇸 <a href="../es/README.md">ES</a> · 🇧🇷 <a href="../pt-BR/README.md">PT-BR</a> · 🇰🇷 <a href="../ko/README.md">KO</a> · 🇨🇳 <a href="../zh-CN/README.md">ZH-CN</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ja">インタラクティブ Wave Inspector オンライン</a></em>
+  <em>🎬 <b>1080p フル解説動画</b> — 各言語の音声ナレーションで視聴:</em><br>
+  <a href="../../../README.md">🇺🇸 English</a> ·
+  <a href="../es/README.md">🇪🇸 Español</a> ·
+  <a href="../pt-BR/README.md">🇧🇷 Português (BR)</a> ·
+  <b>🇯🇵 日本語</b> ·
+  <a href="../ko/README.md">🇰🇷 한국어</a> ·
+  <a href="../zh-CN/README.md">🇨🇳 简体中文</a> ·
+  <a href="../ru/README.md">🇷🇺 Русский</a> ·
+  ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=ja">インタラクティブ Wave Inspector オンライン</a>
 </p>
 
 ---
