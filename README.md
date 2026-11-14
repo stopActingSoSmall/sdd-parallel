@@ -41,14 +41,13 @@ https://github.com/user-attachments/assets/76b8c429-3146-43b9-9ba9-89de15f97b13
 
 <p align="center">
   <em>🎬 <b>Full 1080p Video Explainer</b> — Watch with voiceover in your language:</em><br>
-  <b>🇺🇸 Video in English</b> ·
-  <a href="docs/i18n/es/README.md">🇪🇸 Vídeo en español</a> ·
-  <a href="docs/i18n/pt-BR/README.md">🇧🇷 Vídeo em português</a> ·
-  <a href="docs/i18n/ja/README.md">🇯🇵 日本語の解説動画</a> ·
-  <a href="docs/i18n/ko/README.md">🇰🇷 한국어 설명 영상</a> ·
-  <a href="docs/i18n/zh-CN/README.md">🇨🇳 中文讲解视频</a> ·
-  <a href="docs/i18n/ru/README.md">🇷🇺 Видео на русском</a><br>
-  ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Live Wave Inspector</a>
+  <b>🇺🇸&nbsp;Video&nbsp;in&nbsp;English</b> &nbsp;|&nbsp;
+  <a href="docs/i18n/es/README.md">🇪🇸&nbsp;Vídeo&nbsp;en&nbsp;español</a> &nbsp;|&nbsp;
+  <a href="docs/i18n/pt-BR/README.md">🇧🇷&nbsp;Vídeo&nbsp;em&nbsp;português</a> &nbsp;|&nbsp;
+  <a href="docs/i18n/ru/README.md">🇷🇺&nbsp;Видео&nbsp;на&nbsp;русском</a><br>
+  <a href="docs/i18n/ja/README.md">🇯🇵&nbsp;日本語の解説動画</a> &nbsp;|&nbsp;
+  <a href="docs/i18n/ko/README.md">🇰🇷&nbsp;한국어&nbsp;설명&nbsp;영상</a> &nbsp;|&nbsp;
+  <a href="docs/i18n/zh-CN/README.md">🇨🇳&nbsp;中文讲解视频</a>
 </p>
 
 Prefer to explore hands-on? Open the **[⚡ Live Interactive Wave Inspector](https://stopactingsosmall.github.io/sdd-parallel/)** (zero-install browser demo) or read the [4-step annotated walkthrough below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough).
