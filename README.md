@@ -40,7 +40,7 @@
 https://github.com/user-attachments/assets/76b8c429-3146-43b9-9ba9-89de15f97b13
 
 <p align="center">
-  <em>🎬 <b>Full 1080p Explainer Video (03:49)</b> · 🇷🇺 <a href="docs/i18n/ru/README.md">Смотреть на русском (RU, 03:55)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Live Interactive Wave Inspector</a></em>
+  <em>🎬 <b>Full 1080p Explainer Video (EN 03:49)</b> · 🇷🇺 <a href="docs/i18n/ru/README.md">RU (03:55)</a> · 🇪🇸 <a href="docs/i18n/es/README.md">ES</a> · 🇧🇷 <a href="docs/i18n/pt-BR/README.md">PT-BR</a> · 🇯🇵 <a href="docs/i18n/ja/README.md">JA</a> · 🇰🇷 <a href="docs/i18n/ko/README.md">KO</a> · 🇨🇳 <a href="docs/i18n/zh-CN/README.md">ZH-CN</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Live Wave Inspector</a></em>
 </p>
 
 Prefer to explore hands-on? Open the **[⚡ Live Interactive Wave Inspector](https://stopactingsosmall.github.io/sdd-parallel/)** (zero-install browser demo) or read the [4-step annotated walkthrough below](#-try-it-in-5-seconds-zero-api-keys-annotated-walkthrough).
@@ -737,7 +737,7 @@ uv run sdd-parallel demo --kit all     # offline 5-kit demo
 
 - **Contributing:** see the **[Contributing Guide](CONTRIBUTING.md)** for environment setup and pull-request gates.
 - **Security:** report vulnerabilities as described in the **[Security Policy](SECURITY.md)**.
-- **License:** MIT — see [LICENSE](LICENSE) (Voiceover narration powered by [ElevenLabs](https://elevenlabs.io)).
+- **License:** MIT — see [LICENSE](LICENSE) (Voiceover narration powered by [ElevenLabs](https://elevenlabs.io) and [Google Gemini](https://ai.google.dev/)).
 
 ### 💼 Commercial Audits & Enterprise Monorepo Support
 

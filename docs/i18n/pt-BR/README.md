@@ -37,10 +37,10 @@
 > **Execute múltiplos agentes de codificação por IA em paralelo — até 3x mais rápido, zero Merge-Bombs.**  
 > O `sdd-parallel` é o controlador de tráfego determinístico, isolador de worktrees e protetor de raio de impacto (blast radius) entre o seu backlog de **Spec Kit / BMAD / GSD / OpenSpec / Beads** e os agentes de IA (**Claude Code**, **Codex**, **Antigravity** ou qualquer CLI compatível com worktrees) que o implementam.
 
-https://github.com/user-attachments/assets/76b8c429-3146-43b9-9ba9-89de15f97b13
+https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-pt-BR.mp4
 
 <p align="center">
-  <em>🎬 <b>Vídeo explicativo completo em 1080p (Voz em inglês, 03:49)</b> · 🇷🇺 <a href="../ru/README.md">Voz em russo (03:55)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Wave Inspector interativo online</a></em>
+  <em>🎬 <b>Vídeo explicativo completo em 1080p (Voz em português, Gemini 3.8)</b> · 🇺🇸 <a href="../../../README.md">EN (03:49)</a> · 🇷🇺 <a href="../ru/README.md">RU (03:55)</a> · 🇪🇸 <a href="../es/README.md">ES</a> · 🇯🇵 <a href="../ja/README.md">JA</a> · 🇰🇷 <a href="../ko/README.md">KO</a> · 🇨🇳 <a href="../zh-CN/README.md">ZH-CN</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=pt-BR">Wave Inspector interativo online</a></em>
 </p>
 
 ---
@@ -682,4 +682,4 @@ uv run sdd-parallel demo --kit all     # demonstração offline com 5 kits
 
 - **Contribuição:** consulte o **[Guia de Contribuição](../../../CONTRIBUTING.md)** para configuração do ambiente e gates de pull request.
 - **Segurança:** reporte vulnerabilidades conforme descrito na **[Política de Segurança](../../../SECURITY.md)**.
-- **Licença:** MIT — consulte [LICENSE](../../../LICENSE) (Locução gerada com [ElevenLabs](https://elevenlabs.io)).
+- **Licença:** MIT — consulte [LICENSE](../../../LICENSE) (Locução: [ElevenLabs](https://elevenlabs.io) e [Google Gemini](https://ai.google.dev/)).

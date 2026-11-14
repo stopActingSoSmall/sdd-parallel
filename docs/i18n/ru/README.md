@@ -40,7 +40,7 @@
 https://github.com/user-attachments/assets/5dcfeb80-e48f-4bf8-8e90-76cc463f5edd
 
 <p align="center">
-  <em>🎬 <b>Полный 1080p видео-разбор с озвучкой (RU, 03:55)</b> · 🇺🇸 <a href="../../../README.md">Watch in English (EN, 03:49)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Интерактивный Wave Inspector онлайн</a></em>
+  <em>🎬 <b>Полный 1080p видео-разбор с озвучкой (RU, 03:55)</b> · 🇺🇸 <a href="../../../README.md">EN (03:49)</a> · 🇪🇸 <a href="../es/README.md">ES</a> · 🇧🇷 <a href="../pt-BR/README.md">PT-BR</a> · 🇯🇵 <a href="../ja/README.md">JA</a> · 🇰🇷 <a href="../ko/README.md">KO</a> · 🇨🇳 <a href="../zh-CN/README.md">ZH-CN</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Интерактивный Wave Inspector онлайн</a></em>
 </p>
 
 Предпочитаете изучить своими руками? Откройте **[⚡ Интерактивный Wave Inspector онлайн](https://stopactingsosmall.github.io/sdd-parallel/)** (веб-демо без установки) или прочитайте [пошаговый разбор ниже](#-попробуйте-за-5-секунд-без-api-ключей-аннотированный-разбор).
@@ -690,4 +690,4 @@ uv run sdd-parallel demo --kit all     # офлайн-демо для всех 5
 
 - **Участие в разработке:** см. **[Руководство для контрибьюторов](../../../CONTRIBUTING.md)** с описанием настройки окружения и гейтов pull-request.
 - **Безопасность:** сообщайте об уязвимостях в соответствии с **[Политикой безопасности](../../../SECURITY.md)**.
-- **Лицензия:** MIT — см. [LICENSE](../../../LICENSE) (Голосовая озвучка создана на [ElevenLabs](https://elevenlabs.io)).
+- **Лицензия:** MIT — см. [LICENSE](../../../LICENSE) (Голосовая озвучка: [ElevenLabs](https://elevenlabs.io) и [Google Gemini](https://ai.google.dev/)).
