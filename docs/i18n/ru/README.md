@@ -40,14 +40,14 @@
 https://github.com/user-attachments/assets/5dcfeb80-e48f-4bf8-8e90-76cc463f5edd
 
 <p align="center">
-  <em>🎬 <b>Полный 1080p видео-разбор</b> — Смотрите с локализованной озвучкой:</em><br>
-  <a href="../../../README.md">🇺🇸 English</a> ·
-  <a href="../es/README.md">🇪🇸 Español</a> ·
-  <a href="../pt-BR/README.md">🇧🇷 Português (BR)</a> ·
-  <a href="../ja/README.md">🇯🇵 日本語</a> ·
-  <a href="../ko/README.md">🇰🇷 한국어</a> ·
-  <a href="../zh-CN/README.md">🇨🇳 简体中文</a> ·
-  <b>🇷🇺 Русский</b> ·
+  <em>🎬 <b>Полный 1080p видео-разбор</b> — Смотрите видео с озвучкой на родном языке:</em><br>
+  <a href="../../../README.md">🇺🇸 Video in English</a> ·
+  <a href="../es/README.md">🇪🇸 Vídeo en español</a> ·
+  <a href="../pt-BR/README.md">🇧🇷 Vídeo em português</a> ·
+  <a href="../ja/README.md">🇯🇵 日本語の解説動画</a> ·
+  <a href="../ko/README.md">🇰🇷 한국어 설명 영상</a> ·
+  <a href="../zh-CN/README.md">🇨🇳 中文讲解视频</a> ·
+  <b>🇷🇺 Видео на русском</b><br>
   ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Интерактивный Wave Inspector онлайн</a>
 </p>
 

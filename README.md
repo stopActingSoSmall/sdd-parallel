@@ -40,14 +40,14 @@
 https://github.com/user-attachments/assets/76b8c429-3146-43b9-9ba9-89de15f97b13
 
 <p align="center">
-  <em>🎬 <b>Full 1080p Video Explainer</b> — Watch with localized AI voiceover:</em><br>
-  <b>🇺🇸 English</b> ·
-  <a href="docs/i18n/es/README.md">🇪🇸 Español</a> ·
-  <a href="docs/i18n/pt-BR/README.md">🇧🇷 Português (BR)</a> ·
-  <a href="docs/i18n/ja/README.md">🇯🇵 日本語</a> ·
-  <a href="docs/i18n/ko/README.md">🇰🇷 한국어</a> ·
-  <a href="docs/i18n/zh-CN/README.md">🇨🇳 简体中文</a> ·
-  <a href="docs/i18n/ru/README.md">🇷🇺 Русский</a> ·
+  <em>🎬 <b>Full 1080p Video Explainer</b> — Watch with voiceover in your language:</em><br>
+  <b>🇺🇸 Video in English</b> ·
+  <a href="docs/i18n/es/README.md">🇪🇸 Vídeo en español</a> ·
+  <a href="docs/i18n/pt-BR/README.md">🇧🇷 Vídeo em português</a> ·
+  <a href="docs/i18n/ja/README.md">🇯🇵 日本語の解説動画</a> ·
+  <a href="docs/i18n/ko/README.md">🇰🇷 한국어 설명 영상</a> ·
+  <a href="docs/i18n/zh-CN/README.md">🇨🇳 中文讲解视频</a> ·
+  <a href="docs/i18n/ru/README.md">🇷🇺 Видео на русском</a><br>
   ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Live Wave Inspector</a>
 </p>
 

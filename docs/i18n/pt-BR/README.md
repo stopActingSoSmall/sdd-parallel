@@ -40,14 +40,14 @@
 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-pt-BR.mp4
 
 <p align="center">
-  <em>🎬 <b>Vídeo explicativo completo em 1080p</b> — Assista com narração localizada:</em><br>
-  <a href="../../../README.md">🇺🇸 English</a> ·
-  <a href="../es/README.md">🇪🇸 Español</a> ·
-  <b>🇧🇷 Português (BR)</b> ·
-  <a href="../ja/README.md">🇯🇵 日本語</a> ·
-  <a href="../ko/README.md">🇰🇷 한국어</a> ·
-  <a href="../zh-CN/README.md">🇨🇳 简体中文</a> ·
-  <a href="../ru/README.md">🇷🇺 Русский</a> ·
+  <em>🎬 <b>Vídeo explicativo completo em 1080p</b> — Assista com narração no seu idioma:</em><br>
+  <a href="../../../README.md">🇺🇸 Video in English</a> ·
+  <a href="../es/README.md">🇪🇸 Vídeo en español</a> ·
+  <b>🇧🇷 Vídeo em português</b> ·
+  <a href="../ja/README.md">🇯🇵 日本語の解説動画</a> ·
+  <a href="../ko/README.md">🇰🇷 한국어 설명 영상</a> ·
+  <a href="../zh-CN/README.md">🇨🇳 中文讲解视频</a> ·
+  <a href="../ru/README.md">🇷🇺 Видео на русском</a><br>
   ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=pt-BR">Wave Inspector interativo online</a>
 </p>
 
