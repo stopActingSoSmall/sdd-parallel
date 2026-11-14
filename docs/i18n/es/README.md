@@ -16,11 +16,11 @@
 <p align="center">
   <b>🌐 Idioma / Language:</b>
   <a href="../../../README.md">English</a> |
-  <a href="../zh-CN/README.md">简体中文</a> |
   <b>Español</b> |
   <a href="../pt-BR/README.md">Português (BR)</a> |
   <a href="../ja/README.md">日本語</a> |
   <a href="../ko/README.md">한국어</a> |
+  <a href="../zh-CN/README.md">简体中文</a> |
   <a href="../ru/README.md">Русский</a>
 </p>
 
@@ -39,10 +39,18 @@
 > **Ejecuta múltiples agentes de codificación con IA en paralelo — hasta 3 veces más rápido, cero Merge-Bombs.**  
 > `sdd-parallel` es el controlador de tráfico determinista, aislador de worktrees y guardián de blast radius entre tu backlog de **Spec Kit / BMAD / GSD / OpenSpec / Beads** y los agentes de codificación (**Claude Code**, **Codex**, **Antigravity** o cualquier CLI con soporte para worktrees) que lo implementan.
 
-https://github.com/user-attachments/assets/76b8c429-3146-43b9-9ba9-89de15f97b13
+https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-es.mp4
 
 <p align="center">
-  <em>🎬 <b>Video explicativo completo en 1080p (Voz en inglés, 03:49)</b> · 🇷🇺 <a href="../ru/README.md">Voz en ruso (03:55)</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/">Wave Inspector interactivo en vivo</a></em>
+  <em>🎬 <b>Video explicativo completo en 1080p</b> — Ver con narración localizada:</em><br>
+  <a href="../../../README.md">🇺🇸 English</a> ·
+  <b>🇪🇸 Español</b> ·
+  <a href="../pt-BR/README.md">🇧🇷 Português (BR)</a> ·
+  <a href="../ja/README.md">🇯🇵 日本語</a> ·
+  <a href="../ko/README.md">🇰🇷 한국어</a> ·
+  <a href="../zh-CN/README.md">🇨🇳 简体中文</a> ·
+  <a href="../ru/README.md">🇷🇺 Русский</a> ·
+  ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=es">Wave Inspector interactivo en vivo</a>
 </p>
 
 ---
@@ -684,4 +692,4 @@ uv run sdd-parallel demo --kit all     # demo offline de los 5 kits
 
 - **Contribución:** consulta la **[Guía de contribución](../../../CONTRIBUTING.md)** para la configuración del entorno y los gates de pull requests.
 - **Seguridad:** reporta vulnerabilidades tal como se describe en la **[Política de seguridad](../../../SECURITY.md)**.
-- **Licencia:** MIT — consulta [LICENSE](../../../LICENSE) (Locución generada con [ElevenLabs](https://elevenlabs.io)).
+- **Licencia:** MIT — consulta [LICENSE](../../../LICENSE) (Locución: [ElevenLabs](https://elevenlabs.io) y [Google Gemini](https://ai.google.dev/)).

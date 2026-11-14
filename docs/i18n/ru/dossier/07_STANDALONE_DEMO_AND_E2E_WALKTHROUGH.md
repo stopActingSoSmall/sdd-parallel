@@ -261,9 +261,14 @@ uvx sdd-parallel inspect --plan .parallel/artifacts/wave-plan.json --open
 
 Предпочитаете мгновенное браузерное демо без установки? Откройте **[⚡ Интерактивный Wave Inspector и видео-витрину онлайн](https://stopactingsosmall.github.io/sdd-parallel/)** (включает встроенный плеер 1080p с озвучкой).
 
-- 🎬 **Полные видео-разборы (1080p, с озвучкой):**
-  - **[Русский мастер (03:25, Gemini Fenrir)](https://stopactingsosmall.github.io/sdd-parallel/?video=ru)** · Прямая ссылка MP4: [sdd-parallel-explainer-ru.mp4](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4)
-  - **[Английский мастер (03:30, Gemini Puck)](https://stopactingsosmall.github.io/sdd-parallel/?video=en)** · Прямая ссылка MP4: [sdd-parallel-explainer-en.mp4](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4)
+- 🎬 **Полные видео-разборы (1080p, с озвучкой на 7 языках):**
+  - **[Английский мастер (ElevenLabs)](https://stopactingsosmall.github.io/sdd-parallel/?video=en)** · Прямая ссылка MP4: [sdd-parallel-explainer-en.mp4](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-en.mp4)
+  - **[Испанский мастер (Gemini 3.8 Flash)](https://stopactingsosmall.github.io/sdd-parallel/?video=es)** · Прямая ссылка MP4: [sdd-parallel-explainer-es.mp4](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-es.mp4)
+  - **[Бразильский португальский (Gemini 3.8 Flash)](https://stopactingsosmall.github.io/sdd-parallel/?video=pt-BR)** · Прямая ссылка MP4: [sdd-parallel-explainer-pt-BR.mp4](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-pt-BR.mp4)
+  - **[Японский мастер (Gemini 3.8 Flash)](https://stopactingsosmall.github.io/sdd-parallel/?video=ja)** · Прямая ссылка MP4: [sdd-parallel-explainer-ja.mp4](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ja.mp4)
+  - **[Корейский мастер (Gemini 3.8 Flash)](https://stopactingsosmall.github.io/sdd-parallel/?video=ko)** · Прямая ссылка MP4: [sdd-parallel-explainer-ko.mp4](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ko.mp4)
+  - **[Китайский мастер (Gemini 3.8 Flash)](https://stopactingsosmall.github.io/sdd-parallel/?video=zh-CN)** · Прямая ссылка MP4: [sdd-parallel-explainer-zh-CN.mp4](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-zh-CN.mp4)
+  - **[Русский мастер (ElevenLabs)](https://stopactingsosmall.github.io/sdd-parallel/?video=ru)** · Прямая ссылка MP4: [sdd-parallel-explainer-ru.mp4](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ru.mp4)
 - 🎞️ **Отдельные клипы по главам:**
   - **Клип 1 — Тихая Merge-Bomb:** [RU (42с)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb-ru.mp4) · [EN (45s)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip1-merge-bomb.mp4)
   - **Клип 2 — Wave Inspector, граф DAG и модальное окно спеки:** [RU (1м 43с)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan-ru.mp4) · [EN (1m 39s)](https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/clip2-wave-plan.mp4)

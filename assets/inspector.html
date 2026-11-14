@@ -961,9 +961,14 @@
       </div>
       <div style="display: flex; flex-direction: column; gap: 12px;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-          <div style="display: flex; gap: 8px;">
-            <button class="btn" id="btn-vid-en" style="border-color: var(--accent-blue); color: var(--accent-blue); font-weight: 600;">🇺🇸 English (03:30)</button>
-            <button class="btn" id="btn-vid-ru">🇷🇺 Русский (03:25)</button>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button class="btn" id="btn-vid-en" style="border-color: var(--accent-blue); color: var(--accent-blue); font-weight: 600;">🇺🇸 English</button>
+            <button class="btn" id="btn-vid-es">🇪🇸 Español</button>
+            <button class="btn" id="btn-vid-pt-br">🇧🇷 Português</button>
+            <button class="btn" id="btn-vid-ja">🇯🇵 日本語</button>
+            <button class="btn" id="btn-vid-ko">🇰🇷 한국어</button>
+            <button class="btn" id="btn-vid-zh-cn">🇨🇳 简体中文</button>
+            <button class="btn" id="btn-vid-ru">🇷🇺 Русский</button>
           </div>
           <div style="display: flex; gap: 6px; flex-wrap: wrap; font-size: 11px;">
             <button class="btn" data-seek="0">00:00 Merge-Bomb</button>
@@ -1976,30 +1981,44 @@
       const vBtn = document.getElementById('btn-video-guide');
       const vClose = document.getElementById('video-modal-close');
       const vPlayer = document.getElementById('explainer-video-player');
-      const btnEn = document.getElementById('btn-vid-en');
-      const btnRu = document.getElementById('btn-vid-ru');
       if (!vModal || !vBtn || !vPlayer) return;
+
+      const langBtns = {
+        en: document.getElementById('btn-vid-en'),
+        ru: document.getElementById('btn-vid-ru'),
+        es: document.getElementById('btn-vid-es'),
+        'pt-BR': document.getElementById('btn-vid-pt-br'),
+        ja: document.getElementById('btn-vid-ja'),
+        ko: document.getElementById('btn-vid-ko'),
+        'zh-CN': document.getElementById('btn-vid-zh-cn'),
+      };
 
       const VIDEO_SRCS = {
         en: 'https://github.com/user-attachments/assets/76b8c429-3146-43b9-9ba9-89de15f97b13',
-        ru: 'https://github.com/user-attachments/assets/5dcfeb80-e48f-4bf8-8e90-76cc463f5edd'
+        ru: 'https://github.com/user-attachments/assets/5dcfeb80-e48f-4bf8-8e90-76cc463f5edd',
+        es: 'https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-es.mp4',
+        'pt-BR': 'https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-pt-BR.mp4',
+        ja: 'https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ja.mp4',
+        ko: 'https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ko.mp4',
+        'zh-CN': 'https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-zh-CN.mp4'
       };
 
       let currentLang = 'en';
 
       function setLang(lang, seekSec) {
-        currentLang = (lang === 'ru') ? 'ru' : 'en';
+        currentLang = VIDEO_SRCS[lang] ? lang : 'en';
         const targetSrc = VIDEO_SRCS[currentLang];
         if (vPlayer.src !== targetSrc) {
           vPlayer.src = targetSrc;
           vPlayer.load();
         }
-        if (btnEn && btnRu) {
-          btnEn.style.borderColor = currentLang === 'en' ? 'var(--accent-blue)' : '';
-          btnEn.style.color = currentLang === 'en' ? 'var(--accent-blue)' : '';
-          btnRu.style.borderColor = currentLang === 'ru' ? 'var(--accent-blue)' : '';
-          btnRu.style.color = currentLang === 'ru' ? 'var(--accent-blue)' : '';
-        }
+        Object.entries(langBtns).forEach(([code, btn]) => {
+          if (!btn) return;
+          const isActive = (code === currentLang);
+          btn.style.borderColor = isActive ? 'var(--accent-blue)' : '';
+          btn.style.color = isActive ? 'var(--accent-blue)' : '';
+          btn.style.fontWeight = isActive ? '600' : '';
+        });
         if (typeof seekSec === 'number' && !isNaN(seekSec)) {
           vPlayer.currentTime = seekSec;
         }
@@ -2019,8 +2038,9 @@
       vBtn.addEventListener('click', () => openVideo('en'));
       if (vClose) vClose.addEventListener('click', closeVideo);
       vModal.addEventListener('click', (e) => { if (e.target === vModal) closeVideo(); });
-      if (btnEn) btnEn.addEventListener('click', () => { setLang('en', 0); vPlayer.play().catch(() => {}); });
-      if (btnRu) btnRu.addEventListener('click', () => { setLang('ru', 0); vPlayer.play().catch(() => {}); });
+      Object.entries(langBtns).forEach(([code, btn]) => {
+        if (btn) btn.addEventListener('click', () => { setLang(code, 0); vPlayer.play().catch(() => {}); });
+      });
       vModal.querySelectorAll('[data-seek]').forEach(b => {
         b.addEventListener('click', () => {
           vPlayer.currentTime = Number(b.getAttribute('data-seek') || 0);
@@ -2031,7 +2051,7 @@
       const params = new URLSearchParams(window.location.search);
       const qVideo = params.get('video');
       const qTime = params.get('t') ? Number(params.get('t')) : undefined;
-      if (qVideo === 'en' || qVideo === 'ru') {
+      if (qVideo && VIDEO_SRCS[qVideo]) {
         openVideo(qVideo, qTime);
       }
     }
