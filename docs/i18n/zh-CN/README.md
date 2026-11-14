@@ -16,11 +16,11 @@
 <p align="center">
   <b>🌐 语言 / Language:</b>
   <a href="../../../README.md">English</a> |
-  <b>简体中文</b> |
   <a href="../es/README.md">Español</a> |
   <a href="../pt-BR/README.md">Português (BR)</a> |
   <a href="../ja/README.md">日本語</a> |
   <a href="../ko/README.md">한국어</a> |
+  <b>简体中文</b> |
   <a href="../ru/README.md">Русский</a>
 </p>
 
@@ -40,7 +40,15 @@
 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-zh-CN.mp4
 
 <p align="center">
-  <em>🎬 <b>1080p 完整视频导览 (中文配音, Gemini 3.8)</b> · 🇺🇸 <a href="../../../README.md">EN (03:49)</a> · 🇷🇺 <a href="../ru/README.md">RU (03:55)</a> · 🇪🇸 <a href="../es/README.md">ES</a> · 🇧🇷 <a href="../pt-BR/README.md">PT-BR</a> · 🇯🇵 <a href="../ja/README.md">JA</a> · 🇰🇷 <a href="../ko/README.md">KO</a> · ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=zh-CN">在线交互式 Wave Inspector</a></em>
+  <em>🎬 <b>1080p 完整视频导览</b> — 选择本地化语音解说观看:</em><br>
+  <a href="../../../README.md">🇺🇸 English</a> ·
+  <a href="../es/README.md">🇪🇸 Español</a> ·
+  <a href="../pt-BR/README.md">🇧🇷 Português (BR)</a> ·
+  <a href="../ja/README.md">🇯🇵 日本語</a> ·
+  <a href="../ko/README.md">🇰🇷 한국어</a> ·
+  <b>🇨🇳 简体中文</b> ·
+  <a href="../ru/README.md">🇷🇺 Русский</a> ·
+  ⚡ <a href="https://stopactingsosmall.github.io/sdd-parallel/?video=zh-CN">在线交互式 Wave Inspector</a>
 </p>
 
 ---
