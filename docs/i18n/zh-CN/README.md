@@ -677,7 +677,15 @@ flowchart TD
 
 ---
 
-## 🤝 参与贡献、本地开发与安全规范
+## 🤝 联系与合作
+
+- **研究、资金资助与商业合作：** [sdd-parallel@metrichub.dev](mailto:sdd-parallel@metrichub.dev)
+- **架构问答与社区讨论：** [GitHub Discussions](https://github.com/stopActingSoSmall/sdd-parallel/discussions)
+- **安全漏洞披露：** 详见 [SECURITY.md](../../../SECURITY.md)
+
+---
+
+## 🛠️ 参与贡献、本地开发与安全规范
 
 ```bash
 git clone https://github.com/stopActingSoSmall/sdd-parallel.git

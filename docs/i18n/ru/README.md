@@ -682,7 +682,15 @@ flowchart TD
 
 ---
 
-## 🤝 Участие в разработке, локальный запуск и безопасность
+## 🤝 Контакты и сотрудничество
+
+- **Исследования, гранты и частные запросы:** [sdd-parallel@metrichub.dev](mailto:sdd-parallel@metrichub.dev)
+- **Архитектурный Q&A и комьюнити:** [GitHub Discussions](https://github.com/stopActingSoSmall/sdd-parallel/discussions)
+- **Сообщения о безопасности:** см. [SECURITY.md](../../../SECURITY.md)
+
+---
+
+## 🛠️ Участие в разработке, локальный запуск и безопасность
 
 ```bash
 git clone https://github.com/stopActingSoSmall/sdd-parallel.git

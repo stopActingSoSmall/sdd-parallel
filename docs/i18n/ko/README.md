@@ -677,7 +677,15 @@ flowchart TD
 
 ---
 
-## 🤝 기여 안내, 로컬 개발 및 보안 정책
+## 🤝 문의 및 협업
+
+- **연구, 지원금 및 비공개 문의:** [sdd-parallel@metrichub.dev](mailto:sdd-parallel@metrichub.dev)
+- **아키텍처 Q&A 및 커뮤니티:** [GitHub Discussions](https://github.com/stopActingSoSmall/sdd-parallel/discussions)
+- **보안 취약점 제보:** [SECURITY.md](../../../SECURITY.md) 참조
+
+---
+
+## 🛠️ 기여 안내, 로컬 개발 및 보안 정책
 
 ```bash
 git clone https://github.com/stopActingSoSmall/sdd-parallel.git

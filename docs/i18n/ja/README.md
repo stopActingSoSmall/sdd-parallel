@@ -676,7 +676,15 @@ flowchart TD
 
 ---
 
-## 🤝 コントリビューション、ローカル開発、セキュリティ
+## 🤝 お問い合わせ・コラボレーション
+
+- **研究、助成金、プライベートなお問い合わせ:** [sdd-parallel@metrichub.dev](mailto:sdd-parallel@metrichub.dev)
+- **アーキテクチャ Q&A ＆ コミュニティ:** [GitHub Discussions](https://github.com/stopActingSoSmall/sdd-parallel/discussions)
+- **セキュリティ脆弱性の報告:** [SECURITY.md](../../../SECURITY.md) を参照してください
+
+---
+
+## 🛠️ コントリビューション、ローカル開発、セキュリティ
 
 ```bash
 git clone https://github.com/stopActingSoSmall/sdd-parallel.git
