@@ -678,7 +678,15 @@ flowchart TD
 
 ---
 
-## 🤝 Contribución, desarrollo local y seguridad
+## 🤝 Contacto y colaboraciones
+
+- **Investigación, subvenciones y consultas privadas:** [sdd-parallel@metrichub.dev](mailto:sdd-parallel@metrichub.dev)
+- **Preguntas frecuentes sobre arquitectura y comunidad:** [GitHub Discussions](https://github.com/stopActingSoSmall/sdd-parallel/discussions)
+- **Divulgación de seguridad:** consulta [SECURITY.md](../../../SECURITY.md)
+
+---
+
+## 🛠️ Contribución, desarrollo local y seguridad
 
 ```bash
 git clone https://github.com/stopActingSoSmall/sdd-parallel.git

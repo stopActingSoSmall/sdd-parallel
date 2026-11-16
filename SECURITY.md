@@ -4,6 +4,7 @@
 
 | Version | Supported |
 | :--- | :---: |
+| `0.2.x` (`master`) | ✅ Supported |
 | `0.1.x` | ✅ Supported |
 | `< 0.1` | ❌ Unsupported |
 
@@ -25,9 +26,9 @@ Our **Defense-in-Depth Scope Guard** consists of cooperating layers across runti
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability or bypass in `sdd-parallel`:
-1. **Do not open a public issue.**
-2. Report the vulnerability privately via [GitHub Security Advisories](https://github.com/stopActingSoSmall/sdd-parallel/security/advisories/new).
-3. Provide a minimal reproduction script or steps to trigger the issue.
+If you discover a security vulnerability, path-traversal bypass, or worktree/hook escape in `sdd-parallel`:
+1. **Do not open a public GitHub Issue.**
+2. Send an email to **[sdd-parallel@metrichub.dev](mailto:sdd-parallel@metrichub.dev)** with the subject prefix `[SECURITY]`.
+3. Include detailed reproduction steps, minimal reproducible examples, and the affected version.
 
-We will review, acknowledge, and provide an initial response to valid security disclosures within **48–72 hours** in accordance with responsible disclosure practices.
+We will review, acknowledge, and provide an initial response to valid security disclosures within **48 hours** in accordance with responsible disclosure practices.
