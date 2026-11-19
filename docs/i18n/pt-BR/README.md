@@ -155,7 +155,7 @@ sdd-parallel merge --wave 1        #    Quality gates e merge 3-vias na main
   <img src="../../assets/whats-inside-worktrees.png" width="100%" alt="O que o sdd-parallel cria dentro do seu repositório: estado em .parallel/ e slots de trilhas em .worktrees/">
 </p>
 
-Adaptadores **ACL** somente leitura normalizam 5 formatos SDD sem alterar suas especificações:
+Adaptadores **Anti-Corruption Layer (ACL)** somente leitura normalizam 5 formatos SDD sem alterar suas especificações:
 
 | Framework SDD | Artefatos Somente Leitura (Bloqueados) | Descoberta de Tarefas | Sincronização de Status |
 | :--- | :--- | :--- | :--- |
@@ -200,7 +200,7 @@ Legenda: 🔒 somente leitura (`chmod a-w` + rejeição no `PreToolUse`) · 👻
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/opsx:apply normalize-telemetry` |
+| OpenSpec | `/openspec-apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 > 📦 **Extensão do Spec Kit (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip` (ou `specify extension add sdd-parallel`) adiciona `/specify plan-waves`, `/specify prepare-wave --wave 1`, `/specify merge-wave --wave 1`.
@@ -225,10 +225,14 @@ Legenda: 🔒 somente leitura (`chmod a-w` + rejeição no `PreToolUse`) · 👻
 <details>
 <summary><b>❓ Perguntas difíceis de engenharia e limites honestos (FAQ)</b></summary>
 
-1. **`write_files` antecipados:** **(a)** caminhos explícitos na spec (`Code Map`, `Files:`, crases) → **(b)** Linker Estático de Símbolos AST Pré-Onda → **(c)** Escalonamento Dinâmico de Escopo (`.tmp/scope-escalation.json`) no `verify-wave`.
-2. **Repos não-Python (TS/JS, Go, Rust):** AST embutido analisa Python; repos poliglotas combinam caminhos explícitos na spec com **`code-review-graph`** (`CRGSidecarAdapter`).
-3. **Bypass via shell (`sed -i`, `python -c`):** **Defesa em Profundidade em 3 Níveis**: `PreToolUse` + Terminal Guard → `chmod a-w` no SO → `verify-wave` auditando `git diff merge-base...HEAD`.
-4. **Contratos entre camadas (Pydantic → TS, SQL, OpenAPI):** **`DEFAULT_CONTRACT_GLOBS`** (`**/schemas/**`, `**/migrations/**`, `openapi.*`, `*.proto`, `*.graphql`) e `file_roles` em `.parallel-config.json` (`SPINE`).
+1. **Como o planejador conhece `write_files` antes de o código ser escrito?**
+   Três camadas de proteção: **(a)** caminhos explícitos declarados nas specs (`Code Map`, `Files:`, GSD XML `<files>`, crases) → **(b)** o Linker de Símbolos AST Pré-Onda resolvendo nomes de funções/classes mencionados para arquivos em $O(1)$ → **(c)** Escalonamento Dinâmico de Escopo (`.tmp/scope-escalation.json`), que adia com segurança uma tarefa subespecificada para a próxima onda na barreira `verify-wave` em vez de permitir colisões silenciosas.
+2. **E quanto a TypeScript, Go, Rust ou repositórios não-Python?**
+   Limite honesto: o scanner AST embutido de zero dependências analisa Python nativamente. Para repositórios poliglotas (TS/JS, Go, Rust), o `sdd-parallel` combina listas explícitas de arquivos nas specs com o sidecar Tree-sitter opcional **`code-review-graph`** (`CRGSidecarAdapter`) para calcular arestas de importação e impacto entre arquivos.
+3. **Um agente pode burlar hooks `PreToolUse` via shell (`sed -i`, `python -c`, `cp`)?**
+   A proteção nunca depende de um único hook — é **Defesa em Profundidade em 3 Níveis (3-Tier Defense-in-Depth)**: **Nível 1** (`PreToolUse` + Terminal Guard inspecionando redirecionamentos e gravações inline em `Bash`/`run_command`/`powershell`) → **Nível 2** (`chmod a-w` em nível de SO em arquivos Spine e pertencentes a trilhas irmãs) → **Nível 3** (`verify-wave` auditando o `git diff merge-base...HEAD` real e bloqueando o merge em qualquer violação).
+4. **A AST não enxerga contratos entre camadas (Pydantic JSON → frontend TS, SQL FK, OpenAPI)!**
+   Correto — grafos estáticos de importação param nas fronteiras sintáticas. O `sdd-parallel` fecha essa lacuna declarativamente via **`DEFAULT_CONTRACT_GLOBS`** (`**/schemas/**`, `**/migrations/**`, `openapi.*`, `*.proto`, `*.graphql`) mais `file_roles` específicos do projeto em `.parallel-config.json`, forçando contratos entre camadas para a serialização estrita `SPINE`.
 
 </details>
 
@@ -290,7 +294,7 @@ Opções compartilhadas: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routin
 
 ### ✅ Entregue na `v0.1.0 – v0.2.1`
 - [x] Agendador de ondas BSP (aciclicidade de Kahn) + scanner AST de hotspots + sidecar `code-review-graph v2.3.9`.
-- [x] Slots fixos (`track-a/b/c`) com reset in-place, mascaramento `info/exclude` e symlinks `.venv`/`node_modules`.
+- [x] Slots fixos (`track-a/b/c`) com reset in-place, mascaramento `info/exclude` e `.venv`/`node_modules` via NTFS Junctions (Windows, no admin) / POSIX symlinks.
 - [x] Scope Guard em 3 níveis (`PreToolUse` + Terminal Guard + `chmod a-w`), linker de símbolos e `.tmp/scope-escalation.json`.
 - [x] Merger monótono de status 3-vias (YAML, Markdown, `STATE.md`, JSONL) + rollback transacional LIFO.
 - [x] 5 adaptadores SDD (Spec Kit + `extension.yml`, BMAD + `mattpocock/skills` + `bmad-loop`, GSD, OpenSpec, Beads).

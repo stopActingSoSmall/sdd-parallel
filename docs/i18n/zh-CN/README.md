@@ -155,7 +155,7 @@ sdd-parallel merge --wave 1        #    质量门禁与三方合并回 main
   <img src="../../assets/whats-inside-worktrees.png" width="100%" alt="sdd-parallel 在代码仓库中创建的内容：.parallel/ 状态与 .worktrees/ 轨道槽位">
 </p>
 
-只读 **ACL** 适配器将 5 种 SDD 格式归一化为统一任务图，绝不修改您的原生规范：
+只读 **防腐层（Anti-Corruption Layer, ACL）** 适配器将 5 种 SDD 格式归一化为统一任务图，绝不修改您的原生规范：
 
 | SDD 框架 | 只读产物（锁定） | 任务发现途径 | 状态同步机制 |
 | :--- | :--- | :--- | :--- |
@@ -200,7 +200,7 @@ my-project/
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/opsx:apply normalize-telemetry` |
+| OpenSpec | `/openspec-apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 > 📦 **Spec Kit 扩展 (`extension.yml`)：** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip`（或 `specify extension add sdd-parallel`）添加 `/specify plan-waves`、`/specify prepare-wave --wave 1`、`/specify merge-wave --wave 1`。
@@ -225,10 +225,14 @@ my-project/
 <details>
 <summary><b>❓ 硬核工程问答与诚实边界 (FAQ)</b></summary>
 
-1. **如何在编码前确定 `write_files`：** **(a)** 规范显式路径（`Code Map`、`Files:`、反引号）→ **(b)** 波次前 AST 符号链接器 → **(c)** 在 `verify-wave` 处触发动态范围提权（`.tmp/scope-escalation.json`）。
-2. **非 Python 仓库（TS/JS、Go、Rust）：** 内置 AST 解析 Python；多语言仓库将显式规范路径与 **`code-review-graph`**（`CRGSidecarAdapter`）结合使用。
-3. **Shell 绕过（`sed -i`、`python -c`）：** **三层纵深防御**：`PreToolUse` + 终端守卫 → 操作系统 `chmod a-w` → `verify-wave` 审计 `git diff merge-base...HEAD`。
-4. **跨层契约（Pydantic → TS、SQL、OpenAPI）：** 通过 **`DEFAULT_CONTRACT_GLOBS`**（`**/schemas/**`、`**/migrations/**`、`openapi.*`、`*.proto`、`*.graphql`）与 `.parallel-config.json` 中的 `file_roles`（`SPINE`）强制串行。
+1. **在代码写出之前，调度器如何预知 `write_files`？**
+   三层防护机制：**(a)** 规范中声明的显式路径（`Code Map`、`Files:`、GSD XML `<files>`、反引号路径）→ **(b)** 波次前 AST 符号链接器（Pre-Wave AST Symbol Linker），以 $O(1)$ 复杂度将提及的函数/类名解析到对应文件 → **(c)** 动态范围提权（`.tmp/scope-escalation.json`），在 `verify-wave` 栅障处将范围声明不足的任务安全延后至下一波次，绝不放任静默冲突。
+2. **TypeScript、Go、Rust 或非 Python 代码库怎么办？**
+   诚实边界：内置零依赖 AST 扫描器原生解析 Python。对于多语言代码库（TS/JS、Go、Rust），`sdd-parallel` 将显式规范文件列表与可选的 Tree-sitter 伴生工具 **`code-review-graph`**（`CRGSidecarAdapter`）相结合，从而计算跨文件导入与影响边。
+3. **智能体能否通过 Shell（`sed -i`、`python -c`、`cp`）绕过 `PreToolUse` 钩子？**
+   强制执行从不依赖单一钩子 —— 而是**三层纵深防御（3-Tier Defense-in-Depth）**：**第 1 层**（`PreToolUse` + 终端守卫检查 `Bash`/`run_command`/`powershell` 重定向与内联写入）→ **第 2 层**（对 Spine 及同级轨道所属文件施加操作系统级 `chmod a-w` 只读锁）→ **第 3 层**（`verify-wave` 审计实际的 `git diff merge-base...HEAD`，发现任何违规立即阻断合并）。
+4. **AST 无法感知跨层契约（Pydantic JSON → TS 前端、SQL 外键、OpenAPI）！**
+   完全正确 —— 静态导入图止步于语法边界。`sdd-parallel` 通过声明式的 **`DEFAULT_CONTRACT_GLOBS`**（`**/schemas/**`、`**/migrations/**`、`openapi.*`、`*.proto`、`*.graphql`）加 `.parallel-config.json` 中项目专属的 `file_roles` 弥合这一鸿沟，强制跨层契约进入严格的 `SPINE` 串行化。
 
 </details>
 
@@ -290,7 +294,7 @@ flowchart TD
 
 ### ✅ 已在 `v0.1.0 – v0.2.1` 中发布
 - [x] BSP 波次调度器（Kahn 无环检查）+ AST 热点扫描器 + `code-review-graph v2.3.9` 伴生进程。
-- [x] 固定槽位（`track-a/b/c`）原地重置、`info/exclude` 掩码与 `.venv`/`node_modules` 符号链接。
+- [x] 固定槽位（`track-a/b/c`）原地重置、`info/exclude` 掩码与 `.venv`/`node_modules` 的 NTFS Junctions (Windows, no admin) / POSIX symlinks。
 - [x] 三层 Scope Guard（`PreToolUse` + 终端守卫 + `chmod a-w`）、符号链接器、`.tmp/scope-escalation.json`。
 - [x] 单调三方状态合并器（YAML、Markdown、`STATE.md`、JSONL）+ LIFO 事务性回滚。
 - [x] 5 大 SDD 适配器（Spec Kit + `extension.yml`、BMAD + `mattpocock/skills` + `bmad-loop`、GSD、OpenSpec、Beads）。

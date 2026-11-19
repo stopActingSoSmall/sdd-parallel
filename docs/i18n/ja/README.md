@@ -155,7 +155,7 @@ sdd-parallel merge --wave 1        #    品質ゲート＋3-Way マージ
   <img src="../../assets/whats-inside-worktrees.png" width="100%" alt="sdd-parallel がリポジトリ内に生成するもの：.parallel/ 状態管理と .worktrees/ トラックスロット">
 </p>
 
-読み取り専用 **ACL** アダプターが仕様を変更せず 5 形式を正規化します：
+読み取り専用の **腐敗防止層（Anti-Corruption Layer, ACL）** アダプターが仕様を変更せず 5 形式を正規化します：
 
 | SDD フレームワーク | 読み取り専用（ロック対象） | タスク検出 | ステータス同期 |
 | :--- | :--- | :--- | :--- |
@@ -200,7 +200,7 @@ my-project/
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/opsx:apply normalize-telemetry` |
+| OpenSpec | `/openspec-apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 > 📦 **Spec Kit Extension (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip`（または `specify extension add sdd-parallel`）で `/specify plan-waves`、`/specify prepare-wave --wave 1`、`/specify merge-wave --wave 1` を追加。
@@ -225,10 +225,14 @@ my-project/
 <details>
 <summary><b>❓ 技術的質問と誠実な限界 (FAQ)</b></summary>
 
-1. **実装前の `write_files` 特定:** **(a)** 仕様内パス（`Code Map`, `Files:`, バッククォート） → **(b)** Pre-Wave AST シンボルリンカー → **(c)** `verify-wave` 時の動的エスカレーション（`.tmp/scope-escalation.json`）。
-2. **非 Python リポ (TS/JS, Go, Rust):** 組み込み AST は Python 対象。多言語は明示パス＋**`code-review-graph`**（`CRGSidecarAdapter`）を併用。
-3. **シェル迂回 (`sed -i`, `python -c`):** **3 層防御**: `PreToolUse` + Terminal Guard → `chmod a-w` → `verify-wave` の `git diff merge-base...HEAD` 監査。
-4. **層横断コントラクト (Pydantic→TS, SQL, OpenAPI):** **`DEFAULT_CONTRACT_GLOBS`**（`**/schemas/**`, `**/migrations/**`, `openapi.*`, `*.proto`, `*.graphql`）と `.parallel-config.json` の `file_roles`（`SPINE`）で直列化。
+1. **コードを書く前に、プランナーはどうやって `write_files` を知るのですか？**
+   3 段階の保護レイヤーがあります：**(a)** 仕様内で明示されたパス（`Code Map`、`Files:`、GSD XML `<files>`、バッククォート表記） → **(b)** 言及された関数名・クラス名を $O(1)$ でファイルへ解決する Pre-Wave AST シンボルリンカー → **(c)** `verify-wave` バリアで仕様記述不足のタスクを静かな衝突として放置せず次ウェーブへ安全に繰り越す動的スコープエスカレーション（`.tmp/scope-escalation.json`）。
+2. **TypeScript、Go、Rust など非 Python リポジトリはどうなりますか？**
+   誠実な限界：依存ゼロの組み込み AST スキャナがネイティブ解析するのは Python です。多言語リポジトリ（TS/JS、Go、Rust）では、仕様内の明示ファイルリストとオプションの Tree-sitter サイドカー **`code-review-graph`**（`CRGSidecarAdapter`）を組み合わせ、ファイル間の import および影響エッジを計算します。
+3. **エージェントはシェル（`sed -i`、`python -c`、`cp`）経由で `PreToolUse` フックを迂回できませんか？**
+   強制力は単一フックに依存しません — **3 層縦深防御（3-Tier Defense-in-Depth）**です：**Tier 1**（`PreToolUse` + `Bash`/`run_command`/`powershell` のリダイレクトやインライン書き込みを検査する Terminal Guard） → **Tier 2**（Spine および兄弟トラック所有ファイルへの OS レベル `chmod a-w`） → **Tier 3**（実際の `git diff merge-base...HEAD` を監査し、違反があればマージを遮断する `verify-wave`）。
+4. **AST はレイヤー横断コントラクト（Pydantic JSON → TS フロントエンド、SQL FK、OpenAPI）を見抜けないはずです！**
+   その通りです — 静的 import グラフは構文境界で止まります。`sdd-parallel` は **`DEFAULT_CONTRACT_GLOBS`**（`**/schemas/**`、`**/migrations/**`、`openapi.*`、`*.proto`、`*.graphql`）と `.parallel-config.json` のプロジェクト固有 `file_roles` によって宣言的にこのギャップを埋め、レイヤー横断コントラクトを厳格な `SPINE` 直列化へ強制します。
 
 </details>
 
@@ -290,7 +294,7 @@ flowchart TD
 
 ### ✅ `v0.1.0 – v0.2.1` で実装済み
 - [x] BSP スケジューラ（Kahn 非巡回性）+ AST スキャナ + `code-review-graph v2.3.9` サイドカー。
-- [x] 固定スロット（`track-a/b/c`）、その場リセット、`info/exclude` 不可視化、`.venv`/`node_modules` シンボリックリンク。
+- [x] 固定スロット（`track-a/b/c`）、その場リセット、`info/exclude` 不可視化、`.venv`/`node_modules` の NTFS Junctions (Windows, no admin) / POSIX symlinks。
 - [x] 三層 Scope Guard（`PreToolUse` + Terminal Guard + `chmod a-w`）、シンボルリンカー、`.tmp/scope-escalation.json`。
 - [x] 単調 3-Way ステータスマージャー（YAML, Markdown, `STATE.md`, JSONL）+ LIFO ロールバック。
 - [x] 5 SDD アダプター（Spec Kit + `extension.yml`, BMAD + `mattpocock/skills` + `bmad-loop`, GSD, OpenSpec, Beads）。
