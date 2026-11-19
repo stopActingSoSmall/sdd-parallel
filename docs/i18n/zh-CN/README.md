@@ -34,21 +34,12 @@
   <a href="#-系统架构数学模型与深度技术报告">深度技术报告</a>
 </p>
 
-> **并行运行多个 AI 编程智能体 —— 提速高达 3 倍，彻底告别合并炸弹 (Zero Merge-Bombs)。**  
-> `sdd-parallel` 是连接您的 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 任务代办积压与负责落地的编程智能体（**Claude Code**、**Codex**、**Antigravity** 或任何支持 worktree 的 CLI）之间的确定性交通管制调度员、worktree 隔离器和爆炸半径护卫门禁。
+> **面向并行 AI 编程智能体的确定性波次调度器与隔离 worktree 沙箱 —— 在消耗哪怕一个 LLM Token 之前预防隐蔽的合并炸弹。**  
+> `sdd-parallel` 位于您的 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 待办积压与负责具体实现的编程智能体（**Claude Code**、**Codex**、**Antigravity** 或任何支持 worktree 的 CLI）之间。
 
 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-zh-CN.mp4
 
-<p align="center">
-  <em>🎬 <b>1080p 完整视频导览</b> — 选择母语配音观看:</em><br>
-  <a href="../../../README.md">🇺🇸&nbsp;Video&nbsp;in&nbsp;English</a> &nbsp;|&nbsp;
-  <a href="../es/README.md">🇪🇸&nbsp;Vídeo&nbsp;en&nbsp;español</a> &nbsp;|&nbsp;
-  <a href="../pt-BR/README.md">🇧🇷&nbsp;Vídeo&nbsp;em&nbsp;português</a> &nbsp;|&nbsp;
-  <a href="../ru/README.md">🇷🇺&nbsp;Видео&nbsp;на&nbsp;русском</a><br>
-  <a href="../ja/README.md">🇯🇵&nbsp;日本語の解説動画</a> &nbsp;|&nbsp;
-  <a href="../ko/README.md">🇰🇷&nbsp;한국어&nbsp;설명&nbsp;영상</a> &nbsp;|&nbsp;
-  <b>🇨🇳&nbsp;中文讲解视频</b>
-</p>
+<p align="center"><em>🎬 <b>1080p 完整视频导览</b> — 可通过上方 <b>🌐 语言 / Language</b> 切换器观看 7 种语言配音。</em></p>
 
 想要直接上手体验？打开 **[⚡ 在线交互式 Wave Inspector](https://stopactingsosmall.github.io/sdd-parallel/?video=zh-CN)**（免安装浏览器演示）或阅读[下方的详细注释演练](#-5-秒极速体验零-api-key带详细注释的演练)。
 
@@ -73,11 +64,13 @@ https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-p
 | 场景表现 | ❌ 串行执行（1 个智能体） | 💥 朴素并行（`--worktree`） | ✅ 使用 `sdd-parallel` |
 | :--- | :--- | :--- | :--- |
 | **12 个故事的冲刺周期** | ~6–8 小时（逐个顺序处理） | ~2 小时编码 + **~2 小时修复合并冲突与故障** | **约 2.5 小时完成（提速 2x–3x）** |
-| **隐蔽的类型 / API 接口碰撞** | 仅能依靠单线程慢速运行避免 | **合并后破坏 `main` 分支** ($W_A \cap I_B \neq \emptyset$) | **前置阻断预防**（拆分为 Wave 1 → Wave 2） |
+| **隐蔽的类型 / API 接口碰撞** | 仅能依靠单线程慢速运行避免 | **合并后破坏 `main` 分支 —— 任务 A 修改了任务 B 所导入的文件** (W_A ∩ I_B ≠ ∅) | **前置阻断预防**（拆分为 Wave 1 → Wave 2） |
 | **共享 CLI / 路由文件** | 每次仅允许 1 个智能体修改 | 每次合并必现 Git 冲突 | **并行安全**（`ADDITIVE_REGISTRY` 自动识别） |
-| **`sprint-status.yaml` / `tasks.md` / `STATE.md`** | 串行更新 | 频繁产生 `<<<<<<<` 冲突标记 | **自动无损合并**（单调三方状态合并器） |
+| **`sprint-status.yaml` / `tasks.md` / `STATE.md`** | 串行更新 | 频繁产生 `<<<<<<<` 冲突标记 | **自动无损合并**（单调三方状态合并器：更高任务进度始终胜出，`todo → done`，零冲突标记） |
 | **智能体越界修改非所属文件** | 仅靠 Prompt 提示“请不要修改” | 智能体可通过 `bash` / `sed` 轻易绕过 | **内核级阻断**（`PreToolUse` 钩子 + 终端守卫 + `chmod a-w`） |
 | **工作树目录混乱堆积** | 无 | 残留 15 个孤立的 `.worktrees/task-*` 目录 | **固定复用槽位**（`track-a`、`track-b`、`track-c`） |
+
+*符号说明：W = 任务修改的文件集合（Write set，写入集）；I = 导入或依赖于这些文件的文件集合（Impact radius，影响半径）。*
 
 ---
 
@@ -187,6 +180,8 @@ sdd-parallel prepare --wave 1
   <img src="../../assets/how-it-works-pipeline.png" width="100%" alt="sdd-parallel 核心流水线：规划 (plan)、准备 (prepare)、启动智能体 (run agents)、验证与合并 (verify and merge)">
 </p>
 
+`sdd-parallel` 遵循 **Bulk Synchronous Parallel (BSP，大步同步并行)** 执行模型：各并行轨道在隔离的 worktree 中运行、零交叉修改，仅在进入下一波次前于质量门禁与合并栅障处同步。
+
 **1. 一次性全局安装**（需满足 `Python >= 3.11`、`Git >= 2.30`）：
 
 ```bash
@@ -242,13 +237,13 @@ sdd-parallel merge --wave 1
   <img src="../../assets/whats-inside-worktrees.png" width="100%" alt="sdd-parallel 在代码仓库中创建的内容：.parallel/ 状态与 .worktrees/ 轨道槽位">
 </p>
 
-`sdd-parallel` 原生直接读取您的框架规范文件 —— 无需格式迁移，无需新规范语法。
+`sdd-parallel` 通过只读的 **Anti-Corruption Layer (ACL，防腐层)** 适配器将 5 种 SDD 格式归一化为统一的任务图，且不修改您的用户规范文件 —— 无需迁移，无需新的规范格式。
 
 | SDD 框架 | 只读产物（槽位中锁定） | 任务发现途径 | 状态同步机制 |
 | :--- | :--- | :--- | :--- |
 | **GitHub Spec Kit** (`.specify/`) | `constitution.md`, `feature.json`, `spec.md`, `plan.md` | `specs/*/tasks.md` (`T001 [P]`) | 三方 Markdown 复选框单调合并 |
 | **BMAD Method** (`v6.3+` / `v7`) | `epic-*-context.md` (零缓存失效) | `sprint-status.yaml`, `epics.md`, `spec-*.md` | 单调三方 YAML 状态合并 |
-| **GSD** (`.planning/`) | `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md` | `phases/*/NN-NN-PLAN.md` | 产物劫持（合并时在中心统一更新 `STATE.md`） |
+| **GSD** (`.planning/`) | `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md` | `phases/*/NN-NN-PLAN.md` | GSD Centralized `STATE.md` Sync（合并时在中心统一更新 `STATE.md`） |
 | **OpenSpec** (`openspec/`) | `openspec/specs/**`, `project.md`, `config.yaml`, 同级变更目录 | `openspec/changes/<slug>/tasks.md` | 三方 Markdown 复选框单调合并 |
 | **Beads** (`.beads/`) | `.beads/config.yaml` | `.beads/*.jsonl` (`bd-101` + `blocks` 依赖边) | 逐行三方半格 JSONL 合并 |
 
@@ -377,7 +372,7 @@ my-project/
 </details>
 
 <details>
-<summary><b>⚡ GSD — Get Shit Done (<code>.planning/phases/</code> 产物劫持) — 点击查看改造前后结构对比</b></summary>
+<summary><b>⚡ GSD — Get Shit Done (<code>.planning/phases/</code> — GSD Centralized <code>STATE.md</code> Sync) — 点击查看改造前后结构对比</b></summary>
 
 **执行前：**
 
@@ -571,6 +566,20 @@ my-project/
 - 📐 **[系统架构单一可信源 SSOT (`ARCHITECTURE.md`)](ARCHITECTURE.md)** · **[文档总览 (Dossier index)](../../dossier/README.md)** · **[俄语文档 (Russian dossier)](../ru/dossier/)**
 
 <details>
+<summary><b>❓ 硬核工程问答与诚实边界 (FAQ)</b></summary>
+
+1. **在尚未编写任何代码之前，规划器如何知道 `write_files`？**
+   通过三级解析级联机制：**（a）显式路径** —— 从规范文件（`Code Map`、`Files:` 或反引号包裹的文件路径）中解析 → **（b）波次前 AST 符号链接器** —— 将提及的函数/类名解析到代码库 AST 索引 → **（c）动态范围提权（Dynamic Scope Escalation）**（`.tmp/scope-escalation.json`），允许受阻轨道请求额外文件，并在发生碰撞时于 `verify-wave` 栅障处安全延后该任务。
+2. **对于 TypeScript、Go、Rust 或非 Python 仓库如何处理？**
+   内置的零依赖 AST 扫描器原生支持解析 Python 模块。对于多语言仓库（TypeScript/JavaScript、Go、Rust），`sdd-parallel` 将 SDD 规范中的显式文件声明与可选的 Tree-sitter 伴生进程 **`code-review-graph`**（`CRGSidecarAdapter`）相结合，以计算跨文件调用与导入影响半径。
+3. **智能体能否通过 `bash`（`sed -i`、`python -c`、`cp`）绕过 `PreToolUse` 钩子？**
+   越界写入由**三层纵深防御（3-Tier Defense-in-Depth）**架构全面拦截：**第一层（Hook + 终端守卫）**检查工具调用和 Shell 命令字符串中的重定向与写入特征（`>`、`sed -i`、`tee`、`rm`、`mv`、`cp`、`python -c`）→ **第二层（操作系统级锁定）**对每个槽位内的只读文件和 Spine 锁定文件施加 `chmod a-w` → **第三层（`verify-wave` 栅障）**对照 `.parallel-lock.json` 审计实际的 `git diff merge-base...HEAD`，一旦发现任何违规即阻断合并。
+4. **静态 AST 分析无法看到跨层契约（Pydantic JSON → TS 前端、SQL 外键、OpenAPI）！**
+   确实如此 —— 纯粹的 AST 导入图无法跨越语言或序列化边界。`sdd-parallel` 通过声明式的 **`DEFAULT_CONTRACT_GLOBS`**（`**/schemas/**`、`**/migrations/**`、`openapi.*`、`*.proto`、`*.graphql`）以及 `.parallel-config.json` 中用户自定义的 `file_roles` 确定性地弥补了这一缺口，强制将触及跨层契约的任务纳入严格的 `SPINE` 串行化调度。
+
+</details>
+
+<details>
 <summary><b>🏛️ 点击展开：内部引擎架构与 9 大核心不变量</b></summary>
 
 ### 内部组件流向图 (Internal Component Flow)
@@ -580,7 +589,7 @@ flowchart TD
     subgraph Inputs["1. 多 SDD 路线图适配层"]
         BMAD["BMAD Method (v6/v7)"]
         SpecKit["GitHub Spec Kit (.specify/)"]
-        GSD["GSD Artifact Hijack (.planning/)"]
+        GSD["GSD Centralized STATE.md Sync (.planning/)"]
         OpenSpec["OpenSpec (openspec/changes/)"]
         Beads["Beads (.beads/*.jsonl)"]
     end
@@ -652,9 +661,9 @@ flowchart TD
 
 </details>
 
-## 🚢 发布矩阵：已实现 (v0.1.0) vs 规划路线图 (v0.2+)
+## 🚢 发布矩阵：已实现 (v0.2.1) vs 规划路线图 (v0.3+)
 
-### ✅ 已在 `v0.1.0` 中发布
+### ✅ 已在 `v0.1.0 – v0.2.1` 中发布
 
 - [x] 具备 Kahn 无环验证的确定性大步同步并行 (BSP) 波次调度器。
 - [x] AST 热点扫描器 + `code-review-graph v2.3.9` 伴生进程集成。
@@ -662,18 +671,23 @@ flowchart TD
 - [x] 三层范围守卫（`PreToolUse` + 终端守卫 + 操作系统 `chmod a-w`）。
 - [x] 面向 YAML、Markdown 复选框列表、`STATE.md` 与 JSONL 的单调三方状态合并器。
 - [x] 具备自动安全备份分支的 LIFO 事务性波次回滚机制。
-- [x] 5 大 SDD 适配器：Spec Kit、BMAD、GSD（产物劫持）、OpenSpec、Beads，均配备各轨道原生 worker 启动命令。
-- [x] 离线 Merge-Bomb 演示（`sdd-parallel demo --kit all`）与沙箱搭建功能（`--scaffold-only`）。
+- [x] 5 大 SDD 适配器：Spec Kit、BMAD、GSD（Centralized `STATE.md` Sync）、OpenSpec、Beads，均配备各轨道原生 worker 启动命令。
+- [x] 官方 GitHub Spec Kit 扩展（`extension.yml`）。
+- [x] 离线 Merge-Bomb 演示（`sdd-parallel demo --kit all`）、回溯基准测试（`sdd-parallel bench`）、独立 HTML 波次检查器（`sdd-parallel inspect --open`）与沙箱脚手架搭建（`--scaffold-only`）。
 - [x] 面向 Antigravity、Claude Code 与 Codex 的多窗口 Autopilot。
 - [x] 覆盖 Ubuntu / macOS / Windows、Python 3.11–3.13 的全新克隆 CI 流水线；PyPI 可信发布 (Trusted Publishing)。
-
-### 🚧 规划路线图 (`v0.2.0+`)
-
 - [x] **社区适配器生态：** `mattpocock/skills`（`/implement-spec`）与 `bmad-loop` frontmatter 状态适配器。
 - [x] **零污染环境同步：** 将 `.venv` / `node_modules` 符号链接进固定槽位。
 - [x] **波次前静态符号链接器与动态范围提权：** 通过 AST 符号自动补全写入集，配合动态任务重排。
-- [x] **执行清单与认知路由器协议 (Execution manifest & Cognitive Router)：** 确定性 `.parallel/run-manifest.json`、AST 结构信号 (`TaskStructuralSignals`) 与 `--routing-file` 协议 (`ADR-0009`)。
-- [x] **官方 Depth-0 波次运行器 (`agy` CLI / SDK)：** 基于 `TrackExecutionPolicy` 的并行无头轨道执行。
+- [x] **执行清单与认知路由器协议 (Execution manifest & Cognitive Router)：** 确定性 `.parallel/run-manifest.json`、AST 结构信号 (`TaskStructuralSignals`) 与面向上层 System-1 路由器及 AgentLens 的 `--routing-file` 协议 (`ADR-0009`)。
+- [x] **官方 Depth-0 波次运行器 (`agy` CLI / SDK)：** 基于 `TrackExecutionPolicy`（`BoundedCyclicReviewPolicy`、`--policy cyclic`）的并行无头轨道执行。
+
+### 🚧 规划路线图 (`v0.3+`)
+
+- [ ] 严格的套件自动检测（零静默回退，TTY 交互式消歧）
+- [ ] 图安全提权与故障二分定位（波次部分合并着陆 + 自动修复循环）
+- [ ] 原生多语言 Tree-sitter AST 与自动 CRG 索引（TS/JS、Go、Rust）
+- [ ] 可选 System-1 预提取器（`--extractor none|gliner|clairic`）与自适应 `--max-tracks auto`
 
 ---
 

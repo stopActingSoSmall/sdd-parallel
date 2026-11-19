@@ -34,21 +34,12 @@
   <a href="#-アーキテクチャ数学モデル技術ドシエの詳細">詳細ドシエ</a>
 </p>
 
-> **複数の AI コーディングエージェントを安全に並行実行 — 最大 3 倍高速化、マージボム（Merge-Bomb）はゼロ。**  
-> `sdd-parallel` は、**Spec Kit / BMAD / GSD / OpenSpec / Beads** のバックログと、それを実装するコーディングエージェント（**Claude Code**、**Codex**、**Antigravity**、または任意の worktree 対応 CLI）の間に立つ、決定論的トラフィックコントローラ、worktree 隔離レイヤ、および影響半径（Blast-Radius）ガードです。
+> **並行 AI コーディングエージェントのための決定論的ウェーブスケジューラ＆隔離 worktree サンドボックス — LLM トークンを 1 つも消費する前に静かなマージボムを未然に防ぎます。**  
+> `sdd-parallel` は、**Spec Kit / BMAD / GSD / OpenSpec / Beads** のバックログと、それを実装するコーディングエージェント（**Claude Code**、**Codex**、**Antigravity**、または任意の worktree 対応 CLI）の間に位置します。
 
 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ja.mp4
 
-<p align="center">
-  <em>🎬 <b>1080p フル解説動画</b> — 母国語の音声ナレーションで視聴:</em><br>
-  <a href="../../../README.md">🇺🇸&nbsp;Video&nbsp;in&nbsp;English</a> &nbsp;|&nbsp;
-  <a href="../es/README.md">🇪🇸&nbsp;Vídeo&nbsp;en&nbsp;español</a> &nbsp;|&nbsp;
-  <a href="../pt-BR/README.md">🇧🇷&nbsp;Vídeo&nbsp;em&nbsp;português</a> &nbsp;|&nbsp;
-  <a href="../ru/README.md">🇷🇺&nbsp;Видео&nbsp;на&nbsp;русском</a><br>
-  <b>🇯🇵&nbsp;日本語の解説動画</b> &nbsp;|&nbsp;
-  <a href="../ko/README.md">🇰🇷&nbsp;한국어&nbsp;설명&nbsp;영상</a> &nbsp;|&nbsp;
-  <a href="../zh-CN/README.md">🇨🇳&nbsp;中文讲解视频</a>
-</p>
+<p align="center"><em>🎬 <b>1080p フル解説動画</b> — 上部の <b>🌐 Language</b> 切替から 7 言語の音声ナレーション版をご覧いただけます。</em></p>
 
 実際に操作して試してみたいですか？ **[⚡ インタラクティブ Wave Inspector オンライン](https://stopactingsosmall.github.io/sdd-parallel/?video=ja)**（インストール不要のブラウザデモ）を開くか、以下の[注釈付きウォークスルー](#-5-秒で体験api-キー不要注釈付きウォークスルー)をご覧ください。
 
@@ -73,11 +64,13 @@ https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-p
 | 発生事象 | ❌ 逐次実行（1 エージェント） | 💥 素朴な並行（`--worktree`） | ✅ `sdd-parallel` 導入時 |
 | :--- | :--- | :--- | :--- |
 | **12 ストーリーのスプリント所要時間** | 約 6〜8 時間（1 つずつ実行） | コーディング約 2 時間 ＋ **破損マージの修正約 2 時間** | **合計約 2.5 時間（2〜3 倍の高速化）** |
-| **潜在的な型・API の衝突** | 低速実行によってのみ回避 | **マージ後に `main` が破損** ($W_A \cap I_B \neq \emptyset$) | **事前防止**（Wave 1 → Wave 2 に自動分離） |
+| **潜在的な型・API の衝突** | 低速実行によってのみ回避 | **マージ後に `main` が破損 — タスク A がタスク B のインポート先ファイルを編集** (W_A ∩ I_B ≠ ∅) | **事前防止**（Wave 1 → Wave 2 に自動分離） |
 | **共有 CLI・ルーターファイル** | 1 エージェントずつ実行 | マージごとに Git コンフリクト | **並行安全**（`ADDITIVE_REGISTRY` 自動検知） |
-| **`sprint-status.yaml` / `tasks.md` / `STATE.md`** | 直列で更新 | `<<<<<<<` コンフリクトが頻発 | **自動マージ**（単調 3-Way マージャー） |
+| **`sprint-status.yaml` / `tasks.md` / `STATE.md`** | 直列で更新 | `<<<<<<<` コンフリクトが頻発 | **自動マージ**（単調 3-Way マージャー：より進んだタスクステータスが常に優先され（`todo → done`）、コンフリクトマーカーは一切発生しません） |
 | **エージェントが誤ったファイルを編集** | プロンプトで「編集しないで」と懇願 | `bash` や `sed` で指示を迂回 | **確実に遮断**（`PreToolUse` フック ＋ Terminal Guard ＋ `chmod a-w`） |
 | **Worktree ディレクトリの散らかり** | なし | 15 個の `.worktrees/task-*` が残留 | **再利用可能な固定スロット**（`track-a`, `track-b`, `track-c`） |
+
+*表記: W = タスクが変更するファイル集合（Write set）、I = それらをインポートまたは依存するファイル集合（Impact radius）。*
 
 ---
 
@@ -187,6 +180,8 @@ sdd-parallel prepare --wave 1
   <img src="../../assets/how-it-works-pipeline.png" width="100%" alt="sdd-parallel パイプライン：計画（plan）、準備（prepare）、エージェント実行、検証およびマージ">
 </p>
 
+`sdd-parallel` は **Bulk Synchronous Parallel（BSP：一括同期並列）** 実行モデルに従います。各トラックは相互編集のない隔離された worktree 内で実行され、次のウェーブへ進む前の品質ゲートおよびマージバリアでのみ同期します。
+
 **1. 初回インストール**（要 `Python >= 3.11`、`Git >= 2.30`）：
 
 ```bash
@@ -242,13 +237,13 @@ sdd-parallel merge --wave 1
   <img src="../../assets/whats-inside-worktrees.png" width="100%" alt="sdd-parallel がリポジトリ内に生成するもの：.parallel/ 状態管理と .worktrees/ トラックスロット">
 </p>
 
-`sdd-parallel` は既存のフレームワークファイルをそのまま読み取ります。移行作業も、新しい仕様フォーマットも一切不要です。
+`sdd-parallel` は読み取り専用の **Anti-Corruption Layer（ACL：腐敗防止層）** アダプターを用いて、ユーザー仕様を変更することなく 5 種類の SDD フォーマットを統一タスクグラフへ正規化します。移行作業も、新しい仕様フォーマットも一切不要です。
 
 | SDD フレームワーク | 読み取り専用アーティファクト（スロット内でロック） | タスク検出 | ステータス同期 |
 | :--- | :--- | :--- | :--- |
 | **GitHub Spec Kit** (`.specify/`) | `constitution.md`, `feature.json`, `spec.md`, `plan.md` | `specs/*/tasks.md` (`T001 [P]`) | 3-Way Markdown チェックボックスマージ |
 | **BMAD Method** (`v6.3+` / `v7`) | `epic-*-context.md`（Zero Cache Invalidation） | `sprint-status.yaml`, `epics.md`, `spec-*.md` | 単調 3-Way YAML マージ |
-| **GSD** (`.planning/`) | `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md` | `phases/*/NN-NN-PLAN.md` | Artifact Hijack（マージ時に `STATE.md` を中央で一括更新） |
+| **GSD** (`.planning/`) | `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md` | `phases/*/NN-NN-PLAN.md` | GSD Centralized `STATE.md` Sync（マージ時に `STATE.md` を中央で一括更新） |
 | **OpenSpec** (`openspec/`) | `openspec/specs/**`, `project.md`, `config.yaml`, 兄弟 change フォルダ | `openspec/changes/<slug>/tasks.md` | 3-Way Markdown チェックボックスマージ |
 | **Beads** (`.beads/`) | `.beads/config.yaml` | `.beads/*.jsonl`（`bd-101` ＋ `blocks` エッジ） | 行単位の 3-Way 半束 JSONL マージ |
 
@@ -377,7 +372,7 @@ my-project/
 </details>
 
 <details>
-<summary><b>⚡ GSD — Get Shit Done (<code>.planning/phases/</code> Artifact Hijack) — 導入前後のツリーを展開して確認</b></summary>
+<summary><b>⚡ GSD — Get Shit Done (<code>.planning/phases/</code> — GSD Centralized <code>STATE.md</code> Sync) — 導入前後のツリーを展開して確認</b></summary>
 
 **導入前：**
 
@@ -571,6 +566,20 @@ my-project/
 - 📐 **[システムアーキテクチャ SSOT (`ARCHITECTURE.md`)](ARCHITECTURE.md)** · **[ドシエ目次](../../dossier/README.md)** · **[ロシア語版ドシエ](../ru/dossier/)**
 
 <details>
+<summary><b>❓ 技術的な重要質問と誠実な適用限界 (FAQ)</b></summary>
+
+1. **コードを書く前に、プランナーはどうやって `write_files` を特定するのですか？**
+   3 段階の解決カスケードによって特定します：**（a）明示的パス** — 仕様書（`Code Map`、`Files:`、またはバッククォートで囲まれたファイルパス）から解析 → **（b）Pre-Wave AST シンボルリンカー** — 言及された関数名・クラス名をリポジトリの AST インデックスと照合して解決 → **（c）動的スコープエスカレーション**（`.tmp/scope-escalation.json`）— ブロックされたトラックが追加ファイルを要求できるようにし、衝突が生じる場合は `verify-wave` バリアで安全にタスクを先送りします。
+2. **TypeScript、Go、Rust などの非 Python リポジトリには対応していますか？**
+   組み込みのゼロ依存 AST スキャナーは Python モジュールをネイティブに解析します。多言語リポジトリ（TypeScript/JavaScript、Go、Rust）では、SDD 仕様書内の明示的なファイル宣言と、オプションの Tree-sitter サイドカー **`code-review-graph`**（`CRGSidecarAdapter`）を組み合わせることで、ファイル横断の呼び出しおよびインポートの影響半径を算出します。
+3. **エージェントが `bash`（`sed -i`、`python -c`、`cp`）経由で `PreToolUse` フックを迂回することはできませんか？**
+   スコープ外の書き込みは **3 層の多層防御（Defense-in-Depth）** アーキテクチャによって阻止されます：**Tier 1（フック ＋ Terminal Guard）** はツール呼び出しやシェルコマンド文字列内のリダイレクトおよび書き込み兆候（`>`、`sed -i`、`tee`、`rm`、`mv`、`cp`、`python -c`）を検査 → **Tier 2（OS レベルのロック）** は各スロット内の読み取り専用ファイルおよび Spine ロック対象ファイルに `chmod a-w` を適用 → **Tier 3（`verify-wave` バリア）** は実際の `git diff merge-base...HEAD` を `.parallel-lock.json` と照合して監査し、違反があればマージをブロックします。
+4. **静的 AST 解析ではレイヤー横断コントラクト（Pydantic JSON → TS フロントエンド、SQL 外部キー、OpenAPI）を認識できないのでは？**
+   その通りです—純粋な AST インポートグラフは言語境界やシリアライズ境界を越えられません。`sdd-parallel` は宣言的な **`DEFAULT_CONTRACT_GLOBS`**（`**/schemas/**`、`**/migrations/**`、`openapi.*`、`*.proto`、`*.graphql`）および `.parallel-config.json` 内のユーザー定義 `file_roles` によってこのギャップを決定論的に埋め、レイヤー横断コントラクトに触れるタスクを厳格な `SPINE` 直列化に強制します。
+
+</details>
+
+<details>
 <summary><b>🏛️ 内部エンジンアーキテクチャと 9 つのコア不変条件を展開して確認</b></summary>
 
 ### 内部コンポーネントフロー
@@ -580,7 +589,7 @@ flowchart TD
     subgraph Inputs["1. マルチ SDD ロードマップアダプター"]
         BMAD["BMAD Method (v6/v7)"]
         SpecKit["GitHub Spec Kit (.specify/)"]
-        GSD["GSD Artifact Hijack (.planning/)"]
+        GSD["GSD Centralized STATE.md Sync (.planning/)"]
         OpenSpec["OpenSpec (openspec/changes/)"]
         Beads["Beads (.beads/*.jsonl)"]
     end
@@ -651,9 +660,9 @@ flowchart TD
 
 </details>
 
-## 🚢 リリースマトリクス：実装済み (v0.1.0) vs ロードマップ (v0.2+)
+## 🚢 リリースマトリクス：実装済み (v0.2.1) vs ロードマップ (v0.3+)
 
-### ✅ `v0.1.0` で実装済み
+### ✅ `v0.1.0 – v0.2.1` で実装済み
 
 - [x] Kahn の非巡回性チェックを備えた決定論的一括同期並列（Bulk-Synchronous Parallel, BSP）ウェーブスケジューラ。
 - [x] AST ホットスポットスキャナ ＋ `code-review-graph v2.3.9` サイドカー統合。
@@ -661,18 +670,23 @@ flowchart TD
 - [x] 三層防御スコープガード（`PreToolUse` ＋ Terminal Guard ＋ OS `chmod a-w`）。
 - [x] YAML、Markdown チェックリスト、`STATE.md`、および JSONL に対応した単調 3-Way ステータスマージャー。
 - [x] 自動安全バックアップブランチ作成を伴う LIFO トランザクション・ウェーブロールバック。
-- [x] 5 つの SDD アダプター：Spec Kit、BMAD、GSD（Artifact Hijack）、OpenSpec、Beads（それぞれ専用のネイティブトラック起動コマンドに対応）。
-- [x] オフラインのマージボム実証デモ（`sdd-parallel demo --kit all`）およびサンドボックススキャフォールド（`--scaffold-only`）。
+- [x] 5 つの SDD アダプター：Spec Kit、BMAD、GSD（Centralized `STATE.md` Sync）、OpenSpec、Beads（それぞれ専用のネイティブトラック起動コマンドに対応）。
+- [x] 公式 GitHub Spec Kit Extension（`extension.yml`）。
+- [x] オフラインのマージボム実証デモ（`sdd-parallel demo --kit all`）、レトロスペクティブベンチマーク（`sdd-parallel bench`）、スタンドアロン HTML Wave Inspector（`sdd-parallel inspect --open`）、およびサンドボックススキャフォールド（`--scaffold-only`）。
 - [x] Antigravity、Claude Code、Codex 対応のマルチウィンドウ・オートパイロット。
 - [x] Ubuntu / macOS / Windows、Python 3.11〜3.13 でのクリーンクローン CI；PyPI Trusted Publishing 対応。
-
-### 🚧 `v0.2.0+` ロードマップ
-
 - [x] **コミュニティアダプター：** `mattpocock/skills`（`/implement-spec`）および `bmad-loop` フロントマターステータスアダプター。
 - [x] **汚染ゼロの環境同期：** 固定スロットへの `.venv` / `node_modules` のシンボリックリンク共有。
 - [x] **ウェーブ実行前の静的シンボルリンカー ＆ スコープエスカレーション：** AST シンボル解析による書き込みセットの動的拡張と自動リスケジューリング。
-- [x] **実行マニフェストとコグニティブルーティング契約：** 決定論的 `.parallel/run-manifest.json`、AST 構造シグナル (`TaskStructuralSignals`)、および `--routing-file` 契約 (`ADR-0009`)。
-- [x] **公式 Depth-0 ウェーブランナー (`agy` CLI / SDK)：** `TrackExecutionPolicy` による並行ヘッドレストラック実行。
+- [x] **実行マニフェストとコグニティブルーティング契約：** 決定論的 `.parallel/run-manifest.json`、AST 構造シグナル（`TaskStructuralSignals`）、および外部 System-1 ルーター・AgentLens 向け `--routing-file` 契約（`ADR-0009`）。
+- [x] **公式 Depth-0 ウェーブランナー（`agy` CLI / SDK）：** `TrackExecutionPolicy`（`BoundedCyclicReviewPolicy`、`--policy cyclic`）による並行ヘッドレストラック実行。
+
+### 🚧 `v0.3+` ロードマップ
+
+- [ ] 厳格なキット自動検出（サイレントフォールバックなし、TTY による曖昧性解消）
+- [ ] グラフ安全エスカレーションと原因タスク特定バイセクション（部分ウェーブ着地 ＋ 自動修復ループ）
+- [ ] ネイティブ多言語 Tree-sitter AST ＆ 自動 CRG インデックス化（TS/JS、Go、Rust）
+- [ ] オプションの System-1 事前抽出器（`--extractor none|gliner|clairic`）＆ 適応型 `--max-tracks auto`
 
 ---
 

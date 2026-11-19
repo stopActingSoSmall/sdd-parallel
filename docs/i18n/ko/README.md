@@ -34,23 +34,14 @@
   <a href="#-시스템-아키텍처-수학적-모델-및-상세-분석-문서">심층 분석</a>
 </p>
 
-> **여러 AI 코딩 에이전트를 안전하게 병렬 실행 — 최대 3배 빠른 개발, 머지 충돌 폭탄(Merge-Bomb) 제로.**  
-> `sdd-parallel`은 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 백로그와 이를 구현하는 코딩 에이전트(**Claude Code**, **Codex**, **Antigravity** 및 worktree를 지원하는 모든 CLI) 사이에서 동작하는 결정론적 트래픽 컨트롤러이자 워크트리 격리기 및 영향 반경(Blast-Radius) 보호 하네스입니다.
+> **병렬 AI 코딩 에이전트를 위한 결정론적 웨이브 스케줄러 및 격리된 worktree 샌드박스 — LLM 토큰을 단 1개도 소비하기 전에 침묵의 머지 폭탄을 방지합니다.**  
+> `sdd-parallel`은 **Spec Kit / BMAD / GSD / OpenSpec / Beads** 백로그와 이를 구현하는 코딩 에이전트(**Claude Code**, **Codex**, **Antigravity** 및 worktree를 지원하는 모든 CLI) 사이에서 동작합니다.
 
 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ko.mp4
 
-<p align="center">
-  <em>🎬 <b>1080p 전체 안내 영상</b> — 모국어 음성 안내로 시청:</em><br>
-  <a href="../../../README.md">🇺🇸&nbsp;Video&nbsp;in&nbsp;English</a> &nbsp;|&nbsp;
-  <a href="../es/README.md">🇪🇸&nbsp;Vídeo&nbsp;en&nbsp;español</a> &nbsp;|&nbsp;
-  <a href="../pt-BR/README.md">🇧🇷&nbsp;Vídeo&nbsp;em&nbsp;português</a> &nbsp;|&nbsp;
-  <a href="../ru/README.md">🇷🇺&nbsp;Видео&nbsp;на&nbsp;русском</a><br>
-  <a href="../ja/README.md">🇯🇵&nbsp;日本語の解説動画</a> &nbsp;|&nbsp;
-  <b>🇰🇷&nbsp;한국어&nbsp;설명&nbsp;영상</b> &nbsp;|&nbsp;
-  <a href="../zh-CN/README.md">🇨🇳&nbsp;中文讲解视频</a>
-</p>
+<p align="center"><em>🎬 <b>1080p 전체 안내 영상</b> — 상단의 <b>🌐 언어</b> 선택기에서 7개 언어 음성 안내를 이용할 수 있습니다.</em></p>
 
-직접 체험해 보고 싶으신가요? **[⚡ 온라인 인터랙티브 Wave Inspector](https://stopactingsosmall.github.io/sdd-parallel/?video=ko)** (설치 없이 브라우저에서 바로 실행)를 열거나 [아래의 상세 튜토리얼](#-5초-만에-체험하기-api-키-불필요-상세-튜토리얼)을 확인하세요.
+직접 체험해 보고 싶으신가요? **[⚡ 온라인 인터랙티브 Wave Inspector](https://stopactingsosmall.github.io/sdd-parallel/?video=ko)** (설치 없이 브라우저에서 바로 실행)를 열거나 [아래의 상세 튜토리얼](#-5초-만에-체험하기-api-키-불필요-주석이-포함된-안내)을 확인하세요.
 
 ---
 
@@ -73,11 +64,13 @@ https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-p
 | 발생 상황 | ❌ 순차 실행 (에이전트 1개) | 💥 단순 병렬 (`--worktree`) | ✅ `sdd-parallel` 적용 시 |
 | :--- | :--- | :--- | :--- |
 | **12개 스토리 스프린트 소요 시간** | ~6–8시간 (하나씩 순차 처리) | ~2시간 코딩 + **~2시간 깨진 머지 복구** | **총 ~2.5시간 (2~3배 가속)** |
-| **숨겨진 타입 / API 충돌** | 작업을 극도로 느리게 진행해야만 회피 | **머지 후 `main` 브랜치 손상** (W_A ∩ I_B ≠ ∅) | **사전 원천 차단** (Wave 1 → Wave 2로 분할 격리) |
+| **숨겨진 타입 / API 충돌** | 작업을 극도로 느리게 진행해야만 회피 | **머지 후 `main` 브랜치 손상 — 작업 A가 작업 B가 임포트하는 파일을 수정** (W_A ∩ I_B ≠ ∅) | **사전 원천 차단** (Wave 1 → Wave 2로 분할 격리) |
 | **공유 CLI / 라우터 파일 수정** | 한 번에 에이전트 1개만 접근 가능 | 머지할 때마다 Git 충돌 발생 | **병렬 안전 보장** (`ADDITIVE_REGISTRY` 자동 감지) |
-| **`sprint-status.yaml` / `tasks.md` / `STATE.md`** | 순차적으로만 업데이트 가능 | 지속적인 `<<<<<<<` 충돌 발생 | **자동 병합** (단조 3-way 병합 엔진) |
+| **`sprint-status.yaml` / `tasks.md` / `STATE.md`** | 순차적으로만 업데이트 가능 | 지속적인 `<<<<<<<` 충돌 발생 | **자동 병합** (단조 3-way 병합 엔진: 더 높은 작업 진행 상태가 항상 우선하며(todo → done), 충돌 마커가 전혀 남지 않습니다) |
 | **에이전트가 엉뚱한 파일을 수정할 때** | 프롬프트로 "제발 수정하지 마세요" 당부 | `bash` / `sed` 등을 통해 쉽게 우회됨 | **원천 차단** (`PreToolUse` 훅 + 터미널 가드 + `chmod a-w`) |
 | **워크트리 폴더 난립** | 없음 | 방치된 15개의 `.worktrees/task-*` 폴더 잔재 | **고정된 재사용 슬롯** (`track-a`, `track-b`, `track-c`) |
+
+*표기법: W = 작업이 수정하는 파일 집합(Write set); I = 해당 파일을 임포트하거나 이에 의존하는 파일 집합(Impact radius).*
 
 ---
 
@@ -187,6 +180,8 @@ sdd-parallel prepare --wave 1
   <img src="../../assets/how-it-works-pipeline.png" width="100%" alt="sdd-parallel 파이프라인: plan, prepare, 에이전트 실행, verify 및 merge">
 </p>
 
+`sdd-parallel`은 **Bulk Synchronous Parallel (BSP)** 실행 모델을 따릅니다: 각 트랙은 상호 수정 없이 격리된 워크트리에서 실행되며, 다음 웨이브를 시작하기 전 테스트 및 병합 배리어에서만 동기화됩니다.
+
 **1. 최초 1회 설치** (`Python >= 3.11`, `Git >= 2.30` 필요):
 
 ```bash
@@ -242,13 +237,13 @@ sdd-parallel merge --wave 1
   <img src="../../assets/whats-inside-worktrees.png" width="100%" alt="sdd-parallel이 저장소 내부에 생성하는 구조: .parallel/ 상태 및 .worktrees/ 트랙 슬롯">
 </p>
 
-`sdd-parallel`은 기존 프레임워크 파일을 그대로 읽습니다 — 마이그레이션이나 새로운 명세 포맷 작성이 일절 불필요합니다.
+`sdd-parallel`은 읽기 전용 **Anti-Corruption Layer (ACL)** 어댑터를 사용하여 사용자 명세를 수정하지 않고도 5가지 SDD 포맷을 통합 작업 그래프로 정규화합니다 — 마이그레이션이나 새로운 명세 포맷 작성이 일절 불필요합니다.
 
 | SDD 프레임워크 | 읽기 전용 아티팩트 (슬롯 내 잠금) | 작업 탐색 대상 | 상태 동기화 방식 |
 | :--- | :--- | :--- | :--- |
 | **GitHub Spec Kit** (`.specify/`) | `constitution.md`, `feature.json`, `spec.md`, `plan.md` | `specs/*/tasks.md` (`T001 [P]`) | 3-way 마크다운 체크박스 병합 |
 | **BMAD Method** (`v6.3+` / `v7`) | `epic-*-context.md` (Zero Cache Invalidation) | `sprint-status.yaml`, `epics.md`, `spec-*.md` | 단조 3-way YAML 병합 |
-| **GSD** (`.planning/`) | `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md` | `phases/*/NN-NN-PLAN.md` | 아티팩트 하이재킹 (`STATE.md`는 병합 시 중앙에서 업데이트) |
+| **GSD** (`.planning/`) | `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md` | `phases/*/NN-NN-PLAN.md` | GSD Centralized `STATE.md` Sync (`STATE.md`는 병합 시 중앙에서 업데이트) |
 | **OpenSpec** (`openspec/`) | `openspec/specs/**`, `project.md`, `config.yaml`, 형제 변경 폴더 | `openspec/changes/<slug>/tasks.md` | 3-way 마크다운 체크박스 병합 |
 | **Beads** (`.beads/`) | `.beads/config.yaml` | `.beads/*.jsonl` (`bd-101` + `blocks` 엣지) | 라인 단위 3-way 반격자 JSONL 병합 |
 
@@ -377,7 +372,7 @@ my-project/
 </details>
 
 <details>
-<summary><b>⚡ GSD — Get Shit Done (<code>.planning/phases/</code> 아티팩트 하이재킹) — 도입 전/후 트리 보기 (클릭하여 펼치기)</b></summary>
+<summary><b>⚡ GSD — Get Shit Done (<code>.planning/phases/</code> — GSD Centralized <code>STATE.md</code> Sync) — 도입 전/후 트리 보기 (클릭하여 펼치기)</b></summary>
 
 **도입 전:**
 
@@ -571,6 +566,20 @@ my-project/
 - 📐 **[시스템 아키텍처 단일 진실 공급원(SSOT) (`ARCHITECTURE.md`)](../../../ARCHITECTURE.md)** · **[도сье 목차](../../dossier/README.md)** · **[러시아어 상세 문서](../ru/dossier/)**
 
 <details>
+<summary><b>❓ 핵심 엔지니어링 질문 및 정직한 적용 한계 (FAQ)</b></summary>
+
+1. **코드를 작성하기도 전에 플래너가 `write_files`를 어떻게 미리 알 수 있나요?**
+   3단계 해석 캐스케이드(3-tier resolution cascade)를 통해 파악합니다: **(a) 명시적 경로** — 명세에서 파싱(`Code Map`, `Files:`, 또는 백틱으로 감싼 파일 경로) → **(b) 웨이브 사전 AST 심볼 링커(Pre-Wave AST Symbol Linker)** — 언급된 함수/클래스 이름을 저장소 AST 인덱스와 대조하여 파일 경로로 해석 → **(c) 동적 스코프 에스컬레이션(Dynamic Scope Escalation)**(`.tmp/scope-escalation.json`) — 차단된 트랙이 추가 파일을 요청할 수 있도록 허용하며, 충돌이 발생할 경우 `verify-wave` 배리어에서 안전하게 해당 작업을 다음 웨이브로 연기합니다.
+2. **TypeScript, Go, Rust 등 Python 이외의 저장소는 어떻게 지원하나요?**
+   내장된 무의존성(zero-dependency) AST 스캐너는 Python 모듈을 네이티브로 파싱합니다. 다중 언어 저장소(TypeScript/JavaScript, Go, Rust)의 경우, `sdd-parallel`은 SDD 명세의 명시적 파일 선언과 선택적 Tree-sitter 사이드카인 **`code-review-graph`**(`CRGSidecarAdapter`)를 결합하여 파일 간 호출 및 임포트 영향 반경을 계산합니다.
+3. **에이전트가 `bash` (`sed -i`, `python -c`, `cp`)로 `PreToolUse` 훅을 우회할 수 있지 않나요?**
+   스코프 외 쓰기는 **3계층 심층 방어(3-Tier Defense-in-Depth)** 아키텍처로 차단됩니다: **1계층(훅 + 터미널 가드)**은 도구 호출과 셸 명령어 문자열에서 리다이렉션 및 쓰기 지시자(`>`, `sed -i`, `tee`, `rm`, `mv`, `cp`, `python -c`)를 검사 → **2계층(OS 레벨 잠금)**은 각 슬롯 내 읽기 전용 및 Spine 잠금 파일에 `chmod a-w`를 적용 → **3계층(`verify-wave` 배리어)**은 실제 `git diff merge-base...HEAD`를 `.parallel-lock.json`과 대조 감사하여 위반 시 병합을 원천 차단합니다.
+4. **정적 AST 분석은 계층 간 계약(Pydantic JSON → TS 프론트엔드, SQL FK, OpenAPI)을 볼 수 없지 않나요?**
+   맞습니다 — 순수 AST 임포트 그래프만으로는 언어 간 경계나 직렬화 경계를 넘나드는 계약을 추적할 수 없습니다. `sdd-parallel`은 선언적인 **`DEFAULT_CONTRACT_GLOBS`**(`**/schemas/**`, `**/migrations/**`, `openapi.*`, `*.proto`, `*.graphql`)와 `.parallel-config.json`의 사용자 정의 `file_roles`를 통해 이 간극을 결정론적으로 메우며, 계층 간 계약을 건드리는 작업은 엄격한 `SPINE` 직렬화 대상으로 강제합니다.
+
+</details>
+
+<details>
 <summary><b>🏛️ 엔진 내부 아키텍처 및 9대 핵심 불변성 원칙 (클릭하여 펼치기)</b></summary>
 
 ### 내부 컴포넌트 흐름도
@@ -580,7 +589,7 @@ flowchart TD
     subgraph Inputs["1. Multi-SDD Roadmap Adapters"]
         BMAD["BMAD Method (v6/v7)"]
         SpecKit["GitHub Spec Kit (.specify/)"]
-        GSD["GSD Artifact Hijack (.planning/)"]
+        GSD["GSD Centralized STATE.md Sync (.planning/)"]
         OpenSpec["OpenSpec (openspec/changes/)"]
         Beads["Beads (.beads/*.jsonl)"]
     end
@@ -652,9 +661,9 @@ flowchart TD
 
 </details>
 
-## 🚢 릴리스 매트릭스: 완료 항목 (v0.1.0) vs 로드맵 (v0.2+)
+## 🚢 릴리스 매트릭스: 완료 항목 (v0.2.1) vs 로드맵 (v0.3+)
 
-### ✅ `v0.1.0` 구현 완료 항목
+### ✅ `v0.1.0 – v0.2.1` 구현 완료 항목
 
 - [x] 칸(Kahn) 비순환성 검증이 포함된 결정론적 벌크 동기식 병렬(BSP) 웨이브 스케줄러.
 - [x] AST 핫스팟 스캐너 및 `code-review-graph v2.3.9` 사이드카 연동.
@@ -662,18 +671,23 @@ flowchart TD
 - [x] 3계층 스코프 가드(`PreToolUse` + 터미널 가드 + OS `chmod a-w`).
 - [x] YAML, 마크다운 체크리스트, `STATE.md`, JSONL을 지원하는 단조 3-way 상태 병합 엔진.
 - [x] 자동 안전 백업 브랜치를 지원하는 LIFO 트랜잭션 웨이브 롤백.
-- [x] 5대 SDD 어댑터: Spec Kit, BMAD, GSD(아티팩트 하이재킹), OpenSpec, Beads 지원 (각각 트랙별 네이티브 워커 명령어 제공).
-- [x] 오프라인 머지 폭탄 데모(`sdd-parallel demo --kit all`) 및 샌드박스 스캐폴딩(`--scaffold-only`).
+- [x] 5대 SDD 어댑터: Spec Kit, BMAD, GSD(Centralized `STATE.md` Sync), OpenSpec, Beads 지원 (각각 트랙별 네이티브 워커 명령어 제공).
+- [x] 공식 GitHub Spec Kit 확장(`extension.yml`).
+- [x] 오프라인 머지 폭탄 데모(`sdd-parallel demo --kit all`), 회고적 벤치마크(`sdd-parallel bench`), 독립 실행형 HTML Wave Inspector(`sdd-parallel inspect --open`), 및 샌드박스 스캐폴딩(`--scaffold-only`).
 - [x] Antigravity, Claude Code, Codex를 위한 멀티 윈도우 오토파일럿 지원.
-- [x] Ubuntu / macOS / Windows, Python 3.11~3.13 환경에서의 클린 클론 CI 및 PyPI 신뢰 배포(Trusted Publishing).
-
-### 🚧 `v0.2.0+` 로드맵 예정 항목
-
-- [x] **커뮤니티 어댑터 확충:** `mattpocock/skills` (`/implement-spec`) 및 `bmad-loop` 프런트매터 상태 어댑터.
+- [x] Ubuntu / macOS / Windows, Python 3.11–3.13 환경에서의 클린 클론 CI 및 PyPI 신뢰 배포(Trusted Publishing).
+- [x] **커뮤니티 어댑터:** `mattpocock/skills` (`/implement-spec`) 및 `bmad-loop` 프런트매터 상태 어댑터.
 - [x] **환경 오염 제로 동기화:** 고정 슬롯 내 `.venv` / `node_modules` 심볼릭 링크 지원.
 - [x] **웨이브 사전 정적 심볼 링커 및 스코프 에스컬레이션:** 동적 재스케줄링을 통한 AST 심볼 기반 쓰기 집합 자동 확장.
-- [x] **실행 매니페스트 및 인지 라우터 계약:** 결정론적 `.parallel/run-manifest.json`, AST 구조적 신호 (`TaskStructuralSignals`) 및 `--routing-file` 계약 (`ADR-0009`).
-- [x] **공식 Depth-0 웨이브 러너 (`agy` CLI / SDK):** `TrackExecutionPolicy`를 통한 병렬 헤드리스 트랙 실행.
+- [x] **실행 매니페스트 및 인지 라우터 계약:** 결정론적 `.parallel/run-manifest.json`, AST 구조적 신호(`TaskStructuralSignals`), 및 외부 System-1 라우터와 AgentLens를 위한 `--routing-file` 계약(`ADR-0009`).
+- [x] **공식 Depth-0 웨이브 러너 (`agy` CLI / SDK):** `TrackExecutionPolicy`(`BoundedCyclicReviewPolicy`, `--policy cyclic`)를 통한 병렬 헤드리스 트랙 실행.
+
+### 🚧 `v0.3+` 로드맵 예정 항목
+
+- [ ] 엄격한 키트 자동 감지 (무음 폴백 제로, TTY 모호성 해소 프롬프트)
+- [ ] 그래프 안전 에스컬레이션 및 원인 이분 탐색 (부분 웨이브 병합 + 자동화된 수정 루프)
+- [ ] 네이티브 다중 언어 Tree-sitter AST 및 자동 CRG 인덱싱 (TS/JS, Go, Rust)
+- [ ] 선택적 System-1 사전 추출기 (`--extractor none|gliner|clairic`) 및 적응형 `--max-tracks auto`
 
 ---
 
