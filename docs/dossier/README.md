@@ -40,6 +40,7 @@ This technical documentation package adheres to the **Diátaxis-lite** framework
 
 | Reading Mode (Diátaxis) | Target Document | Content & Learning Focus |
 | :--- | :--- | :--- |
+| 📘 **How-To & Day-1 Runbook** *(Setup & Recovery)* | [`USER_GUIDE.md`](../USER_GUIDE.md) | Harness connection recipes (`.worktrees/` vs `--antigravity-layout`), all 5 Before/After SDD project trees, Wave Inspector guide, Assisted vs. Cyclic Autopilot modes, and Day-1 recovery (`abort-wave`, `rollback-wave`, `.tmp/scope-escalation.json`). |
 | 🎓 **Tutorials** *(Hands-on Learning)* | [`07_STANDALONE_DEMO_AND_E2E_WALKTHROUGH.md`](07_STANDALONE_DEMO_AND_E2E_WALKTHROUGH.md) | Step-by-step walkthrough: 4-stage output anatomy of `sdd-parallel demo`, Scenario A (`--keep-temp` demo sandbox) and Scenario B (Greenfield scratch repo, OS Lock crash test, and LIFO rollback). |
 | 🧠 **Explanation / Concepts** *(Theory & Architectural Concepts)* | [`02_SYSTEM_CAPABILITIES_WHITE_PAPER.md`](02_SYSTEM_CAPABILITIES_WHITE_PAPER.md) | Theoretical foundation: Type-1 and Type-2 conflict models ($W_A \cap I_B$), 3-pass algorithmic pipeline of `ASTHotspotScanner`, CRG impact decay formulation, Three-Tier Scope Guard, and status semi-lattices. |
 | 📖 **Reference & How-To** *(Specifications, Formats & Protocols)* | [`03_INTEGRATION_AND_ECOSYSTEM_SPEC.md`](03_INTEGRATION_AND_ECOSYSTEM_SPEC.md) | CLI command reference, artifact schema specifications (`.tmp/track-context.md`, `.parallel-lock.json`), MCP JSON-RPC protocol, 5 SDD adapter contracts, and `SDDAdapterProtocol`. |

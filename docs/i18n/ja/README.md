@@ -30,27 +30,19 @@
   <a href="#%EF%B8%8F-動作の仕組みと日常の-4-ステップ運用">動作の仕組み</a> ·
   <a href="#-実際の-sdd-プロジェクト構造導入前後の比較">プロジェクト構造</a> ·
   <a href="#-既存の開発環境にそのまま適合ベンダーロックインなし">ハーネス連携</a> ·
-  <a href="#%EF%B8%8F-完全-cli-コマンドリファレンス">日常 CLI</a> ·
+  <a href="../../USER_GUIDE.md">User Guide (EN)</a> ·
+  <a href="#%EF%B8%8F-完全-cli-コマンドリファレンス">CLI</a> ·
   <a href="#-アーキテクチャ数学モデル技術ドシエの詳細">詳細ドシエ</a>
 </p>
 
-> **複数の AI コーディングエージェントを安全に並行実行 — 最大 3 倍高速化、マージボム（Merge-Bomb）はゼロ。**  
-> `sdd-parallel` は、**Spec Kit / BMAD / GSD / OpenSpec / Beads** のバックログと、それを実装するコーディングエージェント（**Claude Code**、**Codex**、**Antigravity**、または任意の worktree 対応 CLI）の間に立つ、決定論的トラフィックコントローラ、worktree 隔離レイヤ、および影響半径（Blast-Radius）ガードです。
+> **並行 AI コーディングエージェント向け決定論的ウェーブスケジューラ＆隔離 worktree サンドボックス — LLM トークン消費前に静かなマージボムを防止。**  
+> `sdd-parallel` は **Spec Kit / BMAD / GSD / OpenSpec / Beads** のバックログと **Claude Code / Codex / Antigravity** 等の worktree CLI の間に配置します。
 
 https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-parallel-explainer-ja.mp4
 
-<p align="center">
-  <em>🎬 <b>1080p フル解説動画</b> — 母国語の音声ナレーションで視聴:</em><br>
-  <a href="../../../README.md">🇺🇸&nbsp;Video&nbsp;in&nbsp;English</a> &nbsp;|&nbsp;
-  <a href="../es/README.md">🇪🇸&nbsp;Vídeo&nbsp;en&nbsp;español</a> &nbsp;|&nbsp;
-  <a href="../pt-BR/README.md">🇧🇷&nbsp;Vídeo&nbsp;em&nbsp;português</a> &nbsp;|&nbsp;
-  <a href="../ru/README.md">🇷🇺&nbsp;Видео&nbsp;на&nbsp;русском</a><br>
-  <b>🇯🇵&nbsp;日本語の解説動画</b> &nbsp;|&nbsp;
-  <a href="../ko/README.md">🇰🇷&nbsp;한국어&nbsp;설명&nbsp;영상</a> &nbsp;|&nbsp;
-  <a href="../zh-CN/README.md">🇨🇳&nbsp;中文讲解视频</a>
-</p>
+<p align="center"><em>🎬 <b>1080p 解説動画</b> — 上部の <b>🌐 Language</b> から 7 言語版を選択可能。</em></p>
 
-実際に操作して試してみたいですか？ **[⚡ インタラクティブ Wave Inspector オンライン](https://stopactingsosmall.github.io/sdd-parallel/?video=ja)**（インストール不要のブラウザデモ）を開くか、以下の[注釈付きウォークスルー](#-5-秒で体験api-キー不要注釈付きウォークスルー)をご覧ください。
+今すぐ試す：**[⚡ Live Wave Inspector](https://stopactingsosmall.github.io/sdd-parallel/?video=ja)**（ブラウザデモ） · **[📘 User Guide & Day-1 ランブック (EN)](../../USER_GUIDE.md)**。
 
 ---
 
@@ -60,121 +52,67 @@ https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-p
   <img src="../../assets/merge-bomb-anatomy.png" width="100%" alt="マージボムの構造：逐次実行 vs 素朴な worktree 並行 vs sdd-parallel">
 </p>
 
-10〜15 件の仕様やユーザーストーリーを抱えている場合、現在選べる手段は次の 2 つの好ましくない選択肢のどちらかです：
+10〜15 件の仕様を抱える場合、従来手段はどちらも難点があります：
+1. **1 エージェント逐次実行** — 安全だが **6〜8 時間** 待機。
+2. **素朴な `git worktree` に 3〜4 エージェント** — 高速だが統合時に破綻：
+   - **第 1 種（直接衝突）：** `sprint-status.yaml`、`STATE.md`、`cli.py` の同時編集 → `<<<<<<<` 衝突。
+   - **第 2 種（潜在衝突）：** A が `normalizer.py` のシグネチャを変え、B が `api.py` から旧形式を呼ぶ。**Git は正常マージし、`main` が破損。**
+   - **スコープ逸脱：** 共有 `schema.py` をタスク外で書き換える。
 
-1. **1 体のエージェントで逐次実行** — 安全ですが、完了まで **6〜8 時間** の待ち時間が発生します。
-2. **素朴に `git worktree` ディレクトリを分けて 3〜4 体のエージェントを実行** — 実装は高速ですが、マージ時に破綻します：
-   - **第 1 種衝突（直接衝突）：** 2 つのエージェントが `sprint-status.yaml`、`STATE.md`、または `cli.py` を同時に編集 → マージのたびに `<<<<<<<` 衝突マーカーが発生。
-   - **第 2 種衝突（セマンティック衝突・潜在的）：** エージェント A が `normalizer.py` の関数シグネチャを変更し、別 worktree のエージェント B が `api.py` から古いシグネチャを呼び出す。**Git はコンフリクトマーカーなしで正常にマージを完了しますが、`main` ブランチは実行時エラーで破壊されます。**
-   - **スコープ逸脱（Scope creep）：** 親切心のつもりでエージェントが、自身のタスクスコープ外である共有 `schema.py` を勝手に書き換えてしまう。
+**`sdd-parallel` はトークン消費前に解決：** AST＋コールグラフから安全な **Wave** を組み、固定スロット（`track-a/b/c`）に隔離してスコープ外編集を遮断、品質ゲート越しに統合します。
 
-**`sdd-parallel` は、LLM トークンを 1 つも消費する前にこれを解決します：** AST とコールグラフをスキャンし、数学的に安全性が証明されたタスク群を並行 **Wave（ウェーブ）** にグループ化し、各エージェントをクリーンな固定スロット（`track-a`、`track-b`、…）に隔離し、フックおよび OS レベルでスコープ外の書き込みを遮断した上で、品質ゲートバリアの背後で各ウェーブを安全にマージします。
-
-| 発生事象 | ❌ 逐次実行（1 エージェント） | 💥 素朴な並行（`--worktree`） | ✅ `sdd-parallel` 導入時 |
+| 事象 | ❌ 逐次実行 | 💥 素朴な `--worktree` | ✅ `sdd-parallel` |
 | :--- | :--- | :--- | :--- |
-| **12 ストーリーのスプリント所要時間** | 約 6〜8 時間（1 つずつ実行） | コーディング約 2 時間 ＋ **破損マージの修正約 2 時間** | **合計約 2.5 時間（2〜3 倍の高速化）** |
-| **潜在的な型・API の衝突** | 低速実行によってのみ回避 | **マージ後に `main` が破損** ($W_A \cap I_B \neq \emptyset$) | **事前防止**（Wave 1 → Wave 2 に自動分離） |
-| **共有 CLI・ルーターファイル** | 1 エージェントずつ実行 | マージごとに Git コンフリクト | **並行安全**（`ADDITIVE_REGISTRY` 自動検知） |
-| **`sprint-status.yaml` / `tasks.md` / `STATE.md`** | 直列で更新 | `<<<<<<<` コンフリクトが頻発 | **自動マージ**（単調 3-Way マージャー） |
-| **エージェントが誤ったファイルを編集** | プロンプトで「編集しないで」と懇願 | `bash` や `sed` で指示を迂回 | **確実に遮断**（`PreToolUse` フック ＋ Terminal Guard ＋ `chmod a-w`） |
-| **Worktree ディレクトリの散らかり** | なし | 15 個の `.worktrees/task-*` が残留 | **再利用可能な固定スロット**（`track-a`, `track-b`, `track-c`） |
+| **12 ストーリー** | 約 6〜8 時間 | 実装 2h ＋ **修正 2h** | **合計約 2.5h（2〜3 倍高速）** |
+| **潜在 API 衝突** | 低速で回避 | **`main` 破損** ($W_A \cap I_B \neq \emptyset$) | **事前防止** (Wave 1 → 2) |
+| **共有 CLI/ルーター** | 直列実行 | マージ毎に衝突 | **並行安全** (`ADDITIVE_REGISTRY`) |
+| **ステータスファイル** | 直列更新 | `<<<<<<<` 頻発 | **単調 3-Way マージ** (衝突 0) |
+| **スコープ外編集** | プロンプト警告 | `bash`/`sed` で迂回 | **遮断** (`PreToolUse` + Terminal Guard + `chmod a-w`) |
+| **Worktree 散乱** | なし | `task-*` が 15 個残留 | **固定再利用スロット** (`track-a/b/c`) |
+
+*表記: $W$ = 変更ファイル（Write set）、$I$ = インポート/依存ファイル（Impact radius）。*
 
 ---
 
 ## 🚀 5 秒で体験（API キー不要・注釈付きウォークスルー）
 
-API キー不要、LLM サブスクリプション不要、リポジトリのクローンすら不要です。[`uv`](https://docs.astral.sh/uv/) 経由で 1 コマンド実行するだけです（または `pipx run sdd-parallel demo`）：
+API キー・LLM 契約・クローン不要。[`uv`](https://docs.astral.sh/uv/)（または `pipx run sdd-parallel demo`）で実行：
 
 ```bash
-uvx sdd-parallel demo          # 特定のキットをテストする場合: uvx sdd-parallel demo --kit spec-kit
+uvx sdd-parallel demo --kit all   # 単一キット: uvx sdd-parallel demo --kit spec-kit
 ```
 
-このデモは、5 つのタスクと 6 つの Python モジュールを含む使い捨てリポジトリをスキャフォールドし、実際のエグゼクティブエンジンを適用して、約 4 秒で完了します。以下は `--kit spec-kit` の実行例を 4 つのステージに分解した解説です。
-
-#### `[Step 1/4]` AST 解析とロール分類
+使い捨て Git リポ（5 タスク・6 モジュール）を生成し、AST 解析・Scope Guard `DENY`・衝突 0 マージを約 4 秒で検証：
 
 ```text
-File Path                              | Detected Role          | Importers
-----------------------------------------------------------------------------
-src/demo_app/__init__.py               | additive_registry      | -
-src/demo_app/api.py                    | standard               | -
-src/demo_app/cli.py                    | additive_registry      | -
-src/demo_app/exporter.py               | standard               | -
-src/demo_app/normalizer.py             | standard               | src/demo_app/api.py
-src/demo_app/schema.py                 | spine                  | -
+================================================================
+5/5 SDD KITS VERIFIED (BMAD, SPEC KIT, GSD, OPENSPEC, BEADS)
+================================================================
+Kit      | Merge-Bomb | Worktrees | Scope Guard | 3-Way Merge
+----------------------------------------------------------------
+bmad     | PASSED     | PASSED    | PASSED      | PASSED
+spec-kit | PASSED     | PASSED    | PASSED      | PASSED
+gsd      | PASSED     | PASSED    | PASSED      | PASSED
+openspec | PASSED     | PASSED    | PASSED      | PASSED
+beads    | PASSED     | PASSED    | PASSED      | PASSED
+================================================================
 ```
-
-設定ファイルもハードコードされたパスも不要です。スキャナーは `schema.py` を **`spine`**（全モジュールが依存するため直列化が必要）、`cli.py` を **`additive_registry`**（追記専用のコマンド登録のため安全に共有可能）として分類し、`api.py` が `normalizer.py` をインポートしている事実を記録します。
-
-#### `[Step 2/4]` 潜在的な第 2 種セマンティック・マージボムの検知
-
-```text
-  Collision Analysis:
-    - Naive Scheduler : W(T002)={normalizer.py, cli.py} vs W(T004)={api.py}
-                        -> DISJOINT WRITES (False Safe!)
-    - BSPWaveScheduler: Detected semantic_collision between 'T002' and 'T004'
-                        -> Overlap W(T002) ^ I(T004) on: src/demo_app/api.py
-  Wave Schedule:
-    * Wave 1  track-a: T002 (normalizer.py + shared cli.py) | track-b: T003 (exporter.py + shared cli.py)
-    * Wave 2  track-a: T001 (schema.py)                     | track-b: T004 (api.py)
-    * Wave 3  track-a: T005 (schema.py)
-```
-
-`T002` と `T004` はどちらも `tasks.md` に手動で `[P]`（並行可能）タグが付与されており、書き込み対象ファイルも重複していません（`normalizer.py ≠ api.py`）。そのため、従来のファイルロック型スケジューラはこれらを同時に並行実行してしまいます。しかし `BSPWaveScheduler` は、`T002` の書き込みが `T004` の影響セット（Impact Set）に含まれていることを見抜き、`T004` を **Wave 2** へ自動的に分離します。これにより、`T004` はマージ済みの `normalizer.py` の上で安全に動作します。一方、`T002` と `T003` は両方とも `cli.py` を編集しますが、それが加算型レジストリ（`additive_registry`）であるため、同一ウェーブ内で安全に並行実行されます。
-
-#### `[Step 3/4]` クリーンな固定スロットとスコープガードによる遮断
-
-```text
-  Provisioned Fixed Slots (100% Clean git status: True):
-    - track-a (.worktrees/track-a)
-    - track-b (.worktrees/track-b)
-
-  PreToolUse Scope Guard Check (track-a -> 'src/demo_app/schema.py'):
-    - Decision : DENY
-    - Violation: File 'src/demo_app/schema.py' cannot be modified by Wave 1 / track-a (stories ['T002'])
-    - Reason   : Locked by Spine Chain invariant.
-```
-
-注入された境界ファイル群（`ACTIVE_TRACK.md`、`.parallel-lock.json`、`.tmp/track-context.md`）は worktree の `info/exclude` によってマスクされるため、`git status --porcelain` は常に完全にクリーン（空）に保たれます。`track-a` のエージェントがスコープ外の `schema.py` を変更しようとすると、ディスクへの書き込みが発生する前に即座にリクエストが拒絶されます。
-
-#### `[Step 4/4]` バリアチェックポイントとコンフリクトゼロの 3-Way マージ
-
-```text
-  Merged Branches:
-    - parallel/track-a
-    - parallel/track-b
-  Resolved tasks.md (0 conflict markers):
-    - - [ ] T001 [US1] Upgrade schema in `src/demo_app/schema.py` (depends on T002)
-    - - [x] T002 [P] [US1] Normalize `src/demo_app/normalizer.py`, `src/demo_app/cli.py`
-    - - [x] T003 [P] [US1] Export `src/demo_app/exporter.py`, `src/demo_app/cli.py`
-```
-
-両方のブランチが同一の `tasks.md` を編集していました。ステータスマージャーは行ごとに単調半束（`[ ] < [x]`、`backlog < … < done`）として解決するため、マージ結果に `<<<<<<<` コンフリクトマーカーは一切生じません。同様のロジックが `sprint-status.yaml`、`STATE.md`、および `.beads/*.jsonl` にも適用されます。
 
 <details>
-<summary><b>🧪 5 大 SDD キット検証マトリクス（<code>uvx sdd-parallel demo --kit all</code>）とサンドボックスモードの表示</b></summary>
+<summary><b>🔍 展開：4 ステップ詳細（<code>--kit spec-kit</code>）＆ サンドボックス</b></summary>
 
+1. **`[Step 1/4]` AST ロール:** `schema.py` → `spine`（直列化）; `cli.py` → `additive_registry`（追記共有可）; `api.py` は `normalizer.py` を import。
+2. **`[Step 2/4]` 第 2 種マージボム検知:** `T002`（`normalizer.py`）と `T004`（`api.py`）は両方 `[P]` 付きだが、`BSPWaveScheduler` が $W(\text{T002}) \cap I(\text{T004}) \neq \emptyset$ を検知し `T004` を **Wave 2** へ分離。`T002` + `T003` は **Wave 1** で `cli.py` を共有：
 ```text
-============================================================================
-5/5 SDD KITS VERIFIED (BMAD, SPEC KIT, GSD, OPENSPEC, BEADS)
-============================================================================
-Kit          | Merge-Bomb   | Worktrees    | Scope Guard  | 3-Way Merge
-----------------------------------------------------------------------------
-bmad         | PASSED       | PASSED       | PASSED       | PASSED
-spec-kit     | PASSED       | PASSED       | PASSED       | PASSED
-gsd          | PASSED       | PASSED       | PASSED       | PASSED
-openspec     | PASSED       | PASSED       | PASSED       | PASSED
-beads        | PASSED       | PASSED       | PASSED       | PASSED
-============================================================================
+Wave 1: [track-a: T002] [track-b: T003]  (normalizer.py + exporter.py + cli.py)
+Wave 2: [track-a: T001] [track-b: T004]  (Wave 1 の normalizer 反映後)
+Wave 3: [track-a: T005]                  (schema バリア)
 ```
-
-手動でワークフローを試したいですか？永続的なサンドボックス環境をスキャフォールドし、その内部で実際のコマンドを実行できます：
-
+3. **`[Step 3/4]` クリーンなスロット ＆ Guard:** 境界ファイル（`ACTIVE_TRACK.md`, `.parallel-lock.json`, `.tmp/track-context.md`）は `info/exclude` で隠蔽（`Clean git status: True`）。`track-a` の `schema.py` 編集は即 `DENY`。
+4. **`[Step 4/4]` 3-Way マージ ＆ サンドボックス:** 単調マージ（`[ ] < [x]`）で `tasks.md` を衝突 0 で統合。詳細：[Dossier 07](07_STANDALONE_DEMO_AND_E2E_WALKTHROUGH.md)。手動サンドボックス：
 ```bash
 uvx sdd-parallel demo --kit gsd --scaffold-only --output-dir ./sdd-sandbox
-cd sdd-sandbox
-sdd-parallel plan
-sdd-parallel prepare --wave 1
+cd sdd-sandbox && sdd-parallel plan && sdd-parallel prepare --wave 1
 ```
 
 </details>
@@ -184,55 +122,30 @@ sdd-parallel prepare --wave 1
 ## 🗺️ 動作の仕組みと日常の 4 ステップ運用
 
 <p align="center">
-  <img src="../../assets/how-it-works-pipeline.png" width="100%" alt="sdd-parallel パイプライン：計画（plan）、準備（prepare）、エージェント実行、検証およびマージ">
+  <img src="../../assets/how-it-works-pipeline.png" width="100%" alt="sdd-parallel パイプライン：plan、prepare、エージェント実行、検証およびマージ">
 </p>
 
-**1. 初回インストール**（要 `Python >= 3.11`、`Git >= 2.30`）：
+`sdd-parallel` は **Bulk Synchronous Parallel（BSP）** に従い、隔離トラックを相互編集なしで実行し、品質ゲートバリアで同期します。
+
+**1. 導入**（`Python >= 3.11`, `Git >= 2.30`）：`uv tool install sdd-parallel`（`pipx install sdd-parallel` も可、`sdd-parallel` と `parallel-flow` を登録）。
+
+**2. ウェーブ実行：**
 
 ```bash
-uv tool install sdd-parallel     # または: pipx install sdd-parallel
-```
-*(コマンド `sdd-parallel` および便利な短縮エイリアス `parallel-flow` がグローバルに利用可能になります)*。
-
-`sdd-parallel` と短縮エイリアス `parallel-flow` の両方がグローバルに利用可能になります。
-
-**2. 任意の SDD プロジェクトでウェーブを実行：**
-
-```bash
-# 1. 仕様書群とコードベース AST をスキャンし、安全なウェーブを構築
-sdd-parallel plan
-
-# 2. Wave 1 を固定スロットにプロビジョニングし、各トラックの起動コマンドを出力
-sdd-parallel prepare --wave 1
-sdd-parallel run-guide --wave 1
-
-# 3. .worktrees/track-a, track-b, ... 内でエージェントを起動（スロットごとに 1 体）
-
-# 4. スコープを監査し、品質ゲートを実行して Wave 1 を main にマージ
-sdd-parallel verify-wave --wave 1
-sdd-parallel merge --wave 1
+sdd-parallel plan                  # 1. 仕様＋AST 解析でウェーブ生成
+sdd-parallel prepare --wave 1      # 2. スロット確保＋ロック注入
+sdd-parallel run-guide --wave 1    #    各スロットの起動コマンド表示
+# 3. .worktrees/track-a, track-b, ... でエージェント実行
+sdd-parallel verify-wave --wave 1  # 4. .parallel-lock.json と diff 監査
+sdd-parallel merge --wave 1        #    品質ゲート＋3-Way マージ
 ```
 
-取り消し操作：マージ前は `sdd-parallel abort-wave --wave 1`、マージ後は `sdd-parallel rollback-wave --wave 1`（LIFO 順、自動バックアップブランチ `backup/wave-<K>-before-rollback-*` の作成、SDD ステータスの復元を実行）。
+**取消 ＆ 可視化：** `abort-wave --wave 1` · `rollback-wave --wave 1 --save-backup`（LIFO＋退避ブランチ） · `inspect --open`（`assets/inspector.html`）。
 
-### 2 つのオーケストレーションモード：対話型アシスト vs 自律型 Autopilot
+- **Mode A — 対話型アシスト：** `plan` → `inspect --open` → **CLI Action Bridge** から `prepare` / `merge` をコピーし `.worktrees/track-{a,b}` を監視。
+- **Mode B — 巡回 Autopilot：** `sdd-parallel autopilot --wave 1 --harness {antigravity,claude-code,codex} --execute --policy {single-shot,cyclic} [--max-review-rounds N] [--routing-file FILE]`。
 
-`sdd-parallel` は 2 つの運用スタイルをネイティブにサポートします：
-1. **対話型 2 段階アシストモード (Interactive Two-Stage Assisted)：**
-   - `sdd-parallel plan` でウェーブを算出し、`sdd-parallel inspect --open` でビジュアルインスペクターを起動してコンフリクト DAG と依存関係を精査。
-   - `sdd-parallel prepare --wave 1` で固定スロット（`track-a`、`track-b`）をプロビジョニングし、お好みの IDE でスロットを開き、CLI Action Bridge が提供するネイティブコマンドで各エージェントを実行。
-   - タスク完了後、`sdd-parallel verify-wave --wave 1` で差分を監査し、`sdd-parallel merge --wave 1` で安全に統合。
-2. **自律型マルチウィンドウ / 巡回 Autopilot モード (Autonomous Multi-Window / Cyclic Autopilot)：**
-   - `sdd-parallel autopilot --wave 1 --harness claude-code --execute --policy cyclic`（または `--harness codex` / `antigravity`）を実行。
-   - エンジンが隔離されたスロット内でエージェントを自動起動し、タスク実装、品質ゲート検証、および巡回レビュー（`--max-review-rounds N`）を手動介入なしで自律実行。
-
-### 対話型 Wave Inspector ビジュアルダッシュボード (`sdd-parallel inspect --open`)
-
-単一 HTML ファイルによる完全ゼロ依存のインスペクターは、4 つの強力なビューを提供します：
-- **🌊 Waves & Tracks（ウェーブとトラック）：** ウェーブごとのスロット割り当てとタスク進行状況、およびネイティブ起動コマンドをワンクリックでコピーできる **CLI Action Bridge**（`Copy` ボタン）を配置。
-- **📊 Conflict DAG（コンフリクト有向非巡回グラフ）：** タスク間の依存とファイル衝突を可視化するインタラクティブ SVG グラフ。ノードをクリックすると **Task Spec Modal** が開き、排他的変更セット（Exclusive）、追記許可セット（Additive）、保護されたコア定義（Spine-Locked）を確認可能。
-- **⚡ Conflict Matrix（衝突マトリクス）：** すべてのタスクペア間の重複と第 2 種セマンティック衝突を総当たりで検証するカラーマトリクス。
-- **🔒 Architectural Roles（アーキテクチャロール）：** AST スキャンによって判定されたコードベースのモジュール分類（`spine`、`additive_registry`、`standard`）一覧。
+👉 **[`docs/USER_GUIDE.md` (Wave Inspector & モード)](../../USER_GUIDE.md#3-interactive-wave-inspector--orchestration-modes-mode-a-vs-mode-b)** · **[Day-1 復旧ランブック](../../USER_GUIDE.md#4-day-1-troubleshooting--recovery-runbook)**。
 
 ---
 
@@ -242,309 +155,47 @@ sdd-parallel merge --wave 1
   <img src="../../assets/whats-inside-worktrees.png" width="100%" alt="sdd-parallel がリポジトリ内に生成するもの：.parallel/ 状態管理と .worktrees/ トラックスロット">
 </p>
 
-`sdd-parallel` は既存のフレームワークファイルをそのまま読み取ります。移行作業も、新しい仕様フォーマットも一切不要です。
+読み取り専用 **ACL** アダプターが仕様を変更せず 5 形式を正規化します：
 
-| SDD フレームワーク | 読み取り専用アーティファクト（スロット内でロック） | タスク検出 | ステータス同期 |
+| SDD フレームワーク | 読み取り専用（ロック対象） | タスク検出 | ステータス同期 |
 | :--- | :--- | :--- | :--- |
-| **GitHub Spec Kit** (`.specify/`) | `constitution.md`, `feature.json`, `spec.md`, `plan.md` | `specs/*/tasks.md` (`T001 [P]`) | 3-Way Markdown チェックボックスマージ |
-| **BMAD Method** (`v6.3+` / `v7`) | `epic-*-context.md`（Zero Cache Invalidation） | `sprint-status.yaml`, `epics.md`, `spec-*.md` | 単調 3-Way YAML マージ |
-| **GSD** (`.planning/`) | `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md` | `phases/*/NN-NN-PLAN.md` | Artifact Hijack（マージ時に `STATE.md` を中央で一括更新） |
-| **OpenSpec** (`openspec/`) | `openspec/specs/**`, `project.md`, `config.yaml`, 兄弟 change フォルダ | `openspec/changes/<slug>/tasks.md` | 3-Way Markdown チェックボックスマージ |
-| **Beads** (`.beads/`) | `.beads/config.yaml` | `.beads/*.jsonl`（`bd-101` ＋ `blocks` エッジ） | 行単位の 3-Way 半束 JSONL マージ |
-
-以下のスナップショットはすべて、`plan` ＋ `prepare --wave 1` 実行後の実際の `sdd-parallel demo --scaffold-only` フィクスチャから取得したものです。可読性のため、ソースツリーは `src/…` に省略しています。
+| **Spec Kit** (`.specify/`) | `constitution.md`, `feature.json`, `spec.md`, `plan.md` | `specs/*/tasks.md` (`T001 [P]`) | 3-Way Markdown |
+| **BMAD** (`v6.3+/v7`) | `epic-*-context.md` (キャッシュ非破壊) | `sprint-status.yaml`, `epics.md`, `spec-*.md` | 3-Way YAML |
+| **GSD** (`.planning/`) | `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md` | `phases/*/NN-NN-PLAN.md` | 中央 `STATE.md` 更新 |
+| **OpenSpec** (`openspec/`) | `openspec/specs/**`, `project.md`, `config.yaml`, 兄弟変更 | `openspec/changes/<slug>/tasks.md` | 3-Way Markdown |
+| **Beads** (`.beads/`) | `.beads/config.yaml` | `.beads/*.jsonl` (`bd-101` + `blocks`) | 行単位 3-Way JSONL |
 
 <details>
-<summary><b>🌱 GitHub Spec Kit (<code>.specify/</code> &amp; <code>specs/*/tasks.md</code>) — 導入前後のツリーを展開して確認</b></summary>
-
-**導入前** — 既存のプロジェクト構造：
+<summary><b>🌱 例：GitHub Spec Kit (<code>.specify/</code> &amp; <code>specs/*/tasks.md</code>) — <code>plan</code> + <code>prepare --wave 1</code> 実行後</b></summary>
 
 ```text
 my-project/
-├── .specify/
-│   ├── memory/
-│   │   └── constitution.md
-│   ├── templates/
-│   │   └── tasks-template.md
-│   └── feature.json
-├── specs/
-│   └── 001-telemetry/
-│       ├── plan.md
-│       ├── spec.md
-│       └── tasks.md
-└── src/…
-```
-
-`specs/001-telemetry/tasks.md` — `T004` に手動で `[P]` が付与されている点に注目してください。`T002` と並行実行すると安全ではありません：
-
-```markdown
-- [ ] T001 [US1] Upgrade schema in `src/demo_app/schema.py` (depends on T002)
-- [ ] T002 [P] [US1] Normalize `src/demo_app/normalizer.py`, `src/demo_app/cli.py`
-- [ ] T003 [P] [US1] Export `src/demo_app/exporter.py`, `src/demo_app/cli.py`
-- [ ] T004 [P] [US2] Expose ingestion in `src/demo_app/api.py`
-- [ ] T005 [US2] Add audit log in `src/demo_app/schema.py` (depends on T001)
-```
-
-**導入後** `sdd-parallel plan` + `prepare --wave 1`：
-
-```text
-my-project/
-├── .parallel/                        # プランナー状態管理（新規生成）
-│   ├── artifacts/
-│   │   ├── execution-plan-parallel.md
-│   │   └── wave-plan.json
-│   ├── history/run-001-<timestamp>/wave-plan.json
-│   └── state.json
-├── .specify/…                        # 未変更
+├── .parallel/{artifacts/wave-plan.json, history/, state.json}
+├── .specify/…                         # 未変更
 ├── .worktrees/
-│   ├── track-a/                      # Wave 1 → T002
-│   │   ├── .specify/memory/constitution.md   # 🔒 読み取り専用
-│   │   ├── specs/001-telemetry/
-│   │   │   ├── plan.md               # 🔒 読み取り専用
-│   │   │   ├── spec.md               # 🔒 読み取り専用
-│   │   │   └── tasks.md
-│   │   ├── src/…
-│   │   ├── .tmp/track-context.md     # 👻 info/exclude により非表示
-│   │   ├── .parallel-lock.json       # 👻 info/exclude により非表示
-│   │   └── ACTIVE_TRACK.md           # 👻 → /speckit.implement T002
-│   └── track-b/                      # Wave 1 → T003（同一レイアウト）
-├── specs/…                           # 未変更
-└── src/…
+│   ├── track-a/                       # Wave 1 → T002
+│   │   ├── .specify/memory/constitution.md    # 🔒 読み取り専用
+│   │   ├── specs/001-telemetry/{plan,spec}.md # 🔒 読み取り専用
+│   │   ├── specs/001-telemetry/tasks.md       # ✍️ 書き込み可
+│   │   ├── .tmp/track-context.md      # 👻 非表示 (info/exclude)
+│   │   ├── .parallel-lock.json        # 👻 非表示 (info/exclude)
+│   │   └── ACTIVE_TRACK.md            # 👻 → /speckit.implement T002
+│   └── track-b/                       # Wave 1 → T003
+└── specs/… & src/…                    # main では未変更
 ```
 
 </details>
 
-<details>
-<summary><b>📐 BMAD Method (<code>v6.3+ / v7</code> — <code>_bmad-output/</code>) — 導入前後のツリーを展開して確認</b></summary>
-
-**導入前：**
-
-```text
-my-project/
-├── _bmad-output/
-│   ├── implementation-artifacts/
-│   │   ├── epic-1-context.md
-│   │   ├── epic-2-context.md
-│   │   ├── epics.md
-│   │   ├── spec-1-1-upgrade-schema-v2.md
-│   │   ├── spec-1-2-normalize-telemetry-payload.md
-│   │   ├── spec-1-3-cli-batch-export.md
-│   │   ├── spec-2-1-expose-ingestion-api.md
-│   │   ├── spec-2-2-add-audit-log-schema.md
-│   │   └── sprint-status.yaml
-│   └── planning-artifacts/
-│       ├── epic-1-context.md
-│       ├── epic-2-context.md
-│       ├── epics.md
-│       └── project-context.md
-└── src/…
-```
-
-**導入後** `sdd-parallel plan` + `prepare --wave 1`：
-
-```text
-my-project/
-├── .parallel/
-│   ├── history/run-001-<timestamp>/wave-plan.json
-│   └── state.json
-├── .worktrees/
-│   ├── track-a/                      # Wave 1 → story 1-2
-│   │   ├── _bmad/custom/             # 👻 スロットごとの BMAD オーバーレイ（非表示）
-│   │   │   ├── bmad-build.toml
-│   │   │   ├── bmad-build.user.toml
-│   │   │   ├── bmad-build-auto.toml
-│   │   │   └── bmad-build-auto.user.toml
-│   │   ├── _bmad-output/
-│   │   │   ├── implementation-artifacts/   # sprint-status.yaml は 3-way マージ
-│   │   │   └── planning-artifacts/
-│   │   │       ├── epic-1-context.md # 🔒 Zero Cache Invalidation ロック
-│   │   │       ├── epic-2-context.md # 🔒
-│   │   │       └── project-context.md
-│   │   ├── src/…
-│   │   ├── .tmp/track-context.md     # 👻
-│   │   ├── .parallel-lock.json       # 👻
-│   │   └── ACTIVE_TRACK.md           # 👻 → /bmad-build 1-2
-│   └── track-b/                      # Wave 1 → story 1-3
-├── _bmad-output/
-│   ├── implementation-artifacts/…
-│   ├── parallel-artifacts/           # プランナー出力（BMAD は _bmad-output 配下に配置）
-│   │   ├── execution-plan-parallel.md
-│   │   └── wave-plan.json
-│   └── planning-artifacts/…
-└── src/…
-```
-
-</details>
-
-<details>
-<summary><b>⚡ GSD — Get Shit Done (<code>.planning/phases/</code> Artifact Hijack) — 導入前後のツリーを展開して確認</b></summary>
-
-**導入前：**
-
-```text
-my-project/
-├── .planning/
-│   ├── phases/
-│   │   ├── 01-core/
-│   │   │   ├── 01-01-PLAN.md
-│   │   │   ├── 01-02-PLAN.md
-│   │   │   └── 01-03-PLAN.md
-│   │   └── 02-api/
-│   │       ├── 02-01-PLAN.md
-│   │       └── 02-02-PLAN.md
-│   ├── PROJECT.md
-│   ├── REQUIREMENTS.md
-│   ├── ROADMAP.md
-│   └── STATE.md
-└── src/…
-```
-
-`01-02-PLAN.md`（normalizer）と `02-01-PLAN.md`（API）は異なるフェーズに属し、共有ファイルもありません。しかし `02-01` は `01-02` のコードを呼び出しています。プランナーはこれらを自動的に異なるウェーブへスケジューリングします。
-
-**導入後** `sdd-parallel plan` + `prepare --wave 1`：
-
-```text
-my-project/
-├── .parallel/
-│   ├── artifacts/
-│   │   ├── execution-plan-parallel.md
-│   │   └── wave-plan.json
-│   ├── history/run-001-<timestamp>/wave-plan.json
-│   └── state.json
-├── .planning/…                       # main 内では未変更
-├── .worktrees/
-│   ├── track-a/                      # Wave 1 → 01-02
-│   │   ├── .planning/
-│   │   │   ├── phases/01-core/ · 02-api/
-│   │   │   ├── PROJECT.md            # 🔒 読み取り専用
-│   │   │   ├── REQUIREMENTS.md       # 🔒 読み取り専用
-│   │   │   ├── ROADMAP.md            # 🔒 読み取り専用
-│   │   │   └── STATE.md              # 🔒 スロット内でロック、マージ時に中央で一括更新
-│   │   ├── src/…
-│   │   ├── .tmp/track-context.md     # 👻
-│   │   ├── .parallel-lock.json       # 👻
-│   │   └── ACTIVE_TRACK.md           # 👻 → /gsd-execute-phase 01-02
-│   └── track-b/                      # Wave 1 → 01-03
-└── src/…
-```
-
-</details>
-
-<details>
-<summary><b>📑 OpenSpec (<code>openspec/changes/</code>) — 導入前後のツリーを展開して確認</b></summary>
-
-**導入前：**
-
-```text
-my-project/
-├── openspec/
-│   ├── changes/
-│   │   ├── audit-log-schema/
-│   │   ├── cli-batch-export/
-│   │   ├── ingestion-api-endpoint/
-│   │   ├── normalize-telemetry/
-│   │   │   ├── design.md
-│   │   │   ├── proposal.md
-│   │   │   └── tasks.md
-│   │   └── upgrade-schema-v2/
-│   ├── specs/
-│   │   └── telemetry/
-│   │       └── spec.md
-│   ├── config.yaml
-│   └── project.md
-└── src/…
-```
-
-**導入後** `sdd-parallel plan` + `prepare --wave 1`：
-
-```text
-my-project/
-├── .parallel/
-│   ├── artifacts/
-│   │   ├── execution-plan-parallel.md
-│   │   └── wave-plan.json
-│   ├── history/run-001-<timestamp>/wave-plan.json
-│   └── state.json
-├── .worktrees/
-│   ├── track-a/                      # Wave 1 → normalize-telemetry
-│   │   ├── openspec/
-│   │   │   ├── changes/
-│   │   │   │   ├── normalize-telemetry/   # ✍️ 当該トラック専用の変更フォルダ
-│   │   │   │   ├── cli-batch-export/      # 🔒 兄弟トラック track-b によりロック
-│   │   │   │   └── …
-│   │   │   ├── specs/                # 🔒 カノニカル仕様（openspec archive 経由でのみ変更可能）
-│   │   │   ├── config.yaml           # 🔒
-│   │   │   └── project.md            # 🔒
-│   │   ├── src/…
-│   │   ├── .tmp/track-context.md     # 👻
-│   │   ├── .parallel-lock.json       # 👻
-│   │   └── ACTIVE_TRACK.md           # 👻 → /opsx:apply normalize-telemetry
-│   └── track-b/                      # Wave 1 → cli-batch-export（ミラーロック）
-├── openspec/…                        # 未変更
-└── src/…
-```
-
-</details>
-
-<details>
-<summary><b>🔗 Beads (<code>.beads/beads.jsonl</code>) — 導入前後のツリーを展開して確認</b></summary>
-
-**導入前：**
-
-```text
-my-project/
-├── .beads/
-│   ├── beads.jsonl
-│   ├── config.yaml
-│   └── issues.jsonl
-└── src/…
-```
-
-グラフタスク `bd-101`、`bd-102`、`bd-103`、`bd-201`、`bd-202` の間に `blocks`（ブロッキング依存関係）エッジが存在します：
-
-```json
-{"id": "bd-101", "title": "Upgrade schema to v2", "status": "open", "files": ["src/demo_app/schema.py"], "dependencies": [{"target": "bd-102", "type": "blocks"}], "priority": 1, "epic": "epic-1"}
-{"id": "bd-102", "title": "Normalize telemetry payload", "status": "open", "files": ["src/demo_app/normalizer.py", "src/demo_app/cli.py"], "dependencies": [], "priority": 2, "epic": "epic-1"}
-```
-
-**導入後** `sdd-parallel plan` + `prepare --wave 1`：
-
-```text
-my-project/
-├── .beads/…                          # main の原本、merge --wave 1 時に行単位でマージ
-├── .parallel/
-│   ├── artifacts/
-│   │   ├── execution-plan-parallel.md
-│   │   └── wave-plan.json
-│   ├── history/run-001-<timestamp>/wave-plan.json
-│   └── state.json
-├── .worktrees/
-│   ├── track-a/                      # Wave 1 → bd-102
-│   │   ├── .beads/
-│   │   │   ├── beads.jsonl           # ステータス編集は行単位で 3-way マージ（open < closed）
-│   │   │   ├── config.yaml           # 🔒 読み取り専用
-│   │   │   └── issues.jsonl
-│   │   ├── src/…
-│   │   ├── .tmp/track-context.md     # 👻
-│   │   ├── .parallel-lock.json       # 👻
-│   │   └── ACTIVE_TRACK.md           # 👻 → bd update bd-102 --status in-progress
-│   └── track-b/                      # Wave 1 → bd-103
-└── src/…
-```
-
-`merge --wave 1` の実行後、`bd-102` と `bd-103` は両方とも `.beads/beads.jsonl` 内でコンフリクトマーカー 0 件で `closed` に更新されます。
-
-</details>
-
-凡例：🔒 読み取り専用（`chmod a-w` ＋ `PreToolUse` による拒絶） · 👻 注入済み（`.git/worktrees/<slot>/info/exclude` により Git から隠蔽） · ✍️ 当該トラックの書き込み可能スコープ。
+凡例：🔒 読み取り専用（`chmod a-w` + `PreToolUse` 拒絶） · 👻 非表示（`info/exclude`） · ✍️ 書き込みスコープ。  
+👉 全 5 種（**Spec Kit, BMAD, GSD, OpenSpec, Beads, Custom SDD**）の導入前後ツリー：**[`docs/USER_GUIDE.md` §2](../../USER_GUIDE.md#2-sdd-project-layouts-before--after-all-5-frameworks)**。
 
 ---
 
 ## 🔌 既存の開発環境にそのまま適合（ベンダーロックインなし）
 
-既存のエージェントや使い慣れたプロンプトをそのまま継続利用できます。`sdd-parallel prepare --wave 1` の後、`sdd-parallel run-guide --wave 1` が各スロットに対応するネイティブコマンドを出力し、同様の内容が `.worktrees/track-<id>/ACTIVE_TRACK.md` にも書き込まれます。コンテキストのパスを手作業で入力する必要はありません：
+`sdd-parallel run-guide --wave 1` がスロット別のネイティブコマンドを表示（`ACTIVE_TRACK.md` に記録）：
 
-| SDD キット | トラックごとに出力されるネイティブコマンド |
+| SDD キット | トラック別コマンド |
 | :--- | :--- |
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
@@ -552,75 +203,55 @@ my-project/
 | OpenSpec | `/opsx:apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
-| ハーネス | 連携方法 |
+> 📦 **Spec Kit Extension (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip`（または `specify extension add sdd-parallel`）で `/specify plan-waves`、`/specify prepare-wave --wave 1`、`/specify merge-wave --wave 1` を追加。
+
+| ハーネス | 接続方法 |
 | :--- | :--- |
-| **Claude Code** (`claude`) | `.worktrees/track-a` 内で `claude` を起動します。スコープ外への書き込みやシェルの迂回実行は、`PreToolUse` フックと OS の `chmod a-w` によって遮断されます。または `sdd-parallel autopilot --wave 1 --harness claude-code` で全トラックを一括起動します。 |
-| **OpenAI Codex CLI** (`codex`) | `codex --cd .worktrees/track-b` で起動します。読み取り専用ファイルは `chmod a-w` で保護され、マージ前に `sdd-parallel verify-wave` が diff を監査します。オートパイロット：`--harness codex`。 |
-| **Google Antigravity** | `sdd-parallel prepare --wave 1 --antigravity-layout` により、スロットが `~/.gemini/antigravity/worktrees/<Project>/track-a` 配下に配置されます。スロット直下に `ACTIVE_TRACK.md` が配置され、`sdd-parallel install-plugin` でスコープガードフックを備えたポータブルプラグインがインストールされます。 |
-| **任意の worktree 対応 CLI / IDE** — Cursor、Windsurf、OpenCode、Kimi CLI、MiniMax Code、Aider、Cline、Trae | 追加設定なしで動作：標準の `git worktree` スロット（`--max-tracks N` による `track-a`、`track-b`、`track-c`、…）、OS レベルの `chmod a-w` ロック、`ACTIVE_TRACK.md`、および `sdd-parallel verify-wave` による事後 diff 検証。 |
+| **Claude Code** (`claude`) | `.worktrees/track-a` で `claude` 起動（`blockWritesOutsideWorkingDirectories` + `PreToolUse` + `chmod a-w`）、または `autopilot --wave 1 --harness claude-code`。 |
+| **Codex CLI** (`codex`) | `codex --cd .worktrees/track-b`。`chmod a-w` で保護、`verify-wave` で diff 監査。Autopilot：`--harness codex`。 |
+| **Google Antigravity** (`agy`) | `prepare --wave 1 --antigravity-layout` で `~/.gemini/antigravity/worktrees/<Project>/track-a` に配置、`install-plugin` でフック導入。 |
+| **Cursor, Windsurf, OpenCode, Kimi, Aider, Cline, Trae** | 追加設定不要で `.worktrees/track-{a,b,c}`、`chmod a-w`、`ACTIVE_TRACK.md`、外部 worktree 用 `claim-track`、`verify-wave` が利用可。 |
+
+👉 接続レシピ（`local` `.worktrees/` vs `--antigravity-layout`, `claim-track`, MCP）：**[`docs/USER_GUIDE.md` §1](../../USER_GUIDE.md#1-harness-connection-recipes-local-slots-vs-antigravity-layout)**。
 
 ---
 
 ## 🔍 アーキテクチャ、数学モデル、技術ドシエの詳細
 
-- 📖 **[01 — コアプロダクト概要 ＆ ROI モデル](../../dossier/01_CORE_PRODUCT_BRIEF.md)**: エグゼクティブサマリー、トークン FinOps、モデル推論労力ルーティング
-- 🏛️ **[02 — システム機能ホワイトペーパー](../../dossier/02_SYSTEM_CAPABILITIES_WHITE_PAPER.md)**: 第 1 種 vs 第 2 種衝突、3D ファイル分類、CRG 減衰式
-- 🔌 **[03 — 統合・エコシステム仕様書](../../dossier/03_INTEGRATION_AND_ECOSYSTEM_SPEC.md)**: `CanonicalTask` 中間表現（IR）、`.tmp/track-context.md` および `.parallel-lock.json` の規約
-- 📊 **[04 — 競合・ベンチマーク分類体系](../../dossier/04_COMPETITIVE_AND_BENCHMARK_TAXONOMY.md)**: 近接オーケストレーションツールとの比較・ポジショニング
-- 🧪 **[07 — スタンドアロンデモ ＆ E2E ウォークスルー](07_STANDALONE_DEMO_AND_E2E_WALKTHROUGH.md)**: フレームごとのディスクスナップショット、`--keep-temp` サンドボックス利用ガイド
-- 📐 **[システムアーキテクチャ SSOT (`ARCHITECTURE.md`)](ARCHITECTURE.md)** · **[ドシエ目次](../../dossier/README.md)** · **[ロシア語版ドシエ](../ru/dossier/)**
+- 📘 **[User Guide & Day-1 ランブック (`docs/USER_GUIDE.md`)](../../USER_GUIDE.md)**: ハーネス設定、5 種ツリー、Wave Inspector、復旧手順
+- 📖 **[01 — 概要](../../dossier/01_CORE_PRODUCT_BRIEF.md)** · **[02 — ホワイトペーパー](../../dossier/02_SYSTEM_CAPABILITIES_WHITE_PAPER.md)** · **[03 — 統合仕様](../../dossier/03_INTEGRATION_AND_ECOSYSTEM_SPEC.md)**
+- 📊 **[04 — 競合分類](../../dossier/04_COMPETITIVE_AND_BENCHMARK_TAXONOMY.md)** · **[07 — E2E デモ](07_STANDALONE_DEMO_AND_E2E_WALKTHROUGH.md)** · **[アーキテクチャ SSOT](ARCHITECTURE.md)** · **[ドシエ目次](../../dossier/README.md)** · **[RU 版](../ru/dossier/)**
 
 <details>
-<summary><b>🏛️ 内部エンジンアーキテクチャと 9 つのコア不変条件を展開して確認</b></summary>
+<summary><b>❓ 技術的質問と誠実な限界 (FAQ)</b></summary>
 
-### 内部コンポーネントフロー
+1. **実装前の `write_files` 特定:** **(a)** 仕様内パス（`Code Map`, `Files:`, バッククォート） → **(b)** Pre-Wave AST シンボルリンカー → **(c)** `verify-wave` 時の動的エスカレーション（`.tmp/scope-escalation.json`）。
+2. **非 Python リポ (TS/JS, Go, Rust):** 組み込み AST は Python 対象。多言語は明示パス＋**`code-review-graph`**（`CRGSidecarAdapter`）を併用。
+3. **シェル迂回 (`sed -i`, `python -c`):** **3 層防御**: `PreToolUse` + Terminal Guard → `chmod a-w` → `verify-wave` の `git diff merge-base...HEAD` 監査。
+4. **層横断コントラクト (Pydantic→TS, SQL, OpenAPI):** **`DEFAULT_CONTRACT_GLOBS`**（`**/schemas/**`, `**/migrations/**`, `openapi.*`, `*.proto`, `*.graphql`）と `.parallel-config.json` の `file_roles`（`SPINE`）で直列化。
+
+</details>
+
+<details>
+<summary><b>🏛️ 内部エンジンアーキテクチャと 9 つのコア不変条件</b></summary>
 
 ```mermaid
 flowchart TD
-    subgraph Inputs["1. マルチ SDD ロードマップアダプター"]
-        BMAD["BMAD Method (v6/v7)"]
-        SpecKit["GitHub Spec Kit (.specify/)"]
-        GSD["GSD Artifact Hijack (.planning/)"]
-        OpenSpec["OpenSpec (openspec/changes/)"]
-        Beads["Beads (.beads/*.jsonl)"]
-    end
-
-    subgraph Engine["2. ハイブリッド DAG ＆ Blast Radius 解析エンジン"]
-        AST["ユニバーサル AST クラシファイア\n(SPINE, ADDITIVE_REGISTRY, STANDARD)"]
-        CRG["CRGSidecarAdapter\n(code-review-graph v2.3.9 WAL)"]
-        BSP["決定論的 BSPWaveScheduler\n(K-トラックウェーブ, Kahn 非輪状性検証)"]
-    end
-
-    subgraph Actuation["3. 作動（Actuation）＆ スコープガード"]
-        Slots["固定トラックスロット (track-a/b/c)\n(In-Place Reset, core.fileMode false)"]
-        Guard["三層防御スコープガード\n(PreToolUse + Terminal Guard + chmod a-w)"]
-        Verify["verify-wave ゲート\n(git diff merge-base...HEAD 監査)"]
-    end
-
-    subgraph Barrier["4. バリアチェックポイント ＆ ロールバック"]
-        Merge["merge-wave チェックポイント\n(単調 3-Way ステータスマージャー)"]
-        Rollback["LIFO ロールバックエンジン\n(abort-wave / rollback-wave --save-backup)"]
-    end
-
-    Inputs --> AST & CRG
-    AST & CRG --> BSP
-    BSP --> Slots
-    Slots --> Guard --> Verify
-    Verify --> Merge
-    Merge -. エラー / リバート .-> Rollback
+    Inputs["1. SDD アダプター\n(BMAD, Spec Kit, GSD, OpenSpec, Beads)"] --> Engine["2. AST + CRG + BSPWaveScheduler\n(SPINE / ADDITIVE_REGISTRY / Kahn DAG)"]
+    Engine --> Actuation["3. 固定スロット (track-a/b/c)\n(三層 Scope Guard + verify-wave)"]
+    Actuation --> Barrier["4. merge-wave\n(3-Way ステータスマージャー)"]
+    Barrier -. エラー / リバート .-> Rollback["LIFO ロールバック\n(abort-wave / rollback-wave)"]
 ```
 
-### 9 つのコアエンジニアリング不変条件
-
-1. **Zero Worktree Pollution（Worktree の完全無汚染）：** 注入された境界ファイル（`.tmp/track-context.md`、`.parallel-lock.json`、`ACTIVE_TRACK.md`）は git の `info/exclude` により不可視化され、`git status --porcelain` は常に完全に空を維持します。
-2. **Zero Cache Invalidation（キャッシュ破棄ゼロ）：** 事前コンパイルされたコンテキストファイル（例：BMAD の `epic-*-context.md`）はウェーブ中読み取り専用となり、プランナーの状態は `.parallel/`（BMAD の場合は `_bmad-output/parallel-artifacts/`）に分離されます。
-3. **100% Task Coverage & Acyclicity（100% タスク網羅と非巡回性）：** Kahn のトポロジカルソート検証により、タスクの脱落ゼロおよび依存循環ゼロを数学的に保証します。
-4. **Blast-Radius Enforcement（影響半径の強制）：** 書き込みセットの素集合性（$W_A \cap W_B = \emptyset$）に加え、セマンティック影響セットの素集合性（$W_A \cap I_B = \emptyset$）を強制します。
-5. **Universal Anti-Overfitting（汎用性と特定ドメイン非依存）：** コアエンジンに特定ドメイン用のハードコードされたパスは存在しません。`SPINE`、`ADDITIVE_REGISTRY`、`STANDARD` は AST ヒューリスティクスとグラフ中心性のみから導出されます。
-6. **Fixed Track Slots（固定トラックスロット）：** `track-a`、`track-b`、`track-c` スロットは `git checkout -B` ＋ `git clean -fd` によりその場で（in-place）再利用され、フォルダの肥大化を防ぎます。
-7. **Three-Tier Defense-in-Depth Guard（三層多層防御ガード）：** `PreToolUse` フック ＋ ターミナルコマンド遮断（`Bash`、`run_command`） ＋ OS レベルの `chmod a-w`。
-8. **Monotonic Status Semi-Lattice（単調ステータス半束）：** ステータスは $\texttt{backlog}(0) < \dots < \texttt{done}(4)$ の半束順序として解決され、コンフリクトマーカーは一切発生しません。
-9. **LIFO Transactional Rollbacks（LIFO トランザクションロールバック）：** マージ済みウェーブは厳格に後入れ先出し（LIFO）順で取り消され、安全なバックアップブランチ（`backup/wave-<K>-before-rollback-*`）が自動生成されます。
+1. **Worktree 無汚染:** 境界ファイルを `info/exclude` で隠し、`git status --porcelain` を空に維持。
+2. **キャッシュ非破壊:** 事前コンパイル済みコンテキストは読み取り専用、状態は `.parallel/` に分離。
+3. **100% 網羅と非巡回性:** Kahn 検査でタスク脱落・循環をゼロに保証。
+4. **影響半径の隔離:** 書き込み素集合（$W_A \cap W_B = \emptyset$）と意味的影響分離（$W_A \cap I_B = \emptyset$）。
+5. **汎用非過学習:** `SPINE` / `ADDITIVE_REGISTRY` / `STANDARD` は AST と中心性から自動導出。
+6. **固定スロット:** `track-a/b/c` をその場リセット（`git checkout -B` + `git clean -fd`）で再利用。
+7. **三層防御ガード:** `PreToolUse` + Terminal Guard（`Bash`, `run_command`）+ OS `chmod a-w`。
+8. **単調ステータス半束:** $\texttt{backlog}(0) < \dots < \texttt{done}(4)$ で衝突マーカー 0。
+9. **LIFO ロールバック:** 逆順リバート＋`backup/wave-<K>-before-rollback-*` ブランチ生成。
 
 </details>
 
@@ -629,74 +260,70 @@ flowchart TD
 ## 🛠️ 完全 CLI コマンドリファレンス
 
 <details>
-<summary><b>クリックして展開：全 13 個のサブコマンドとフラグ</b></summary>
+<summary><b>クリックして展開：全 15 サブコマンドとフラグ</b></summary>
 
-| コマンド | 目的 |
+共通フラグ：`--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-file FILE`, `--dry-run`, `--dynamic-worktrees`.
+
+| コマンド | 専用フラグと用途 |
 | :--- | :--- |
-| `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp] [--scaffold-only] [--output-dir DIR]` | オフラインのマージボム実証デモを実行、または 5 大 SDD キットの対話型サンドボックスをスキャフォールド。 |
-| `sdd-parallel plan [--repo REPO] [--max-tracks N] [--kit KIT] [--include-done] [--dry-run] [--plan-source {auto,plan,specs}] [--output-dir DIR] [--routing-file FILE]` | ロードマップとコードグラフを解析し、`execution-plan-parallel.md` および `wave-plan.json` を出力。 |
-| `sdd-parallel prepare --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--headless] [--antigravity-layout] [--dynamic-worktrees] [--dry-run] [--routing-file FILE]` | スロット（`track-a`、`track-b`、…）のプロビジョニング、OS ロックの適用、境界ファイルの注入。 |
-| `sdd-parallel claim-track --wave K --track <id> --worktree <path> [--repo REPO] [--max-tracks N] [--kit KIT] [--headless]` | 既存の外部 worktree に対して境界ロックを関連付け。 |
-| `sdd-parallel run-guide --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--antigravity-layout] [--routing-file FILE]` | オペレーター向けランガイドを出力（トラックごとのネイティブ起動コマンドを含む）。 |
-| `sdd-parallel verify-wave --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees]` | `.parallel-lock.json` に対するスロットの監査、`merge-base` に対する diff 監査、およびマニフェスト保存。 |
-| `sdd-parallel merge --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--dynamic-worktrees] [--skip-gates] [--strict-gates] [--cleanup] [--dry-run]` | バリアマージ：3-Way ステータスマージ、Git マージ、品質ゲート、自動ロールバック、マニフェスト保存。 |
-| `sdd-parallel abort-wave --wave K [--repo REPO] [--dynamic-worktrees]` | 未マージのウェーブを破棄：スロットをリセットし、一時並行ブランチを削除。 |
-| `sdd-parallel rollback-wave --wave K [--repo REPO] [--dynamic-worktrees] [--to-commit COMMIT] [--save-backup] [--no-backup] [--kit KIT]` | マージ済みウェーブの取り消し（LIFO）：安全バックアップブランチ作成と SDD ステータス復元。 |
-| `sdd-parallel merge-status --base B --ours O --theirs T --out OUT` | `sprint-status.yaml` 用の低レベル決定論的 3-Way マージャー。 |
-| `sdd-parallel check-lock --file PATH [--tool TOOL]` | アクティブな worktree のロックマニフェストに対してファイル書き込み権限を照合。 |
-| `sdd-parallel install-plugin [--target-dir DIR]` | ポータブルな Antigravity プラグインをパッケージングしてインストール。 |
-| `sdd-parallel autopilot --wave K [--repo REPO] [--max-tracks N] [--kit KIT] [--harness {antigravity,claude-code,codex}] [--policy {single-shot,cyclic}] [--max-review-rounds N] [--antigravity-layout] [--execute] [--routing-file FILE]` | モデル推論労力ルーティングを備えたマルチウィンドウ・オートパイロット起動コマンドの生成または直接実行。 |
+| `sdd-parallel demo` | `[--kit {...,all}] [--keep-temp] [--scaffold-only] [--output-dir DIR]` — オフラインデモ / サンドボックス生成。 |
+| `sdd-parallel plan` | `[--include-done] [--plan-source {auto,plan,specs}] [--output-dir DIR]` — `wave-plan.json` を生成。 |
+| `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — スロット確保、OS ロック、境界ファイル注入。 |
+| `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — 既存 worktree へロックを適用。 |
+| `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — スロット別の起動コマンドを表示。 |
+| `sdd-parallel verify-wave --wave K` | `.parallel-lock.json` と `merge-base` diff に対してスロットを監査。 |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — ゲート検証、3-Way マージ、自動ロールバック。 |
+| `sdd-parallel abort-wave --wave K` | 未マージスロットのリセットと一時ブランチ削除。 |
+| `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO リバート＋退避ブランチ＋状態復元。 |
+| `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — `sprint-status.yaml` 用 3-Way マージ。 |
+| `sdd-parallel check-lock` | `--file PATH [--tool TOOL]` — ロックマニフェストに対する書き込み可否判定。 |
+| `sdd-parallel install-plugin` | `[--target-dir DIR]` — ポータブル Antigravity プラグイン導入。 |
+| `sdd-parallel autopilot --wave K` | `[--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--policy {single-shot,cyclic}] [--max-review-rounds N]` — トラック自動起動。 |
+| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — マージボム遡及ベンチマーク。 |
+| `sdd-parallel inspect` | `[--plan PATH] [--output PATH] [--open]` — HTML Wave Inspector を開く。 |
 
 </details>
 
-</details>
+---
 
-## 🚢 リリースマトリクス：実装済み (v0.1.0) vs ロードマップ (v0.2+)
+## 🚢 リリースマトリクス：実装済み (v0.2.1) vs ロードマップ (v0.3+)
 
-### ✅ `v0.1.0` で実装済み
+### ✅ `v0.1.0 – v0.2.1` で実装済み
+- [x] BSP スケジューラ（Kahn 非巡回性）+ AST スキャナ + `code-review-graph v2.3.9` サイドカー。
+- [x] 固定スロット（`track-a/b/c`）、その場リセット、`info/exclude` 不可視化、`.venv`/`node_modules` シンボリックリンク。
+- [x] 三層 Scope Guard（`PreToolUse` + Terminal Guard + `chmod a-w`）、シンボルリンカー、`.tmp/scope-escalation.json`。
+- [x] 単調 3-Way ステータスマージャー（YAML, Markdown, `STATE.md`, JSONL）+ LIFO ロールバック。
+- [x] 5 SDD アダプター（Spec Kit + `extension.yml`, BMAD + `mattpocock/skills` + `bmad-loop`, GSD, OpenSpec, Beads）。
+- [x] オフライン `demo --kit all`、`bench` バックテスト、HTML Wave Inspector（`inspect --open`）、`--scaffold-only`。
+- [x] マルチウィンドウ＆Depth-0 オートパイロット（`agy`, Claude Code, Codex）— `--routing-file`, `TaskStructuralSignals`, `--policy cyclic` (`ADR-0009`)。
+- [x] クリーンクローン CI（Ubuntu/macOS/Windows, Python 3.11–3.13）＆ PyPI Trusted Publishing。
 
-- [x] Kahn の非巡回性チェックを備えた決定論的一括同期並列（Bulk-Synchronous Parallel, BSP）ウェーブスケジューラ。
-- [x] AST ホットスポットスキャナ ＋ `code-review-graph v2.3.9` サイドカー統合。
-- [x] その場リセット（in-place reset）と `info/exclude` 不可視化を備えた固定トラックスロット（`track-a`、`track-b`、`track-c`）。
-- [x] 三層防御スコープガード（`PreToolUse` ＋ Terminal Guard ＋ OS `chmod a-w`）。
-- [x] YAML、Markdown チェックリスト、`STATE.md`、および JSONL に対応した単調 3-Way ステータスマージャー。
-- [x] 自動安全バックアップブランチ作成を伴う LIFO トランザクション・ウェーブロールバック。
-- [x] 5 つの SDD アダプター：Spec Kit、BMAD、GSD（Artifact Hijack）、OpenSpec、Beads（それぞれ専用のネイティブトラック起動コマンドに対応）。
-- [x] オフラインのマージボム実証デモ（`sdd-parallel demo --kit all`）およびサンドボックススキャフォールド（`--scaffold-only`）。
-- [x] Antigravity、Claude Code、Codex 対応のマルチウィンドウ・オートパイロット。
-- [x] Ubuntu / macOS / Windows、Python 3.11〜3.13 でのクリーンクローン CI；PyPI Trusted Publishing 対応。
-
-### 🚧 `v0.2.0+` ロードマップ
-
-- [x] **コミュニティアダプター：** `mattpocock/skills`（`/implement-spec`）および `bmad-loop` フロントマターステータスアダプター。
-- [x] **汚染ゼロの環境同期：** 固定スロットへの `.venv` / `node_modules` のシンボリックリンク共有。
-- [x] **ウェーブ実行前の静的シンボルリンカー ＆ スコープエスカレーション：** AST シンボル解析による書き込みセットの動的拡張と自動リスケジューリング。
-- [x] **実行マニフェストとコグニティブルーティング契約：** 決定論的 `.parallel/run-manifest.json`、AST 構造シグナル (`TaskStructuralSignals`)、および `--routing-file` 契約 (`ADR-0009`)。
-- [x] **公式 Depth-0 ウェーブランナー (`agy` CLI / SDK)：** `TrackExecutionPolicy` による並行ヘッドレストラック実行。
+### 🚧 `v0.3+` ロードマップ
+- [ ] 厳格なキット自動検出（サイレントフォールバック廃止、TTY 曖昧性解消）
+- [ ] グラフ安全エスカレーション＆原因特定バイセクション（部分ウェーブ着地＋修復ループ）
+- [ ] ネイティブ多言語 Tree-sitter AST＆自動 CRG インデックス化（TS/JS, Go, Rust）
+- [ ] オプション System-1 事前抽出器（`--extractor none|gliner|clairic`）＆適応型 `--max-tracks auto`
 
 ---
 
 ## 🤝 お問い合わせ・コラボレーション
 
-- **研究、助成金、プライベートなお問い合わせ:** [sdd-parallel@metrichub.dev](mailto:sdd-parallel@metrichub.dev)
+- **研究、助成金、個別相談:** [sdd-parallel@metrichub.dev](mailto:sdd-parallel@metrichub.dev)
 - **アーキテクチャ Q&A ＆ コミュニティ:** [GitHub Discussions](https://github.com/stopActingSoSmall/sdd-parallel/discussions)
-- **セキュリティ脆弱性の報告:** [SECURITY.md](../../../SECURITY.md) を参照してください
+- **セキュリティ報告:** [SECURITY.md](../../../SECURITY.md)
 
 ---
 
 ## 🛠️ コントリビューション、ローカル開発、セキュリティ
 
 ```bash
-git clone https://github.com/stopActingSoSmall/sdd-parallel.git
-cd sdd-parallel
-uv sync
-
-uv run pytest                          # ユニットテスト ＆ 統合テストスイート
-uv run mypy --strict src/sdd_parallel  # 厳格な型チェック
-uv run ruff check src/ tests/ scripts/ # リンター実行
-uv run sdd-parallel demo --kit all     # 5 大キットのオフラインデモ
+git clone https://github.com/stopActingSoSmall/sdd-parallel.git && cd sdd-parallel && uv sync
+uv run pytest && uv run mypy --strict src/sdd_parallel && uv run ruff check src/ tests/ scripts/
+uv run sdd-parallel demo --kit all
 ```
 
-- **コントリビューション：** 開発環境のセットアップおよびプルリクエストの品質ゲートについては **[Contributing Guide](../../../CONTRIBUTING.md)** を参照してください。
-- **セキュリティ：** 脆弱性の報告手順については **[Security Policy](../../../SECURITY.md)** を参照してください。
-- **ライセンス：** MIT — 詳細は [LICENSE](../../../LICENSE) を参照してください（音声ナレーション提供: [ElevenLabs](https://elevenlabs.io) / [Google Gemini](https://ai.google.dev/)）。
+- **コントリビューション：** [Contributing Guide](../../../CONTRIBUTING.md) · **セキュリティ：** [Security Policy](../../../SECURITY.md) · **ライセンス：** [MIT](../../../LICENSE)（音声：[ElevenLabs](https://elevenlabs.io) / [Google Gemini](https://ai.google.dev/)）。
+
+### 💼 商用監査 ＆ エンタープライズ・モノレポ支援
+
+固定スコープ B2B 監査（**Parallel SDD Readiness & Blast-Radius Audit**、\$500–\$2,500）：`sdd-parallel bench` 遡及分析、カスタム `.parallel-config.json`（`contract_globs`, Spine 直列化, 品質ゲート）、HTML Wave Inspector レポートを **[GitHub Discussions](https://github.com/stopActingSoSmall/sdd-parallel/discussions)** 経由で提供しています。
