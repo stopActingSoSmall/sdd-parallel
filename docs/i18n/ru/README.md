@@ -155,7 +155,7 @@ sdd-parallel merge --wave 1        #    Gates и 3-way merge в main
   <img src="../../assets/whats-inside-worktrees.png" width="100%" alt="Файлы sdd-parallel: .parallel/ и слоты .worktrees/">
 </p>
 
-Read-only **ACL** нормализуют 5 форматов SDD без правки спеков:
+Read-only адаптеры **Anti-Corruption Layer (ACL)** нормализуют 5 форматов SDD без правки ваших спеков:
 
 | SDD | Read-Only (🔒) | Задачи | Синхронизация |
 | :--- | :--- | :--- | :--- |
@@ -200,7 +200,7 @@ my-project/
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/opsx:apply normalize-telemetry` |
+| OpenSpec | `/openspec-apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 > 📦 **Spec Kit Extension (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip` (или `specify extension add sdd-parallel`) даёт `/specify plan-waves`, `/specify prepare-wave --wave 1`, `/specify merge-wave --wave 1`.
@@ -223,12 +223,16 @@ my-project/
 - 📊 **[04 — Таксономия](dossier/04_COMPETITIVE_AND_BENCHMARK_TAXONOMY.md)** · **[07 — E2E-демо](dossier/07_STANDALONE_DEMO_AND_E2E_WALKTHROUGH.md)** · **[SSOT (RU)](ARCHITECTURE.md)** · **[SSOT (EN)](../../../ARCHITECTURE.md)** · **[Индекс досье](dossier/README.md)**
 
 <details>
-<summary><b>❓ Инженерные вопросы и границы (FAQ)</b></summary>
+<summary><b>❓ Сложные инженерные вопросы и честные границы (FAQ)</b></summary>
 
-1. **`write_files` заранее:** **(a)** пути в спеках (`Code Map`, `Files:`, backticks) → **(b)** AST Symbol Linker → **(c)** эскалация (`.tmp/scope-escalation.json`) на `verify-wave`.
-2. **Не-Python (TS/JS, Go, Rust):** AST парсит Python; полиглотные репо используют пути в спеках + **`code-review-graph`** (`CRGSidecarAdapter`).
-3. **Обход через shell (`sed -i`, `python -c`):** **3 уровня**: `PreToolUse` + Terminal Guard → `chmod a-w` → `verify-wave` (`git diff merge-base...HEAD`).
-4. **Межслойные контракты (Pydantic → TS, SQL, OpenAPI):** **`DEFAULT_CONTRACT_GLOBS`** (`**/schemas/**`, `**/migrations/**`, `openapi.*`, `*.proto`, `*.graphql`) и `file_roles` (`SPINE`) в `.parallel-config.json`.
+1. **Откуда планировщик знает `write_files` до того, как код написан?**
+   Три рубежа защиты: **(a)** явные пути в спеках (`Code Map`, `Files:`, GSD XML `<files>`, пути в backticks) → **(b)** Pre-Wave AST Symbol Linker, резолвящий упомянутые имена функций и классов в файлы за $O(1)$ → **(c)** Dynamic Scope Escalation (`.tmp/scope-escalation.json`), которая на барьере `verify-wave` безопасно переносит недоописанную задачу в следующую волну вместо тихих коллизий.
+2. **А что насчёт TypeScript, Go, Rust и не-Python репозиториев?**
+   Честная граница: встроенный AST-сканер без внешних зависимостей нативно парсит Python. Для полиглотных репозиториев (TS/JS, Go, Rust) `sdd-parallel` комбинирует явные списки файлов из спек с опциональным Tree-sitter сайдкаром **`code-review-graph`** (`CRGSidecarAdapter`) для расчёта межфайловых импортов и радиуса влияния.
+3. **Может ли агент обойти `PreToolUse` хуки через shell (`sed -i`, `python -c`, `cp`)?**
+   Защита не полагается на один хук — это **3-уровневая эшелонированная оборона (3-Tier Defense-in-Depth)**: **Tier 1** (`PreToolUse` + Terminal Guard, проверяющий редиректы и инлайн-запись в `Bash`/`run_command`/`powershell`) → **Tier 2** (блокировка `chmod a-w` на уровне ОС для Spine и файлов соседних треков) → **Tier 3** (`verify-wave`, проверяющий реальный `git diff merge-base...HEAD` и блокирующий слияние при любом нарушении).
+4. **AST не видит межслойные контракты (Pydantic JSON → TS-фронтенд, SQL FK, OpenAPI)!**
+   Верно — статические графы импортов останавливаются на границах синтаксиса. `sdd-parallel` закрывает этот разрыв декларативно через **`DEFAULT_CONTRACT_GLOBS`** (`**/schemas/**`, `**/migrations/**`, `openapi.*`, `*.proto`, `*.graphql`) плюс проектные `file_roles` в `.parallel-config.json`, принудительно переводя межслойные контракты в строгую сериализацию `SPINE`.
 
 </details>
 
@@ -290,9 +294,9 @@ flowchart TD
 
 ### ✅ Реализовано в `v0.1.0 – v0.2.1`
 - [x] Планировщик BSP (Kahn) + AST-сканер + сайдкар `code-review-graph v2.3.9`.
-- [x] Слоты (`track-a/b/c`), in-place сброс, `info/exclude`, симлинки `.venv`/`node_modules`.
+- [x] Слоты (`track-a/b/c`), in-place сброс, `info/exclude`, `.venv`/`node_modules` через NTFS Junctions (Windows, no admin) / POSIX symlinks.
 - [x] 3-уровневый Scope Guard (`PreToolUse` + Terminal Guard + `chmod a-w`), symbol linker, `.tmp/scope-escalation.json`.
-- [x] Монотонный 3-way слиятель (YAML, Markdown, `STATE.md`, JSONL) + LIFO-откат.
+- [x] Монотонный 3-way мерджер статусов (YAML, Markdown, `STATE.md`, JSONL) + LIFO-откат.
 - [x] 5 SDD-адаптеров (Spec Kit + `extension.yml`, BMAD + `mattpocock/skills` + `bmad-loop`, GSD, OpenSpec, Beads).
 - [x] Офлайн `demo --kit all`, `bench`, HTML Wave Inspector (`inspect --open`), `--scaffold-only`.
 - [x] Автопилот (`agy`, Claude Code, Codex) с `--routing-file`, `TaskStructuralSignals`, `--policy cyclic` (`ADR-0009`).

@@ -25,7 +25,7 @@ By default, `sdd-parallel prepare --wave K` provisions reusable fixed slots insi
 | **Slot Directory** | `<repo>/.worktrees/track-a`, `track-b`, `track-c` | `~/.gemini/antigravity/worktrees/<Project>/track-a`, `track-b`, … |
 | **Git Branch** | `parallel/track-a`, `parallel/track-b`, … | `parallel/track-a`, `parallel/track-b`, … |
 | **Reset Strategy** | In-place reset (`git checkout -B` + `git clean -fd`) | In-place reset (`git checkout -B` + `git clean -fd`) |
-| **Environment Sync** | Symlinks `.venv` / `node_modules` into slots (zero pollution) | Symlinks `.venv` / `node_modules` into slots (zero pollution) |
+| **Environment Sync** | Links `.venv` / `node_modules` into slots via NTFS Junctions (Windows, no admin) / POSIX symlinks (zero pollution) | Links `.venv` / `node_modules` into slots via NTFS Junctions (Windows, no admin) / POSIX symlinks (zero pollution) |
 | **Injected Boundaries** | `ACTIVE_TRACK.md`, `.parallel-lock.json`, `.tmp/track-context.md` | `ACTIVE_TRACK.md` (slot root), `.parallel-lock.json`, `.tmp/track-context.md` |
 | **Clean `git status`** | Hidden via `.git/worktrees/<slot>/info/exclude` + `core.fileMode = false` | Hidden via `.git/worktrees/<slot>/info/exclude` + `core.fileMode = false` |
 
@@ -124,7 +124,7 @@ Once installed, run the workflow via native Spec Kit slash commands:
 | **GitHub Spec Kit** (`spec-kit`) | `.specify/memory/constitution.md`, `feature.json`, `spec.md`, `plan.md` | `specs/*/tasks.md` (`T001 [P]`) | 3-way Markdown checkbox merge (`- [x]`) | `/speckit.implement <id>` |
 | **BMAD Method** (`bmad`) | `epic-*-context.md` (Zero Cache Invalidation) | `sprint-status.yaml`, `stories.yaml`, `epics.md`, `spec-*.md` | Monotonic 3-way YAML merge | `/bmad-build <id>` (or `/implement-spec`) |
 | **GSD** (`gsd`) | `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md` | `.planning/phases/*/NN-NN-PLAN.md` | Centralized `STATE.md` Sync on merge | `/gsd-execute-phase <id>` |
-| **OpenSpec** (`openspec`) | `openspec/specs/**`, `project.md`, `config.yaml`, sibling change folders | `openspec/changes/<slug>/tasks.md` | 3-way Markdown checkbox merge (`- [x]`) | `/opsx:apply <id>` |
+| **OpenSpec** (`openspec`) | `openspec/specs/**`, `project.md`, `config.yaml`, sibling change folders | `openspec/changes/<slug>/tasks.md` | 3-way Markdown checkbox merge (`- [x]`) | `/openspec-apply <id>` |
 | **Beads** (`beads`) | `.beads/config.yaml` | `.beads/*.jsonl` (`bd-101` + `blocks` edges) | Line-wise 3-way semi-lattice JSONL merge | `bd update <id> --status in-progress` |
 
 Every snapshot below comes from the real `sdd-parallel demo --scaffold-only` fixtures after `plan` + `prepare --wave 1`.
@@ -347,7 +347,7 @@ my-project/
 │   │   ├── src/…
 │   │   ├── .tmp/track-context.md     # 👻
 │   │   ├── .parallel-lock.json       # 👻
-│   │   └── ACTIVE_TRACK.md           # 👻 → /opsx:apply normalize-telemetry
+│   │   └── ACTIVE_TRACK.md           # 👻 → /openspec-apply normalize-telemetry
 │   └── track-b/                      # Wave 1 → cli-batch-export (mirror locks)
 ├── openspec/…                        # untouched
 └── src/…

@@ -155,7 +155,7 @@ sdd-parallel merge --wave 1        #    Quality gates & 3-way merge to main
   <img src="docs/assets/whats-inside-worktrees.png" width="100%" alt="What sdd-parallel creates inside your repository: .parallel/ state and .worktrees/ track slots">
 </p>
 
-Read-only **ACL** adapters normalize 5 SDD formats without altering your specs:
+Read-only **Anti-Corruption Layer (ACL)** adapters normalize 5 SDD formats without altering your specs:
 
 | SDD Framework | Read-Only Artifacts (Locked) | Task Discovery | Status Sync |
 | :--- | :--- | :--- | :--- |
@@ -200,7 +200,7 @@ Legend: 🔒 read-only (`chmod a-w` + `PreToolUse` deny) · 👻 hidden (`info/e
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/opsx:apply normalize-telemetry` |
+| OpenSpec | `/openspec-apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 > 📦 **Spec Kit Extension (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip` (or `specify extension add sdd-parallel`) adds `/specify plan-waves`, `/specify prepare-wave --wave 1`, `/specify merge-wave --wave 1`.
@@ -223,12 +223,16 @@ Legend: 🔒 read-only (`chmod a-w` + `PreToolUse` deny) · 👻 hidden (`info/e
 - 📊 **[04 — Competitive Taxonomy](docs/dossier/04_COMPETITIVE_AND_BENCHMARK_TAXONOMY.md)** · **[07 — E2E Demo Walkthrough](docs/dossier/07_STANDALONE_DEMO_AND_E2E_WALKTHROUGH.md)** · **[Architecture SSOT](ARCHITECTURE.md)** · **[Dossier Index](docs/dossier/README.md)** · **[RU Dossier](docs/i18n/ru/dossier/)**
 
 <details>
-<summary><b>❓ Hard Engineering Questions & Honest Boundaries (FAQ)</b></summary>
+<summary><b>❓ Hard Engineering Questions &amp; Honest Boundaries (FAQ)</b></summary>
 
-1. **Upfront `write_files`:** **(a)** explicit spec paths (`Code Map`, `Files:`, backticks) → **(b)** Pre-Wave AST Symbol Linker → **(c)** Dynamic Scope Escalation (`.tmp/scope-escalation.json`) at `verify-wave`.
-2. **Non-Python repos (TS/JS, Go, Rust):** Built-in AST parses Python; polyglot repos pair explicit spec paths with **`code-review-graph`** (`CRGSidecarAdapter`).
-3. **Shell bypass (`sed -i`, `python -c`):** **3-Tier Defense-in-Depth**: `PreToolUse` + Terminal Guard → OS `chmod a-w` → `verify-wave` auditing `git diff merge-base...HEAD`.
-4. **Cross-layer contracts (Pydantic → TS, SQL, OpenAPI):** **`DEFAULT_CONTRACT_GLOBS`** (`**/schemas/**`, `**/migrations/**`, `openapi.*`, `*.proto`, `*.graphql`) and `.parallel-config.json` `file_roles` (`SPINE`).
+1. **How does the planner know `write_files` before code is written?**
+   Three layers of protection: **(a)** explicit paths declared in specs (`Code Map`, `Files:`, GSD XML `<files>`, backticks) → **(b)** the Pre-Wave AST Symbol Linker resolving mentioned function/class names to files in $O(1)$ → **(c)** Dynamic Scope Escalation (`.tmp/scope-escalation.json`), which safely defers an under-specified task to the next wave at the `verify-wave` barrier instead of allowing silent collisions.
+2. **What about TypeScript, Go, Rust, or non-Python repositories?**
+   Honest boundary: the built-in zero-dependency AST scanner natively parses Python. For polyglot repositories (TS/JS, Go, Rust), `sdd-parallel` combines explicit spec file lists with the optional Tree-sitter sidecar **`code-review-graph`** (`CRGSidecarAdapter`) to compute cross-file import and impact edges.
+3. **Can an agent bypass `PreToolUse` hooks via shell (`sed -i`, `python -c`, `cp`)?**
+   Enforcement never relies on a single hook — it is **3-Tier Defense-in-Depth**: **Tier 1** (`PreToolUse` + Terminal Guard inspecting `Bash`/`run_command`/`powershell` redirects and inline writes) → **Tier 2** (OS-level `chmod a-w` on Spine and sibling-owned files) → **Tier 3** (`verify-wave` auditing actual `git diff merge-base...HEAD` and blocking the merge on any violation).
+4. **AST cannot see cross-layer contracts (Pydantic JSON → TS frontend, SQL FK, OpenAPI)!**
+   Correct — static import graphs stop at syntax boundaries. `sdd-parallel` closes this gap declaratively via **`DEFAULT_CONTRACT_GLOBS`** (`**/schemas/**`, `**/migrations/**`, `openapi.*`, `*.proto`, `*.graphql`) plus project-specific `file_roles` in `.parallel-config.json`, forcing cross-layer contracts into strict `SPINE` serialization.
 
 </details>
 
@@ -290,7 +294,7 @@ Shared flags: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-file FILE
 
 ### ✅ Shipped in `v0.1.0 – v0.2.1`
 - [x] BSP wave scheduler (Kahn acyclicity) + AST hotspot scanner + `code-review-graph v2.3.9` sidecar.
-- [x] Fixed slots (`track-a/b/c`) with in-place reset, `info/exclude` masking, `.venv`/`node_modules` symlinks.
+- [x] Fixed slots (`track-a/b/c`) with in-place reset, `info/exclude` masking, `.venv`/`node_modules` NTFS Junctions (Windows, no admin) / POSIX symlinks.
 - [x] 3-tier Scope Guard (`PreToolUse` + Terminal Guard + `chmod a-w`), symbol linker, `.tmp/scope-escalation.json`.
 - [x] Monotonic 3-way status merger (YAML, Markdown, `STATE.md`, JSONL) + LIFO transactional rollback.
 - [x] 5 SDD adapters (Spec Kit + `extension.yml`, BMAD + `mattpocock/skills` + `bmad-loop`, GSD, OpenSpec, Beads).

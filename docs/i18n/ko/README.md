@@ -155,7 +155,7 @@ sdd-parallel merge --wave 1        #    품질 게이트 및 main 3-way 병합
   <img src="../../assets/whats-inside-worktrees.png" width="100%" alt="sdd-parallel 저장소 구조: .parallel/ 상태 및 .worktrees/ 슬롯">
 </p>
 
-읽기 전용 **ACL** 어댑터가 원본 명세를 건드리지 않고 5개 SDD 포맷을 정규화합니다:
+읽기 전용 **부패 방지 계층(Anti-Corruption Layer, ACL)** 어댑터가 원본 명세를 건드리지 않고 5개 SDD 포맷을 정규화합니다:
 
 | SDD 프레임워크 | 읽기 전용 아티팩트 (잠금) | 작업 탐색 대상 | 상태 동기화 |
 | :--- | :--- | :--- | :--- |
@@ -200,7 +200,7 @@ my-project/
 | GitHub Spec Kit | `/speckit.implement T002` |
 | BMAD Method | `/bmad-build 1-2` |
 | GSD | `/gsd-execute-phase 01-02` |
-| OpenSpec | `/opsx:apply normalize-telemetry` |
+| OpenSpec | `/openspec-apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
 > 📦 **Spec Kit 확장 (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip` (또는 `specify extension add sdd-parallel`)로 `/specify plan-waves`, `/specify prepare-wave --wave 1`, `/specify merge-wave --wave 1`을 추가합니다.
@@ -225,10 +225,14 @@ my-project/
 <details>
 <summary><b>❓ 핵심 엔지니어링 질문 및 정직한 적용 한계 (FAQ)</b></summary>
 
-1. **사전 `write_files` 파악:** **(a)** 명세의 명시 경로(`Code Map`, `Files:`, 백틱) → **(b)** 웨이브 사전 AST 심볼 링커 → **(c)** `verify-wave` 시 동적 스코프 에스컬레이션(`.tmp/scope-escalation.json`).
-2. **비-Python 저장소(TS/JS, Go, Rust):** 내장 AST는 Python을 파싱하며, 다중 언어 저장소는 명시 경로와 **`code-review-graph`**(`CRGSidecarAdapter`)를 함께 사용합니다.
-3. **셸 우회(`sed -i`, `python -c`):** **3계층 심층 방어**: `PreToolUse` + 터미널 가드 → OS `chmod a-w` → `verify-wave`의 `git diff merge-base...HEAD` 감사.
-4. **계층 간 계약(Pydantic → TS, SQL, OpenAPI):** **`DEFAULT_CONTRACT_GLOBS`**(`**/schemas/**`, `**/migrations/**`, `openapi.*`, `*.proto`, `*.graphql`) 및 `.parallel-config.json`의 `file_roles`(`SPINE`).
+1. **코드를 작성하기도 전에 플래너가 어떻게 `write_files`를 알 수 있나요?**
+   3단계 보호 계층으로 동작합니다: **(a)** 명세에 선언된 명시적 경로(`Code Map`, `Files:`, GSD XML `<files>`, 백틱 경로) → **(b)** 언급된 함수/클래스 이름을 $O(1)$에 파일로 해석하는 Pre-Wave AST 심볼 링커 → **(c)** 무음 충돌을 방치하는 대신 `verify-wave` 배리어에서 과소 명세된 작업을 다음 웨이브로 안전하게 이월하는 동적 스코프 에스컬레이션(`.tmp/scope-escalation.json`).
+2. **TypeScript, Go, Rust 또는 비-Python 저장소는 어떻게 처리하나요?**
+   정직한 한계: 내장된 무의존성 AST 스캐너는 Python을 네이티브로 파싱합니다. 다중 언어 저장소(TS/JS, Go, Rust)의 경우 `sdd-parallel`은 명세의 명시적 파일 목록과 선택적 Tree-sitter 사이드카 **`code-review-graph`**(`CRGSidecarAdapter`)를 결합하여 파일 간 임포트 및 영향 간선을 계산합니다.
+3. **에이전트가 셸(`sed -i`, `python -c`, `cp`)로 `PreToolUse` 훅을 우회할 수 있지 않나요?**
+   통제는 단일 훅에 의존하지 않는 **3계층 심층 방어(3-Tier Defense-in-Depth)**로 작동합니다: **Tier 1**(`PreToolUse` + `Bash`/`run_command`/`powershell` 리다이렉션 및 인라인 쓰기를 검사하는 터미널 가드) → **Tier 2**(Spine 및 형제 트랙 소유 파일에 대한 OS 수준 `chmod a-w` 잠금) → **Tier 3**(실제 `git diff merge-base...HEAD`를 감사하고 위반 시 병합을 차단하는 `verify-wave`).
+4. **AST는 계층 간 계약(Pydantic JSON → TS 프론트엔드, SQL FK, OpenAPI)을 볼 수 없지 않나요!**
+   맞습니다 — 정적 임포트 그래프는 구문 경계에서 멈춥니다. `sdd-parallel`은 **`DEFAULT_CONTRACT_GLOBS`**(`**/schemas/**`, `**/migrations/**`, `openapi.*`, `*.proto`, `*.graphql`)와 `.parallel-config.json`의 프로젝트별 `file_roles`를 통해 이 간극을 선언적으로 메우며, 계층 간 계약을 엄격한 `SPINE` 직렬화로 강제합니다.
 
 </details>
 
@@ -290,7 +294,7 @@ flowchart TD
 
 ### ✅ `v0.1.0 – v0.2.1` 구현 완료 항목
 - [x] BSP 웨이브 스케줄러(Kahn 비순환성) + AST 핫스팟 스캐너 + `code-review-graph v2.3.9` 사이드카.
-- [x] 제자리 재설정, `info/exclude` 마스킹, `.venv`/`node_modules` 심볼릭 링크를 지원하는 고정 슬롯(`track-a/b/c`).
+- [x] 제자리 재설정, `info/exclude` 마스킹, `.venv`/`node_modules` NTFS Junctions (Windows, no admin) / POSIX symlinks를 지원하는 고정 슬롯(`track-a/b/c`).
 - [x] 3계층 스코프 가드(`PreToolUse` + 터미널 가드 + `chmod a-w`), 심볼 링커, `.tmp/scope-escalation.json`.
 - [x] 단조 3-way 상태 병합기(YAML, Markdown, `STATE.md`, JSONL) + LIFO 트랜잭션 롤백.
 - [x] 5개 SDD 어댑터(Spec Kit + `extension.yml`, BMAD + `mattpocock/skills` + `bmad-loop`, GSD, OpenSpec, Beads).
