@@ -428,12 +428,12 @@ Prefer to try it with zero local state? Open the **[⚡ Live Interactive Wave In
 - **Tab 1 — `🌊 Waves & Tracks` & CLI Action Bridge:**
   - Displays planned waves and parallel track cards (`track-a`, `track-b`, …) with color-coded file roles:
     - 🟢 **Exclusive Write Scope:** files owned exclusively by that slot.
-    - 🔷 **Additive Registry (`ADDITIVE_REGISTRY`):** shared append-only modules with AST function scope isolation (e.g., `fn: register_...`).
+    - 🔷 **Additive Registry (`ADDITIVE_REGISTRY`):** shared append-only modules with declarative function scope notes (e.g., `fn: register_...`).
     - 🟣 **Spine Contract (`SPINE`):** protected schema/contract files serialized across waves.
   - Shows dependency badges (e.g., `T002 blocks T004`) and provides one-click **Copy** buttons in the wave header (`sdd-parallel prepare --wave K`) and barrier footer (`sdd-parallel merge --wave K`).
 - **Tab 2 — `📊 Conflict DAG` & Task Specification Modal:**
   - Interactive SVG directed acyclic graph organizing tasks into topological wave columns.
-  - Clicking any task node opens the **Task Spec Modal** showing its *Exclusive Write Scope*, *Additive Shared Files & AST Function Scopes*, *Protected Spine Locks*, and *Related Conflict Constraints*.
+  - Clicking any task node opens the **Task Spec Modal** showing its *Exclusive Write Scope*, *Additive Shared Files & Declared Function Scopes*, *Protected Spine Locks*, and *Related Conflict Constraints*.
 - **Tab 3 — `⚡ Conflict Matrix`:**
   - Pairwise audit table separating Type-1 direct write overlaps ($W_A \cap W_B \neq \emptyset$) from Type-2 semantic import hazards ($W_A \cap I_B \neq \emptyset$), explaining why colliding tasks were placed into separate waves.
 - **Tab 4 — `🔒 Architectural Roles`:**
@@ -480,8 +480,8 @@ Use this decision path when a wave fails verification or breaks tests at the bar
 | Situation | Command | What Happens on Disk |
 | :--- | :--- | :--- |
 | **Unmerged wave:** `verify-wave --wave K` flags a scope violation or uncommitted drift | Fix inside `.worktrees/track-<id>`, commit, and re-run `sdd-parallel verify-wave --wave K` | No changes to `main`; manifest `.parallel/wave-<K>-manifest.json` updates when compliant |
-| **Unmerged wave:** you want to throw away Wave $K$ slots and re-plan | `sdd-parallel abort-wave --wave K` | Resets fixed slots in place, deletes temporary `parallel/*` branches; `main` untouched |
-| **During `merge --wave K`:** tests/quality gates fail | Automatic transactional rollback | Engine automatically resets `main` back to `pre_merge_commit` recorded in `.parallel/state.json` |
+| **Unmerged wave:** you want to throw away Wave $K$ slots and re-plan | `sdd-parallel abort-wave --wave K` | Resets fixed slots (`parallel/track-*`) in place to `main` `HEAD` (or deletes `parallel/wave-*` with `--dynamic-worktrees`), clears `.parallel/wave-plan.json`; `main` untouched |
+| **During `merge --wave K`:** merge conflict, state sync error, or quality gates fail | Automatic transactional rollback | Engine aborts active merge and resets `main` atomically back to `pre_merge_head` before slot cleanup |
 | **Already merged wave:** tests fail later or you need to undo Wave $K$ | `sdd-parallel rollback-wave --wave K --save-backup` | Preserves `backup/wave-<K>-before-rollback-*` branch, reverts `HEAD` in strict **LIFO** order, and polymorphically resets SDD task statuses (`[x]` → `[ ]`, `done` → `ready-for-dev`, `closed` → `open`) |
 
 **Common `merge` flags:**
@@ -501,7 +501,7 @@ When an agent is denied access by `PreToolUse`, Terminal Guard, or OS `chmod a-w
    ```
    Exit code `0` returns `{"decision": "allow"}`; exit code `2` returns `{"decision": "deny", "reason": "..."}` (either owned by a sibling track, locked by `SPINE`, or an immutable SDD contract).
 2. **Request missing files mid-wave via Dynamic Scope Escalation (`.tmp/scope-escalation.json`):**
-   If a track discovers an extra `write_file` it genuinely needs, write an escalation request inside that slot's `.tmp/scope-escalation.json` (which stays hidden from Git via `info/exclude`). At the `verify-wave` barrier, `sdd-parallel` evaluates the escalation: if the requested file is disjoint from sibling tracks and not Spine-locked, scope can be reconciled; if it introduces a Type-1 or Type-2 collision, the task is safely deferred and re-planned into a subsequent wave.
+   When `PreToolUse` (`run_stdin_hook`) denies an out-of-scope write (or when an operator/agent records a needed `write_file` explicitly), it logs `.tmp/scope-escalation.json` inside that slot (hidden from Git via `info/exclude`). At the `verify-wave` barrier, `sdd-parallel` defers the escalated task to Wave $K+1$ with the requested file added, resets the emptied slot back to `HEAD`, and persists `.parallel/wave-plan.json` so `merge` integrates only the remaining non-deferred tracks.
 3. **Override heuristics permanently via `.parallel-config.json`:**
    When a file should always be serialized (`spine`), safely shared (`additive_registry`), or treated as a cross-layer contract (`contract_globs`), declare it explicitly in `.parallel-config.json` at your repository root:
    ```json

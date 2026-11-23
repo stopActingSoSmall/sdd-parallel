@@ -402,3 +402,187 @@ def test_prepare_wave_git_worktree_add_arguments(
     assert cmd[4] == "add"
     assert str(wm.worktree_path_for_track(1, "track-a").resolve()) in cmd
 
+
+def test_merge_wave_atomic_rollback_on_second_branch_conflict(tmp_path: Path) -> None:
+    """Verify merge_wave rolls back ALL merged branches if branch #2 hits a merge conflict."""
+    repo = tmp_path / "conflict_repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    (repo / "src").mkdir()
+    (repo / "src" / "shared.py").write_text("x = 0\n", encoding="utf-8")
+    (repo / "src" / "a.py").write_text("a = 0\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "seed src"], cwd=repo, check=True, capture_output=True)
+
+    pre_merge_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    plan = WavePlan(
+        sdd_kit="spec-kit",
+        waves=[
+            Wave(
+                wave_number=1,
+                tracks=[
+                    WaveTrack(
+                        track_id="track-a",
+                        task_ids=["T001"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["src/shared.py", "src/a.py"],
+                    ),
+                    WaveTrack(
+                        track_id="track-b",
+                        task_ids=["T002"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["src/shared.py"],
+                    ),
+                ],
+            )
+        ],
+        edges=[],
+    )
+
+    wm = WorktreeManager(repo, fixed_slots=True)
+    wt_a, wt_b = wm.prepare_wave(plan, wave_number=1, headless=True)
+
+    # Track A edits shared.py + a.py and commits cleanly
+    (wt_a / "src" / "shared.py").write_text("x = 1\n", encoding="utf-8")
+    (wt_a / "src" / "a.py").write_text("a = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/shared.py", "src/a.py"], cwd=wt_a, check=True)
+    subprocess.run(["git", "commit", "-m", "track-a changes"], cwd=wt_a, check=True)
+    wt_a_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=wt_a,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    # Track B makes a conflicting edit on shared.py
+    (wt_b / "src" / "shared.py").write_text("x = 2\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/shared.py"], cwd=wt_b, check=True)
+    subprocess.run(["git", "commit", "-m", "track-b conflict"], cwd=wt_b, check=True)
+
+    with pytest.raises(RuntimeError, match="transactional auto-rollback"):
+        wm.merge_wave(
+            plan,
+            wave_number=1,
+            run_quality_gates=False,
+            cleanup_worktrees=True,
+        )
+
+    # Main repo HEAD and working files must be atomically rolled back to pre_merge_head
+    head_after = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert head_after == pre_merge_head
+    assert (repo / "src" / "shared.py").read_text(encoding="utf-8") == "x = 0\n"
+    assert (repo / "src" / "a.py").read_text(encoding="utf-8") == "a = 0\n"
+    assert not (repo / ".git" / "MERGE_HEAD").exists()
+
+    # Cleanup must NOT have fired before wave integrity succeeded (wt_a keeps its commit & lock)
+    wt_a_head_after = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=wt_a,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert wt_a_head_after == wt_a_head
+    assert (wt_a / ".parallel-lock.json").is_file()
+
+
+def test_merge_wave_atomic_rollback_on_state_update_failure(tmp_path: Path) -> None:
+    """Verify exception in update_state_on_merge triggers full rollback instead of silent pass."""
+    repo = tmp_path / "state_fail_repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    (repo / "src").mkdir()
+    (repo / "src" / "a.py").write_text("a = 0\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "seed"], cwd=repo, check=True, capture_output=True)
+
+    pre_merge_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    plan = WavePlan(
+        sdd_kit="spec-kit",
+        waves=[
+            Wave(
+                wave_number=1,
+                tracks=[
+                    WaveTrack(
+                        track_id="track-a",
+                        task_ids=["T001"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["src/a.py"],
+                    )
+                ],
+            )
+        ],
+        edges=[],
+    )
+    wm = WorktreeManager(repo, fixed_slots=True)
+    (wt_a,) = wm.prepare_wave(plan, wave_number=1, headless=True)
+    (wt_a / "src" / "a.py").write_text("a = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/a.py"], cwd=wt_a, check=True)
+    subprocess.run(["git", "commit", "-m", "feat"], cwd=wt_a, check=True)
+
+    class _FailingAdapter:
+        kit_id = "spec-kit"
+
+        def get_status_files(self) -> list[str]:
+            return []
+
+        def get_forbidden_files(self, wave: Wave, track: WaveTrack) -> dict[str, str]:
+            return {}
+
+        def get_allowed_write_globs(self, track: WaveTrack) -> list[str]:
+            return []
+
+        def get_track_env_vars(self, track: WaveTrack) -> dict[str, str]:
+            return {}
+
+        def prepare_worktree_overlay(self, worktree_path: Path, track: WaveTrack) -> list[str]:
+            return []
+
+        def render_worker_command(self, track: WaveTrack) -> str:
+            return ""
+
+        def update_state_on_merge(
+            self, wave_number: int, merged_task_ids: list[str]
+        ) -> Path | None:
+            raise OSError("simulated disk error during state update")
+
+    with pytest.raises(RuntimeError, match="Post-merge state update failed"):
+        wm.merge_wave(
+            plan,
+            wave_number=1,
+            run_quality_gates=False,
+            cleanup_worktrees=True,
+            adapter=_FailingAdapter(),  # type: ignore[arg-type]
+        )
+
+    head_after = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert head_after == pre_merge_head
+    assert (repo / "src" / "a.py").read_text(encoding="utf-8") == "a = 0\n"
+

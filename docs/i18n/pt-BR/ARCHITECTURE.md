@@ -33,7 +33,7 @@ flowchart LR
     subgraph Engine["Subsistema 2: Motor DAG Hexagonal e Resolvedor de Conflitos"]
         E1["ASTHotspotScanner\n(Análise em 3 Passadas: Spine vs Registros Aditivos)"]
         E2["CRGSidecarAdapter\n(code-review-graph v2.3.9 Grafo de Chamadas WAL)"]
-        E3["BSPWaveScheduler\n(Empacotamento Determinístico de Ondas, K Trilhas)"]
+        E3["BSPWaveScheduler\n(Empacotamento Guloso First-Fit de Ondas, K Trilhas, Checkpoints)"]
     end
 
     subgraph Actuation["Subsistema 3: Provisionador de Worktrees e Portão de Integração"]
@@ -54,32 +54,22 @@ Seguindo o padrão de Portas e Adaptadores (Arquitetura Hexagonal), o núcleo do
 
 ```python
 class SDDAdapterProtocol(Protocol):
-    """Contrato polimórfico implementado por todos os frameworks SDD suportados."""
+    """Contrato de extensão polimórfico implementado por todos os frameworks SDD suportados."""
 
     kit_id: str
 
+    def __init__(self, repo_root: Path) -> None: ...
+
     def detect(self) -> bool:
-        """Detecta marcadores de presença do framework SDD no repositório."""
+        """Detecta marcadores de presença deste framework SDD no repositório."""
         ...
 
-    def load_tasks(self, include_done: bool = False) -> list[TaskNode]:
-        """Converte artefatos de backlog para modelos canônicos TaskNode."""
-        ...
-
-    def check_wave_zero_blockers(self, wave: Wave | None = None) -> list[str]:
-        """Valida pré-requisitos específicos do framework (Git limpo, contextos compilados)."""
-        ...
-
-    def get_allowed_write_globs(self, track: WaveTrack) -> list[str]:
-        """Retorna padrões glob de metadados permitidos para escrita no worktree."""
-        ...
-
-    def get_forbidden_files(self, wave: Wave, track: WaveTrack) -> dict[str, str]:
-        """Mapeia especificações imutáveis e contratos protegidos do framework."""
-        ...
-
-    def render_worker_command(self, track: WaveTrack) -> str:
-        """Gera comando nativo de CLI para o operador e modo Autopilot."""
+    def load_tasks(
+        self,
+        include_done: bool = False,
+        plan_source: str = "auto",
+    ) -> list[TaskNode]:
+        """Converte artefatos de roadmap/backlog em modelos canônicos TaskNode."""
         ...
 
     def reset_tasks_status(
@@ -87,7 +77,7 @@ class SDDAdapterProtocol(Protocol):
         task_ids: Sequence[str],
         target_status: str = "ready-for-dev",
     ) -> None:
-        """Restaura polimorficamente status em rollbacks transacionais LIFO."""
+        """Reverte polimorficamente os status das tarefas após rollback transacional LIFO da onda."""
         ...
 
     def cleanup_wave_artifacts(
@@ -95,7 +85,64 @@ class SDDAdapterProtocol(Protocol):
         wave_id: int,
         task_ids: Sequence[str],
     ) -> None:
-        """Limpa especificações temporárias geradas para a onda."""
+        """Limpa especificações e artefatos temporários gerados para uma onda."""
+        ...
+
+    def check_wave_zero_blockers(self, wave: Wave | None = None) -> list[str]:
+        """Verifica pré-requisitos específicos do framework (Git limpo, contextos compilados, checklists)."""
+        ...
+
+    def check_preflight_context_gate(self, wave: Wave) -> list[str]:
+        """Verifica arquivos de contexto de épico/feature pré-compilados antes de iniciar trilhas paralelas."""
+        ...
+
+    def get_allowed_write_globs(self, track: WaveTrack) -> list[str]:
+        """Retorna padrões glob de metadados do framework permitidos para modificação na worktree."""
+        ...
+
+    def get_forbidden_files(self, wave: Wave, track: WaveTrack) -> dict[str, str]:
+        """Mapeia contratos protegidos e especificações imutáveis específicos do framework."""
+        ...
+
+    def get_track_env_vars(self, track: WaveTrack) -> dict[str, str]:
+        """Retorna variáveis de ambiente específicas do kit injetadas na execução da trilha."""
+        ...
+
+    def prepare_worktree_overlay(self, worktree_path: Path, track: WaveTrack) -> list[str]:
+        """Injeta arquivos de overlay específicos do kit na worktree e retorna entradas para git exclude."""
+        ...
+
+    def verify_track_spec_scope(
+        self,
+        worktree_path: Path,
+        track: WaveTrack,
+        forbidden_files: dict[str, str],
+    ) -> list[str]:
+        """Verifica restrições de escopo em nível de especificação dentro da worktree antes do merge."""
+        ...
+
+    def render_worker_command(self, track: WaveTrack) -> str:
+        """Gera o comando nativo de CLI para o guia de execução do operador e modos Autopilot."""
+        ...
+
+    def default_artifacts_dir(self) -> Path:
+        """Retorna o diretório de saída padrão para planos de onda e relatórios gerados."""
+        ...
+
+    def get_status_files(self) -> list[str]:
+        """Retorna caminhos relativos dos arquivos de status do framework reconciliados via merge 3-vias."""
+        ...
+
+    def get_change_worktree(self, change_id: str) -> Path | None:
+        """Retorna o caminho de worktree existente atribuído pelo framework para change_id, se houver."""
+        ...
+
+    def update_state_on_merge(
+        self,
+        wave_number: int,
+        merged_task_ids: Sequence[str],
+    ) -> Path | None:
+        """Sincroniza o estado/BD do framework após o checkpoint de merge em barreira da Onda K."""
         ...
 ```
 
@@ -107,7 +154,7 @@ class SDDAdapterProtocol(Protocol):
 | **Validação Prévia de Bloqueios** | `SDDAdapter` | Valida portões de prontidão (`check_wave_zero_blockers`): Git limpo, contextos BMAD, listas de Spec Kit. |
 | **Classificação AST de Arquivos** | `Core Engine` | Analisador estático em 3 passadas (`ASTHotspotScanner`) que categoriza módulos em `SPINE`, `ADDITIVE_REGISTRY` e `STANDARD`. |
 | **Raio de Impacto Semântico** | `Core Engine` | Calcula o raio de colisão ponderado ($W_A \cap I_B$) via `CRGSidecarAdapter` (`code-review-graph v2.3.9` WAL). |
-| **Particionamento de Ondas (Escalonador BSP)** | `Core Engine` | Escalonador determinístico `BSPWaveScheduler` que garante 100% de cobertura e aciclicidade formal (Kahn). |
+| **Particionamento de Ondas (Escalonador BSP)** | `Core Engine` | Escalonador determinístico guloso `First-Fit` `BSPWaveScheduler` (1 tarefa por trilha na ordem de entrada) que garante 100% de cobertura de histórias e aciclicidade formal (Kahn). |
 | **Provisionamento de Slots de Worktree** | `Core Engine` + `Adapter` | Aloca slots fixos `track-<id>` e permissões de SO (`chmod a-w`). O adaptador fornece `allowed_write_globs` e `forbidden_files`. |
 | **Instruções de Inicialização de Agentes** | `SDDAdapter` | Gera comandos nativos (`/speckit.implement`, `/gsd-execute-phase`, `/opsx:apply`, `bd update`, `/bmad-build`). |
 | **Guarda de Escopo em Múltiplas Camadas** | `Core Engine` | Intercepta chamadas `PreToolUse`, comandos de terminal (`Bash`, `run_command`) e impõe travas de somente leitura do SO. |
@@ -139,10 +186,10 @@ Para cada tarefa pendente $T_i$:
 2. **Registros Aditivos Compartilhados (`FileRole.ADDITIVE_REGISTRY`):**
    - Pontos de entrada onde funcionalidades registram comandos ou rotas independentes (`cli.py` com `@app.command`, `__init__.py` com `__all__`).
    - *Invariante (ADR-0002):* Utilitários de formatação (`console.py`, `markdown.py`) são classificados como `FileRole.STANDARD`.
-   - **Regra:** Tarefas com interseção restrita a arquivos `ADDITIVE_REGISTRY` **podem executar concorrentemente** em slots isolados com injeção de diretiva append-only.
+   - **Regra:** Tarefas com interseção *exclusiva* em arquivos `ADDITIVE_REGISTRY` genuínos **podem executar concorrentemente** em slots `git worktree` separados com diretiva append-only injetada em `.tmp/track-context.md`. O merge semântico sem conflitos é garantido para rastreadores de status SDD (`status_merger.py`); os registros de código usam o merge padrão de 3 vias do Git (inserções disjuntas passam sem falhas, enquanto edições adjacentes de imports ou no fim do arquivo acionam conflito e rollback transacional da onda).
 3. **Módulos Padrão (`FileRole.STANDARD`):**
    - Lógica de negócios e adaptadores comuns.
-   - **Regra:** Qualquer interseção $W(A) \cap W(B) \neq \emptyset$ impede a execução na mesma onda.
+   - **Regra:** Qualquer interseção $W(A) \cap W(B) \neq \emptyset$ impede a execução concorrente na mesma onda, a menos que as especificações declarem notas distintas de funções isoladas em `shared_function_notes` (verificado declarativamente via `_has_isolated_function_scope`). Arquivos `STANDARD` nunca são isentos do cálculo do raio de impacto.
 
 ### 2.2. Pipeline de Análise Estática AST em 3 Passadas (`ASTHotspotScanner`)
 
@@ -263,35 +310,38 @@ Mantém um pool permanente de $K = \text{max\_tracks}$ slots (`track-a`, `track-
 
 ### 4.7. Motor de Rollback Transacional LIFO
 
-- **`abort-wave --wave K`:** Limpa slots não integrados antes da mesclagem.
+- **`abort-wave --wave K`:** No modo padrão `fixed_slots=True`, redefine os slots (`parallel/track-*`) in-place para o `HEAD` do repositório e reporta as branches redefinidas; com `--dynamic-worktrees`, remove diretórios efêmeros e exclui as branches `parallel/wave-*`. Limpa o arquivo obsoleto `.parallel/wave-plan.json`.
 - **`rollback-wave --wave K [--save-backup]`:** Reverte em estrita ordem LIFO, cria branch de segurança `backup/wave-<K>-before-rollback-*` e restaura status polimorficamente.
 
 ### 4.8. Portões de Qualidade Agnósticos e Auto-Rollback Transacional
 
 - **Resolução Universal:** Lê portões de `.parallel-config.json` ou `pyproject.toml`, com autodeteção para Python, Node, Rust e Go.
-- **Auto-Rollback:** Se algum portão de qualidade falhar durante o merge, o orquestrador executa automaticamente `git reset --hard` na branch `master`, mantendo os worktrees intactos para depuração.
+- **Auto-Rollback Transacional:** Se ocorrer qualquer conflito de merge em uma branch de trilha, falha em `update_state_on_merge()` ou falha em qualquer portão de verificação durante `sdd-parallel merge --wave K`, o orquestrador aborta automaticamente qualquer merge ativo (`git merge --abort`) e executa `git reset --hard pre_merge_head` antes da limpeza dos slots, restaurando a `master` atomicamente enquanto mantém os slots intactos para depuração.
 
 ### 4.9. Demonstração Offline Autônoma (`sdd-parallel demo`)
 
-Executa a validação dos 5 invariantes em <5 segundos sem chaves de API ou internet. Com `--kit all`, valida todos os 5 frameworks sequencialmente.
+O comando autônomo `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp]` gera um repositório efêmero e verifica os invariantes centrais de planejamento, isolamento e merge de status offline, sem chaves de API ou acesso à rede (`~6–9s` por kit com `--kit all` e `run_quality_gates=False` na sandbox sintética).
 
 ### 4.10. Referência Completa de Comandos e Opções da CLI
 
 | Comando | Finalidade | Principais Opções e Parâmetros |
 | :--- | :--- | :--- |
-| `plan` | Calcula o DAG de conflitos e gera o plano de ondas paralelas | `--repo <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--plan-source <auto\|plan\|specs>`, `--include-done`, `--dry-run` |
-| `prepare` | Provisiona slots fixos e travas de limites para a Onda K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run` |
+| `plan` | Calcula o DAG de conflitos e gera o plano de ondas paralelas | `--repo <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--plan-source <auto\|plan\|specs>`, `--include-done`, `--dry-run`, `--routing-file <path>` |
+| `prepare` | Provisiona slots fixos e travas de limites para a Onda K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run`, `--routing-file <path>` |
 | `claim-track` | Vincula travas de limites a uma worktree externa existente | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
-| `run-guide` | Exibe a matriz formatada do guia do operador para a Onda K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout` |
-| `verify-wave` | Audita diffs de worktrees e conformidade de travas contra merge-base | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | Merge no checkpoint de barreira com merge 3-way de status e quality gates | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `run-guide` | Exibe a matriz formatada do guia do operador para a Onda K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
+| `verify-wave` | Audita diffs de worktrees, conformidade de travas, trata escalonamentos de escopo e registra o manifesto de barreira | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
+| `merge` | Merge no checkpoint de barreira com merge 3-way de status, quality gates, rollback atômico e manifesto | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | Ferramenta determinística independente de merge 3-way para sprint-status.yaml | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | Inspeciona permissão de modificação de arquivo via lógica de hook ativo | `--file <path>`, `--tool <name>` (produz JSON formatado com `indent=2`) |
 | `install-plugin` | Empacota e instala o plugin portátil do Antigravity | `--target-dir <path>` (padrão: `~/.gemini/config/plugins/sdd-parallel`) |
-| `autopilot` | Gera ou executa comandos no modo Multi-Conversation Autopilot | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--harness <antigravity\|claude-code\|codex>`, `--antigravity-layout`, `--execute` |
-| `abort-wave` | Aborta a onda antes do merge e limpa branches temporárias | `--repo <path>`, `--wave <K>`, `--dynamic-worktrees` |
+| `init-custom` | Assistente interativo de configuração para gerar `.parallel/custom-kit.yaml` | `--repo <path>`, `--specs-dir <dir>`, `--format <markdown\|yaml>`, `--test-cmd <cmd>`, `--non-interactive`, `--dry-run` |
+| `autopilot` | Gera ou executa comandos no modo Multi-Conversation Autopilot | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--harness <antigravity\|claude-code\|codex>`, `--antigravity-layout`, `--execute`, `--routing-file <path>` |
+| `abort-wave` | Aborta a onda antes do merge; redefine slots fixos para `HEAD` (ou exclui branches dinâmicas) | `--repo <path>`, `--wave <K>`, `--dynamic-worktrees` |
 | `rollback-wave` | Rollback atômico LIFO de onda integrada com branch de segurança | `--repo <path>`, `--wave <K>`, `--to-commit <hash>`, `--save-backup` / `--no-backup`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `demo` | Executa demonstração offline independente de Merge-Bomb em 5 segundos | `--kit <bmad\|spec-kit\|gsd\|openspec\|beads\|all>`, `--keep-temp`, `--scaffold-only`, `--output-dir <path>` |
+| `demo` | Executa demonstração offline autônoma de Merge-Bomb (`~6–9s` por kit) | `--kit <bmad\|spec-kit\|gsd\|openspec\|beads\|all>`, `--keep-temp`, `--scaffold-only`, `--output-dir <path>` |
+| `bench` | Executa backtest retrospectivo avaliado contra o modelo estático de conflitos `TaskNode` no histórico Git ou demo | `--repo <path>`, `--since <rev>`, `--until <rev>`, `--demo`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--format <text\|json>` |
+| `inspect` | Gera e exibe o HTML Wave Inspector offline autônomo | `--repo <path>`, `--plan <path>`, `--output <path>`, `--open`, `--kit <auto\|kit>` |
 
 ---
 

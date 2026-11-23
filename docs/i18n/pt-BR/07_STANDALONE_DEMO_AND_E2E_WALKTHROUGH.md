@@ -130,8 +130,8 @@ src/demo_app/schema.py                 | spine                  | -
 **O que aconteceu:**  
 O motor inspeciona a AST de cada arquivo sem depender de listas estáticas de nomes, atribuindo o **perfil de concorrência** adequado:
 1. **`spine` (Espinha dorsal — Fila estrita):** Arquivos fundamentais que regem estruturas de dados ou acumulam muitas dependências (`SCHEMA_VERSION`, `models.py` ou in-degree $\ge 5$). Duas tarefas que alteram um arquivo `spine` **nunca** são alocadas na mesma onda.
-2. **`additive_registry` (Registro aditivo — Adição segura):** Pontos de extensão onde tarefas apenas adicionam registros (`@app.command`, `@router.get`, `__all__`). Alterações concorrentes em branches isoladas são permitidas e unificadas no merge.
-3. **`standard` (Módulo de negócio — Exclusão mútua + Rastreamento de impacto):** Serviços e controladores comuns. Tarefas concorrentes não podem editar o mesmo arquivo padrão, e o grafo reverso de importações (**`Importers`**) é estritamente monitorado. Observe que o scanner detectou que `api.py` importa `normalizer.py`!
+2. **`additive_registry` (Registro aditivo — Adição segura):** Pontos de extensão onde funcionalidades apenas registram exportações ou comandos (`@app.command`, `@router.get`, `__all__`). Edições concorrentes em worktrees paralelas são permitidas e integradas via Git 3-way merge (enquanto rastreadores de status fazem merge sem conflitos via `status_merger.py`).
+3. **`standard` (Módulo de negócio — Exclusão mútua + Rastreamento de dependências):** Serviços e controladores comuns. Edições concorrentes no mesmo arquivo são barradas, a menos que as especificações declarem notas distintas de funções isoladas (`shared_function_notes`), e o grafo reverso de importações (**`Importers`**) é estritamente monitorado. Observe que o scanner detectou que `src/demo_app/api.py` importa `normalizer.py`!
 
 ---
 
@@ -302,7 +302,7 @@ uv run sdd-parallel check-lock --file "<DEMO_DIR>/.worktrees/track-b/src/demo_ap
 ```powershell
 uv run sdd-parallel abort-wave --repo "<DEMO_DIR>" --wave 1
 ```
-*Resultado:* Os slots são limpos e liberados sem alterações no branch principal.
+*Resultado:* Os slots fixos de trilha são redefinidos in-place para o `HEAD` da `master`, e o `.parallel/wave-plan.json` obsoleto e as travas da onda são limpos sem alterar a `master` (passe `--dynamic-worktrees` para remover diretórios efêmeros e excluir as branches `parallel/wave-*`).
 
 ---
 

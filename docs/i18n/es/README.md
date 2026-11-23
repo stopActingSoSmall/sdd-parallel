@@ -65,7 +65,7 @@ Con 10–15 especificaciones o historias, los equipos enfrentan dos malas opcion
 | :--- | :--- | :--- | :--- |
 | **Sprint de 12 historias** | ~6–8 h | ~2 h código + **~2 h arreglando merges** | **~2.5 h en total (2x–3x más rápido)** |
 | **Colisiones ocultas de API** | Por ir lento | **Rompe `main`** ($W_A \cap I_B \neq \emptyset$) | **Prevenidas de antemano** (Ola 1 → 2) |
-| **CLI / enrutadores compartidos** | Serializado | Conflicto Git por merge | **Seguro en paralelo** (`ADDITIVE_REGISTRY`) |
+| **CLI / enrutadores compartidos** | Serializado | Conflicto Git por merge | **Concurrente vía Git 3-way merge** (`ADDITIVE_REGISTRY`, inserciones disjuntas) |
 | **Archivos de estado** | En serie | Constantes marcas `<<<<<<<` | **Fusión 3-way monótona** (0 marcas) |
 | **Ediciones fuera de alcance** | Aviso en prompt | Eludido vía `bash`/`sed` | **Bloqueado** (`PreToolUse` + Terminal Guard + `chmod a-w`) |
 | **Desorden de worktrees** | Ninguno | 15 carpetas `task-*` sobrantes | **Ranuras fijas reutilizables** (`track-a/b/c`) |
@@ -82,7 +82,7 @@ Sin clave API, sin suscripción a LLM, sin clonar. Ejecuta vía [`uv`](https://d
 uvx sdd-parallel demo --kit all   # o un solo kit: uvx sdd-parallel demo --kit spec-kit
 ```
 
-Crea repositorios Git temporales reales (5 tareas, 6 módulos Python), ejecuta análisis AST, prueba bloqueos `DENY` del Scope Guard y realiza una fusión 3-way con 0 conflictos:
+Crea repositorios Git temporales reales (5 tareas, 6 módulos Python), ejecuta análisis AST, prueba bloqueos `DENY` del Scope Guard y realiza una fusión 3-way con 0 conflictos (`~6–9s` por kit con `--kit all`, `run_quality_gates=False` en sandbox):
 
 ```text
 ================================================================
@@ -226,7 +226,7 @@ Leyenda: 🔒 solo lectura (`chmod a-w` + `PreToolUse` deny) · 👻 oculto (`in
 <summary><b>❓ Preguntas difíciles de ingeniería y límites honestos (FAQ)</b></summary>
 
 1. **¿Cómo conoce el planificador `write_files` antes de que se escriba el código?**
-   Tres capas de protección: **(a)** rutas explícitas declaradas en las specs (`Code Map`, `Files:`, GSD XML `<files>`, comillas invertidas) → **(b)** el Enlazador de Símbolos AST Pre-Ola que resuelve nombres de funciones/clases mencionados hacia archivos en $O(1)$ → **(c)** Escalado Dinámico de Alcance (`.tmp/scope-escalation.json`), que difiere de forma segura una tarea subespecificada a la siguiente ola en la barrera `verify-wave` en lugar de permitir colisiones silenciosas.
+   Tres capas de protección: **(a)** rutas explícitas declaradas en las specs (`Code Map`, `Files:`, GSD XML `<files>`, comillas invertidas) → **(b)** el Enlazador de Símbolos AST Pre-Ola que resuelve nombres de funciones/clases mencionados hacia archivos en $O(1)$ → **(c)** Escalado Dinámico de Alcance (`.tmp/scope-escalation.json`), donde `PreToolUse` registra las ediciones denegadas fuera de alcance, `verify-wave` difiere la tarea a la Ola $K+1$ (reiniciando la ranura vaciada y actualizando `.parallel/wave-plan.json`), y `merge` se ejecuta según el plan actualizado.
 2. **¿Qué pasa con TypeScript, Go, Rust o repositorios que no son de Python?**
    Límite honesto: el escáner AST integrado sin dependencias analiza Python de forma nativa. Para repositorios políglotas (TS/JS, Go, Rust), `sdd-parallel` combina listas explícitas de archivos en specs con el sidecar opcional Tree-sitter **`code-review-graph`** (`CRGSidecarAdapter`) para calcular aristas de importación e impacto entre archivos.
 3. **¿Puede un agente eludir los hooks `PreToolUse` mediante shell (`sed -i`, `python -c`, `cp`)?**
@@ -264,7 +264,7 @@ flowchart TD
 ## 🛠️ Referencia completa de comandos CLI
 
 <details>
-<summary><b>Haz clic para expandir: los 15 subcomandos y opciones</b></summary>
+<summary><b>Haz clic para expandir: los 16 subcomandos y opciones</b></summary>
 
 Opciones compartidas: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-file FILE`, `--dry-run`, `--dynamic-worktrees`.
 
@@ -275,15 +275,16 @@ Opciones compartidas: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-f
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — Despliega ranuras, bloqueos de SO y límites. |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — Bloquea un worktree existente. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — Imprime comando de lanzamiento nativo por ranura. |
-| `sdd-parallel verify-wave --wave K` | Audita ranuras frente a `.parallel-lock.json` y diff respecto a `merge-base`. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — Quality gates, fusión 3-way, reversión automática. |
-| `sdd-parallel abort-wave --wave K` | Restablece ranuras no fusionadas y elimina ramas temporales. |
+| `sdd-parallel verify-wave --wave K` | Audita ranuras frente a `.parallel-lock.json`, diff respecto a `merge-base` y escalados de alcance. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — Quality gates, fusión 3-way, rollback atómico ante conflicto/error de compuerta. |
+| `sdd-parallel abort-wave --wave K` | Reinicia ranuras fijas in situ a `HEAD` (o elimina ramas en `--dynamic-worktrees`). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — Reversión LIFO + rama de respaldo + reinicio de estado. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — Fusión 3-way para `sprint-status.yaml`. |
 | `sdd-parallel check-lock` | `--file PATH [--tool TOOL]` — Comprueba escritura frente al manifiesto de bloqueo activo. |
 | `sdd-parallel install-plugin` | `[--target-dir DIR]` — Instala el plugin portátil de Antigravity. |
+| `sdd-parallel init-custom` | `[--specs-dir DIR] [--format {markdown,yaml}] [--test-cmd CMD] [--non-interactive]` — Inicializa `.parallel/custom-kit.yaml`. |
 | `sdd-parallel autopilot --wave K` | `[--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--policy {single-shot,cyclic}] [--max-review-rounds N]` — Lanza tracks. |
-| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — Backtest de Merge-Bomb. |
+| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — Backtest de Merge-Bomb frente al modelo estático. |
 | `sdd-parallel inspect` | `[--plan PATH] [--output PATH] [--open]` — Abre el Wave Inspector HTML. |
 
 </details>

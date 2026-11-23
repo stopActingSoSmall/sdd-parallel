@@ -130,8 +130,8 @@ src/demo_app/schema.py                 | spine                  | -
 **동작 원리:**  
 엔진은 고정된 파일명 목록에 의존하지 않고 각 모듈의 AST 구조를 분석하여 병렬 실행 시의 **동시성 프로파일**을 판별합니다:
 1. **`spine` (아키텍처 척추 — 엄격한 직렬 큐):** 데이터 구조를 결정하거나 높은 팬인을 갖는 핵심 파일(`SCHEMA_VERSION`, `models.py` 또는 진입 차수 $\ge 5$). 동일 웨이브에 `spine`을 수정하는 두 작업이 동시에 배치되는 일은 **절대 없습니다**.
-2. **`additive_registry` (추가형 레지스트리 — 안전한 병렬 추가):** 명령어, 라우트, 내보내기를 등록하기만 하는 확장 허브(`@app.command`, `@router.get`, `__all__`). 병렬 브랜치에서 동시에 추가해도 충돌 없이 병합 가능합니다.
-3. **`standard` (표준 비즈니스 모듈 — 상호 배타 수정 + 의존성 추적):** 일반 비즈니스 로직. 동일 표준 모듈에 대한 동시 수정은 차단되며 역방향 임포트 관계(**`Importers`** 열)가 감시됩니다. 스캐너가 `api.py`가 `normalizer.py`를 임포트함을 정확히 포착했습니다!
+2. **`additive_registry` (추가형 레지스트리 — 안전한 병렬 추가):** 명령어, 라우트, 내보내기를 등록하기만 하는 확장 허브(`@app.command`, `@router.get`, `__all__`). 병렬 워크트리에서의 동시 편집이 허용되며 Git 3-way 병합으로 통합됩니다(반면 SDD 상태 추적 파일은 `status_merger.py`를 통해 충돌 없이 병합됩니다).
+3. **`standard` (표준 비즈니스 모듈 — 상호 배타 수정 + 의존성 추적):** 일반 비즈니스 로직. 명세에 서로 분리된 함수 범위 메모(`shared_function_notes`)가 선언되지 않은 한 동일 파일에 대한 동시 수정은 차단되며 역방향 임포트 관계(**`Importers`** 열)가 엄격히 추적됩니다. 스캐너가 `src/demo_app/api.py`가 `normalizer.py`를 임포트함을 정확히 포착했습니다!
 
 ---
 
@@ -302,7 +302,7 @@ uv run sdd-parallel check-lock --file "<DEMO_DIR>/.worktrees/track-b/src/demo_ap
 ```powershell
 uv run sdd-parallel abort-wave --repo "<DEMO_DIR>" --wave 1
 ```
-*결과:* 슬롯이 초기화되고 임시 파일이 깨끗하게 제거됩니다.
+*결과:* 고정 트랙 슬롯이 제자리에서 `master` `HEAD`로 리셋되며, `master`를 변경하지 않고 오래된 `.parallel/wave-plan.json`과 웨이브 락이 정리됩니다(`--dynamic-worktrees`를 전달하면 임시 디렉터리가 제거되고 `parallel/wave-*` 브랜치가 삭제됩니다).
 
 ---
 

@@ -65,7 +65,7 @@ https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-p
 | :--- | :--- | :--- | :--- |
 | **12 个故事的冲刺** | ~6–8 小时 | ~2 小时编码 + **~2 小时修复合并** | **总计约 2.5 小时（提速 2x–3x）** |
 | **隐蔽 API 碰撞** | 靠慢速串行规避 | **破坏 `main`** ($W_A \cap I_B \neq \emptyset$) | **前置预防**（拆分为 Wave 1 → 2） |
-| **共享 CLI / 路由** | 串行修改 | 每次合并必冲突 | **并行安全**（`ADDITIVE_REGISTRY`） |
+| **共享 CLI / 路由** | 串行修改 | 每次合并必冲突 | **通过 Git 三方合并实现并发**（`ADDITIVE_REGISTRY`，互不重叠的插入） |
 | **状态文件** | 串行更新 | 频繁出现 `<<<<<<<` 标记 | **单调三方合并**（0 冲突标记） |
 | **越界修改** | 仅靠 Prompt 警告 | 可被 `bash`/`sed` 绕过 | **内核级阻断**（`PreToolUse` + 终端守卫 + `chmod a-w`） |
 | **Worktree 杂乱** | 无 | 残留 15 个 `task-*` 目录 | **固定复用槽位**（`track-a/b/c`） |
@@ -82,7 +82,7 @@ https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-p
 uvx sdd-parallel demo --kit all   # 或单套件演示：uvx sdd-parallel demo --kit spec-kit
 ```
 
-自动脚手架生成临时 Git 仓库（5 个任务、6 个 Python 模块），运行 AST 分析、测试 Scope Guard `DENY` 锁定并执行 0 冲突三方合并：
+自动脚手架生成临时 Git 仓库（5 个任务、6 个 Python 模块），运行 AST 分析、测试 Scope Guard `DENY` 锁定并执行 0 冲突三方状态合并（使用 `--kit all` 时每个套件约 `~6–9s`，沙箱中 `run_quality_gates=False`）：
 
 ```text
 ================================================================
@@ -226,7 +226,7 @@ my-project/
 <summary><b>❓ 硬核工程问答与诚实边界 (FAQ)</b></summary>
 
 1. **在代码写出之前，调度器如何预知 `write_files`？**
-   三层防护机制：**(a)** 规范中声明的显式路径（`Code Map`、`Files:`、GSD XML `<files>`、反引号路径）→ **(b)** 波次前 AST 符号链接器（Pre-Wave AST Symbol Linker），以 $O(1)$ 复杂度将提及的函数/类名解析到对应文件 → **(c)** 动态范围提权（`.tmp/scope-escalation.json`），在 `verify-wave` 栅障处将范围声明不足的任务安全延后至下一波次，绝不放任静默冲突。
+   三层防护机制：**(a)** 规范中声明的显式路径（`Code Map`、`Files:`、GSD XML `<files>`、反引号路径）→ **(b)** 波次前 AST 符号链接器（Pre-Wave AST Symbol Linker），以 $O(1)$ 复杂度将提及的函数/类名解析到对应文件 → **(c)** 动态范围提权（`.tmp/scope-escalation.json`），由 `PreToolUse` 记录被拒绝的越界编辑，`verify-wave` 将任务延后至 Wave $K+1$（重置腾空的槽位并保存更新后的 `.parallel/wave-plan.json`），随后 `merge` 基于更新后的计划执行合并。
 2. **TypeScript、Go、Rust 或非 Python 代码库怎么办？**
    诚实边界：内置零依赖 AST 扫描器原生解析 Python。对于多语言代码库（TS/JS、Go、Rust），`sdd-parallel` 将显式规范文件列表与可选的 Tree-sitter 伴生工具 **`code-review-graph`**（`CRGSidecarAdapter`）相结合，从而计算跨文件导入与影响边。
 3. **智能体能否通过 Shell（`sed -i`、`python -c`、`cp`）绕过 `PreToolUse` 钩子？**
@@ -264,7 +264,7 @@ flowchart TD
 ## 🛠️ 完整 CLI 命令参考手册
 
 <details>
-<summary><b>点击展开：全部 15 个子命令与参数</b></summary>
+<summary><b>点击展开：全部 16 个子命令与参数</b></summary>
 
 全局参数：`--repo REPO`、`--max-tracks N`、`--kit KIT`、`--routing-file FILE`、`--dry-run`、`--dynamic-worktrees`。
 
@@ -275,15 +275,16 @@ flowchart TD
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — 准备槽位、OS 锁定与边界文件。 |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — 锁定外部已有工作树。 |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — 打印各槽位原生启动命令。 |
-| `sdd-parallel verify-wave --wave K` | 对照 `.parallel-lock.json` 与 `merge-base` diff 审计槽位。 |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — 门禁校验、三方合并、自动回滚。 |
-| `sdd-parallel abort-wave --wave K` | 重置未合并槽位并清理临时分支。 |
+| `sdd-parallel verify-wave --wave K` | 对照 `.parallel-lock.json`、`merge-base` diff 及范围提权（scope escalations）审计槽位。 |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — 门禁校验、三方合并、冲突或门禁出错时原子回滚。 |
+| `sdd-parallel abort-wave --wave K` | 将固定槽位就地重置为 `HEAD`（或在 `--dynamic-worktrees` 下删除动态分支）。 |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO 回滚 + 备份分支 + 状态重置。 |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — `sprint-status.yaml` 三方合并。 |
 | `sdd-parallel check-lock` | `--file PATH [--tool TOOL]` — 对照活跃锁清单校验写入权限。 |
 | `sdd-parallel install-plugin` | `[--target-dir DIR]` — 安装便携式 Antigravity 插件。 |
+| `sdd-parallel init-custom` | `[--specs-dir DIR] [--format {markdown,yaml}] [--test-cmd CMD] [--non-interactive]` — 初始化 `.parallel/custom-kit.yaml`。 |
 | `sdd-parallel autopilot --wave K` | `[--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--policy {single-shot,cyclic}] [--max-review-rounds N]` — 启动并行轨道。 |
-| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — Merge-Bomb 回测。 |
+| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — 对比静态模型的 Merge-Bomb 回测。 |
 | `sdd-parallel inspect` | `[--plan PATH] [--output PATH] [--open]` — 打开 HTML Wave Inspector。 |
 
 </details>

@@ -130,8 +130,8 @@ src/demo_app/schema.py                 | spine                  | -
 **処理内容：**  
 エンジンはファイル名の固定リストに頼らず、モジュールの AST を解析して並行開発時の**並行性ロール**を判定します：
 1. **`spine`（背骨・中核 — 厳格な順序付け）：** データ構造を決定づけるファイルや多くの依存を集約するファイル（`SCHEMA_VERSION`、`models.py`、または入次数 $\ge 5$）。同一ウェーブ内に `spine` を変更するタスクが複数配置されることは**絶対にありません**。
-2. **`additive_registry`（追記型レジストリ — 安全な並行追加）：** コマンド、ルート、エクスポートの登録のみを行うハブ（`@app.command`, `@router.get`, `__all__`）。並行ブランチで同時に追記しても安全にマージ可能です。
-3. **`standard`（標準業務モジュール — 相互排他 ＋ 依存追跡）：** 一般的なビジネスロジック。同一ファイルを同時に変更することは禁止され、逆方向のインポート関係（**`Importers`** 列）が監視されます。スキャナは `api.py` が `normalizer.py` をインポートしていることを捉えています！
+2. **`additive_registry`（追記型レジストリ — 安全な並行追加）：** コマンド、ルート、エクスポートの登録のみを行うハブ（`@app.command`, `@router.get`, `__all__`）。並行ワークツリーでの同時編集が許可され、Git 3-way マージで統合されます（一方、SDD ステータス追跡ファイルは `status_merger.py` によりコンフリクトなしでマージされます）。
+3. **`standard`（標準業務モジュール — 相互排他 ＋ 依存追跡）：** 一般的なビジネスロジック。仕様で互いに独立した関数スコープ注記（`shared_function_notes`）が宣言されていない限り同一ファイルの並行編集は禁止され、逆方向のインポート関係（**`Importers`** 列）が厳格に監視されます。スキャナは `src/demo_app/api.py` が `normalizer.py` をインポートしていることを捉えています！
 
 ---
 
@@ -302,7 +302,7 @@ uv run sdd-parallel check-lock --file "<DEMO_DIR>/.worktrees/track-b/src/demo_ap
 ```powershell
 uv run sdd-parallel abort-wave --repo "<DEMO_DIR>" --wave 1
 ```
-*結果：* 一時ブランチとロックが消去され、メインブランチを一切汚さずに復元されます。
+*結果：* 固定トラックスロットがその場で `master` `HEAD` にリセットされ、`master` を変更することなく古い `.parallel/wave-plan.json` とウェーブ用ロックがクリアされます（`--dynamic-worktrees` を渡すと一時ディレクトリが削除され `parallel/wave-*` ブランチが破棄されます）。
 
 ---
 

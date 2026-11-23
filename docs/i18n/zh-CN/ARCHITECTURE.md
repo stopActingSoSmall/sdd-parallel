@@ -33,7 +33,7 @@ flowchart LR
     subgraph Engine["子系统 2: 六边形 DAG 引擎与冲突求解器"]
         E1["ASTHotspotScanner\n(3 遍静态扫描：Spine vs 追加注册表)"]
         E2["CRGSidecarAdapter\n(code-review-graph v2.3.9 加权调用图 WAL)"]
-        E3["BSPWaveScheduler\n(确定性波次打包，K 轨道，检查点)"]
+        E3["BSPWaveScheduler\n(贪心 First-Fit 波次打包，K 轨道，检查点)"]
     end
 
     subgraph Actuation["子系统 3: 工作树分配与合并门禁"]
@@ -58,28 +58,18 @@ class SDDAdapterProtocol(Protocol):
 
     kit_id: str
 
+    def __init__(self, repo_root: Path) -> None: ...
+
     def detect(self) -> bool:
         """检测代码仓库中是否存在该 SDD 框架的标记。"""
         ...
 
-    def load_tasks(self, include_done: bool = False) -> list[TaskNode]:
+    def load_tasks(
+        self,
+        include_done: bool = False,
+        plan_source: str = "auto",
+    ) -> list[TaskNode]:
         """解析路线图/迭代积压制品为标准 TaskNode 模型。"""
-        ...
-
-    def check_wave_zero_blockers(self, wave: Wave | None = None) -> list[str]:
-        """校验框架特定的前置条件（Git 状态干净、已编译上下文、清单完整）。"""
-        ...
-
-    def get_allowed_write_globs(self, track: WaveTrack) -> list[str]:
-        """返回工作树中允许修改的框架元数据 Glob 模式。"""
-        ...
-
-    def get_forbidden_files(self, wave: Wave, track: WaveTrack) -> dict[str, str]:
-        """映射框架特定的受保护契约与不可变规范文件。"""
-        ...
-
-    def render_worker_command(self, track: WaveTrack) -> str:
-        """为操作员运行指南和 Autopilot 模式生成原生 CLI 命令。"""
         ...
 
     def reset_tasks_status(
@@ -97,6 +87,63 @@ class SDDAdapterProtocol(Protocol):
     ) -> None:
         """清理波次执行期间生成的临时规范与制品。"""
         ...
+
+    def check_wave_zero_blockers(self, wave: Wave | None = None) -> list[str]:
+        """校验框架特定的前置条件（Git 状态干净、已编译上下文、清单完整）。"""
+        ...
+
+    def check_preflight_context_gate(self, wave: Wave) -> list[str]:
+        """在启动并行轨道前校验预编译的史诗/功能上下文文件。"""
+        ...
+
+    def get_allowed_write_globs(self, track: WaveTrack) -> list[str]:
+        """返回工作树中允许修改的框架元数据 Glob 模式。"""
+        ...
+
+    def get_forbidden_files(self, wave: Wave, track: WaveTrack) -> dict[str, str]:
+        """映射框架特定的受保护契约与不可变规范文件。"""
+        ...
+
+    def get_track_env_vars(self, track: WaveTrack) -> dict[str, str]:
+        """返回注入轨道执行环境的套件特定环境变量。"""
+        ...
+
+    def prepare_worktree_overlay(self, worktree_path: Path, track: WaveTrack) -> list[str]:
+        """向工作树注入套件特定的覆盖文件并返回 git exclude 条目。"""
+        ...
+
+    def verify_track_spec_scope(
+        self,
+        worktree_path: Path,
+        track: WaveTrack,
+        forbidden_files: dict[str, str],
+    ) -> list[str]:
+        """在合并前校验工作树内的规范级作用域约束。"""
+        ...
+
+    def render_worker_command(self, track: WaveTrack) -> str:
+        """为操作员运行指南和 Autopilot 模式生成原生 CLI 命令。"""
+        ...
+
+    def default_artifacts_dir(self) -> Path:
+        """返回生成波次计划与报告的默认输出目录。"""
+        ...
+
+    def get_status_files(self) -> list[str]:
+        """返回通过三方合并器协调的框架状态文件相对路径。"""
+        ...
+
+    def get_change_worktree(self, change_id: str) -> Path | None:
+        """返回框架为 change_id 分配的既有工作树路径（如有）。"""
+        ...
+
+    def update_state_on_merge(
+        self,
+        wave_number: int,
+        merged_task_ids: Sequence[str],
+    ) -> Path | None:
+        """在第 K 波次屏障合并检查点后同步框架状态或数据库。"""
+        ...
 ```
 
 ### 1.2. 职责划分矩阵：通用核心引擎 vs 多态套件适配器
@@ -109,7 +156,7 @@ class SDDAdapterProtocol(Protocol):
 | **前置波次阻塞项校验** | `SDDAdapter` | 执行套件特定的就绪检查（`check_wave_zero_blockers`）：Git 干净状态、BMAD 上下文完整性、Spec Kit 清单规范。 |
 | **AST 文件角色分类** | `Core Engine` | 3 遍静态分析器（`ASTHotspotScanner`），无需硬编码路径即可识别 `SPINE`、`ADDITIVE_REGISTRY` 与 `STANDARD` 模块。 |
 | **语义影响半径计算** | `Core Engine` | 使用 `CRGSidecarAdapter`（`code-review-graph v2.3.9` WAL）计算加权调用图爆炸半径（$W_A \cap I_B$）。 |
-| **波次划分 (BSP 调度器)** | `Core Engine` | 确定性 `BSPWaveScheduler` 算法，保证 100% 任务覆盖率与 Kahn 无环性。 |
+| **波次划分 (BSP 调度器)** | `Core Engine` | 确定性贪心 `First-Fit` `BSPWaveScheduler` 算法（按输入顺序每条轨道分配 1 个任务），保证 100% 任务覆盖率与 Kahn 无环性。 |
 | **工作树槽位分配** | `Core Engine` + `Adapter` | 引擎分配固定槽位 `track-<id>` 并设置系统权限（`chmod a-w`）。适配器提供 `get_allowed_write_globs()` 与 `get_forbidden_files()`。 |
 | **智能体启动指令生成** | `SDDAdapter` | 生成原生智能体命令（`/speckit.implement`、`/gsd-execute-phase`、`/opsx:apply`、`bd update`、`/bmad-build`）。 |
 | **多层范围守卫** | `Core Engine` | 拦截 `PreToolUse` 调用、终端命令拦截（`Bash`, `run_command`）并施加 OS 只读锁。 |
@@ -141,10 +188,10 @@ class SDDAdapterProtocol(Protocol):
 2. **共享追加注册表 (`FileRole.ADDITIVE_REGISTRY`):**
    - 供不同功能独立追加命令或端点的顶层入口（如带有 `@app.command` 的 `cli.py`，带有 `@mcp.tool` 的 `mcp/server.py`，定义 `__all__` 的 `__init__.py`）。
    - *架构不变量 (ADR-0002)：* 共享格式化工具库（`console.py`, `markdown.py`）严格排除在追加注册表外，归类为 `FileRole.STANDARD`。
-   - **规则：** 仅在真实 `ADDITIVE_REGISTRY` 文件上产生交集且互不影响的任务，**允许在不同工作树槽位中并行执行**，并在 `.tmp/track-context.md` 中注入仅追加指引。
+   - **规则：** 仅在真实 `ADDITIVE_REGISTRY` 文件上产生交集的任务，**允许在独立的 `git worktree` 槽位中并行执行**，并在 `.tmp/track-context.md` 中注入仅追加指引。零冲突语义合并仅对 SDD 状态追踪文件（`status_merger.py`）有保证；代码注册表使用标准 Git 三方合并（互不重叠的插入可顺利通过，而相邻的 import 或文件末尾（EOF）编辑会触发合并冲突并执行事务性波次回滚）。
 3. **标准业务模块 (`FileRole.STANDARD`):**
    - 业务逻辑、普通适配器、展现层模块。
-   - **规则：** 任何交集 $W(A) \cap W(B) \neq \emptyset$ 均阻止同波次并发。`STANDARD` 文件从不豁免影响半径计算。
+   - **规则：** 任何交集 $W(A) \cap W(B) \neq \emptyset$ 均阻止同波次并发，除非规范在 `shared_function_notes` 中声明了互不重叠的独立函数作用域说明（通过 `_has_isolated_function_scope` 进行声明式检查）。`STANDARD` 文件从不豁免影响半径计算。
 
 ### 2.2. 三遍静态 AST 分析流水线 (`ASTHotspotScanner`)
 
@@ -266,35 +313,38 @@ class SDDAdapterProtocol(Protocol):
 
 ### 4.7. LIFO 事务性波次回滚引擎
 
-- **`abort-wave --wave K`：** 清理未合并的临时槽位和分支。
+- **`abort-wave --wave K`：** 在默认的 `fixed_slots=True` 模式下，将槽位（`parallel/track-*`）就地重置为仓库 `HEAD` 并报告已重置的分支；使用 `--dynamic-worktrees` 时，移除临时目录并删除 `parallel/wave-*` 分支。同时清除过期的 `.parallel/wave-plan.json`。
 - **`rollback-wave --wave K [--save-backup]`：** 严格遵循 LIFO 后进先出顺序回滚最近合并的波次，自动保留备份分支 `backup/wave-<K>-before-rollback-*`，并多态恢复任务状态。
 
 ### 4.8. 技术栈无关的检查点门禁与事务自动撤销
 
 - **通用门禁解析：** 优先读取 `.parallel-config.json` 或 `pyproject.toml` 中的 `checkpoint_gates`，支持跨语言自动识别（Python `pytest`, Node `npm test`, Rust `cargo test`, Go `go test`）。
-- **事务自动撤销：** 若任意质量门禁在合并时失败，系统自动执行 `git reset --hard` 恢复主分支，同时完整保留各轨道现场供调试。
+- **事务自动撤销：** 若在 `sdd-parallel merge --wave K` 期间于任意轨道分支发生合并冲突、`update_state_on_merge()` 失败或检查点质量门禁失败，编排器会在槽位清理前自动执行 `git merge --abort` 与 `git reset --hard pre_merge_head`，原子恢复 `master` 分支，同时完整保留各轨道槽位现场以供调试。
 
 ### 4.9. 独立离线 Merge-Bomb 演示命令 (`sdd-parallel demo`)
 
-通过 `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}]` 可以在 5 秒内离线完整验证 5 大不变量，无需 API 密钥。
+通过 `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp]` 可以在无 API 密钥和无网络访问的情况下，离线生成临时仓库并完整验证核心规划、隔离与状态合并等不变量（使用 `--kit all` 时每个套件约 `~6–9s`，沙箱中 `run_quality_gates=False`）。
 
 ### 4.10. 完整 CLI 命令与参数速查表
 
 | 命令 | 用途 | 核心参数与标志 |
 | :--- | :--- | :--- |
-| `plan` | 计算冲突 DAG 并生成并行波次计划 | `--repo <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--plan-source <auto\|plan\|specs>`, `--include-done`, `--dry-run` |
-| `prepare` | 分配固定槽位并为第 K 波次生成范围锁 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run` |
+| `plan` | 计算冲突 DAG 并生成并行波次计划 | `--repo <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--plan-source <auto\|plan\|specs>`, `--include-done`, `--dry-run`, `--routing-file <path>` |
+| `prepare` | 分配固定槽位并为第 K 波次生成范围锁 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run`, `--routing-file <path>` |
 | `claim-track` | 将范围锁附加到现有外部工作树槽位 | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
-| `run-guide` | 显示第 K 波次的操作员指引矩阵与启动命令 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout` |
-| `verify-wave` | 审计工作树差异与锁合规性（对比 merge-base） | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | 栅障检查点合并（3 路状态合并与门禁） | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `run-guide` | 显示第 K 波次的操作员指引矩阵与启动命令 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
+| `verify-wave` | 审计工作树差异与锁合规性、处理范围提权并记录屏障清单 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
+| `merge` | 栅障检查点合并（3 路状态合并、门禁校验、原子回滚与清单记录） | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | 独立的 3 路确定性 sprint-status.yaml 合并工具 | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | 校验指定文件在当前工作树是否允许修改 | `--file <path>`, `--tool <name>`（输出带缩进的格式化 JSON，`indent=2`） |
 | `install-plugin` | 打包并安装 Antigravity 便携插件 | `--target-dir <path>`（默认为 `~/.gemini/config/plugins/sdd-parallel`） |
-| `autopilot` | 生成或执行多窗口 Autopilot 启动命令 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--harness <antigravity\|claude-code\|codex>`, `--antigravity-layout`, `--execute` |
-| `abort-wave` | 合并前中止波次并清理并行分支 | `--repo <path>`, `--wave <K>`, `--dynamic-worktrees` |
+| `init-custom` | 交互式引导向导，用于生成 `.parallel/custom-kit.yaml` | `--repo <path>`, `--specs-dir <dir>`, `--format <markdown\|yaml>`, `--test-cmd <cmd>`, `--non-interactive`, `--dry-run` |
+| `autopilot` | 生成或执行多窗口 Autopilot 启动命令 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--harness <antigravity\|claude-code\|codex>`, `--antigravity-layout`, `--execute`, `--routing-file <path>` |
+| `abort-wave` | 合并前中止波次；将固定槽位就地重置为 `HEAD`（或删除动态分支） | `--repo <path>`, `--wave <K>`, `--dynamic-worktrees` |
 | `rollback-wave` | 事务性 LIFO 回滚已合入的波次并创建安全备份 | `--repo <path>`, `--wave <K>`, `--to-commit <hash>`, `--save-backup` / `--no-backup`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `demo` | 运行 5 秒离线独立 Merge-Bomb 演示或搭建沙箱 | `--kit <bmad\|spec-kit\|gsd\|openspec\|beads\|all>`, `--keep-temp`, `--scaffold-only`, `--output-dir <path>` |
+| `demo` | 运行离线独立 Merge-Bomb 演示（每个套件约 `~6–9s`）或搭建沙箱 | `--kit <bmad\|spec-kit\|gsd\|openspec\|beads\|all>`, `--keep-temp`, `--scaffold-only`, `--output-dir <path>` |
+| `bench` | 基于 Git 历史或演示对比静态 `TaskNode` 冲突模型运行回溯测试 | `--repo <path>`, `--since <rev>`, `--until <rev>`, `--demo`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--format <text\|json>` |
+| `inspect` | 生成并查看独立离线 HTML Wave Inspector | `--repo <path>`, `--plan <path>`, `--output <path>`, `--open`, `--kit <auto\|kit>` |
 
 ---
 

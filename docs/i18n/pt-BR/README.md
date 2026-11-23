@@ -65,7 +65,7 @@ Com 10–15 especificações ou histórias, equipes enfrentam duas opções ruin
 | :--- | :--- | :--- | :--- |
 | **Sprint de 12 histórias** | ~6–8 h | ~2 h codificando + **~2 h corrigindo merges** | **~2.5 h no total (2x–3x mais rápido)** |
 | **Colisões ocultas de API** | Indo devagar | **Quebra a `main`** ($W_A \cap I_B \neq \emptyset$) | **Prevenidas antes** (Onda 1 → 2) |
-| **CLI / roteadores compartilhados** | Serializado | Conflito Git a cada merge | **Seguro em paralelo** (`ADDITIVE_REGISTRY`) |
+| **CLI / roteadores compartilhados** | Serializado | Conflito Git a cada merge | **Concorrente via Git 3-way merge** (`ADDITIVE_REGISTRY`, inserções disjuntas) |
 | **Arquivos de status** | Atualizações em série | Marcadores `<<<<<<<` constantes | **Merge 3-vias monótono** (0 marcadores) |
 | **Edições fora de escopo** | Aviso no prompt | Burlado via `bash`/`sed` | **Bloqueado** (`PreToolUse` + Terminal Guard + `chmod a-w`) |
 | **Poluição de worktrees** | Nenhuma | 15 pastas órfãs `task-*` | **Slots fixos reutilizáveis** (`track-a/b/c`) |
@@ -82,7 +82,7 @@ Sem chave de API, sem assinatura de LLM, sem clone. Execute via [`uv`](https://d
 uvx sdd-parallel demo --kit all   # ou um único kit: uvx sdd-parallel demo --kit spec-kit
 ```
 
-Cria repositórios Git reais descartáveis (5 tarefas, 6 módulos Python), executa análise AST, testa bloqueios `DENY` do Scope Guard e faz merge de 3 vias com 0 conflitos:
+Cria repositórios Git reais descartáveis (5 tarefas, 6 módulos Python), executa análise AST, testa bloqueios `DENY` do Scope Guard e faz merge de 3 vias com 0 conflitos (`~6–9s` por kit com `--kit all`, `run_quality_gates=False` na sandbox):
 
 ```text
 ================================================================
@@ -226,7 +226,7 @@ Legenda: 🔒 somente leitura (`chmod a-w` + rejeição no `PreToolUse`) · 👻
 <summary><b>❓ Perguntas difíceis de engenharia e limites honestos (FAQ)</b></summary>
 
 1. **Como o planejador conhece `write_files` antes de o código ser escrito?**
-   Três camadas de proteção: **(a)** caminhos explícitos declarados nas specs (`Code Map`, `Files:`, GSD XML `<files>`, crases) → **(b)** o Linker de Símbolos AST Pré-Onda resolvendo nomes de funções/classes mencionados para arquivos em $O(1)$ → **(c)** Escalonamento Dinâmico de Escopo (`.tmp/scope-escalation.json`), que adia com segurança uma tarefa subespecificada para a próxima onda na barreira `verify-wave` em vez de permitir colisões silenciosas.
+   Três camadas de proteção: **(a)** caminhos explícitos declarados nas specs (`Code Map`, `Files:`, GSD XML `<files>`, crases) → **(b)** o Linker de Símbolos AST Pré-Onda resolvendo nomes de funções/classes mencionados para arquivos em $O(1)$ → **(c)** Escalonamento Dinâmico de Escopo (`.tmp/scope-escalation.json`), onde `PreToolUse` registra edições negadas fora de escopo, `verify-wave` adia a tarefa para a Onda $K+1$ (redefinindo o slot esvaziado e atualizando `.parallel/wave-plan.json`), e `merge` é executado conforme o plano atualizado.
 2. **E quanto a TypeScript, Go, Rust ou repositórios não-Python?**
    Limite honesto: o scanner AST embutido de zero dependências analisa Python nativamente. Para repositórios poliglotas (TS/JS, Go, Rust), o `sdd-parallel` combina listas explícitas de arquivos nas specs com o sidecar Tree-sitter opcional **`code-review-graph`** (`CRGSidecarAdapter`) para calcular arestas de importação e impacto entre arquivos.
 3. **Um agente pode burlar hooks `PreToolUse` via shell (`sed -i`, `python -c`, `cp`)?**
@@ -264,7 +264,7 @@ flowchart TD
 ## 🛠️ Referência completa da CLI
 
 <details>
-<summary><b>Clique para expandir: todos os 15 subcomandos e opções</b></summary>
+<summary><b>Clique para expandir: todos os 16 subcomandos e opções</b></summary>
 
 Opções compartilhadas: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-file FILE`, `--dry-run`, `--dynamic-worktrees`.
 
@@ -275,15 +275,16 @@ Opções compartilhadas: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routin
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — Aloca slots, travas no SO e limites. |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — Vincula worktree externa existente. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — Exibe comando nativo de execução por slot. |
-| `sdd-parallel verify-wave --wave K` | Audita slots contra `.parallel-lock.json` e diff do `merge-base`. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — Quality gates, merge 3-vias, auto-rollback. |
-| `sdd-parallel abort-wave --wave K` | Reinicia slots não integrados e remove branches temporárias. |
+| `sdd-parallel verify-wave --wave K` | Audita slots contra `.parallel-lock.json`, diff do `merge-base` e escalonamentos de escopo. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — Quality gates, merge 3-vias, rollback atômico em conflito/erro de gate. |
+| `sdd-parallel abort-wave --wave K` | Redefine slots fixos in-place para `HEAD` (ou exclui branches em `--dynamic-worktrees`). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — Reversão LIFO + branch de segurança + reset de status. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — Merge 3-vias para `sprint-status.yaml`. |
 | `sdd-parallel check-lock` | `--file PATH [--tool TOOL]` — Valida gravação contra manifesto de bloqueio ativo. |
 | `sdd-parallel install-plugin` | `[--target-dir DIR]` — Instala plugin portátil do Antigravity. |
+| `sdd-parallel init-custom` | `[--specs-dir DIR] [--format {markdown,yaml}] [--test-cmd CMD] [--non-interactive]` — Inicializa `.parallel/custom-kit.yaml`. |
 | `sdd-parallel autopilot --wave K` | `[--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--policy {single-shot,cyclic}] [--max-review-rounds N]` — Dispara trilhas. |
-| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — Backtest de Merge-Bomb. |
+| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — Backtest de Merge-Bomb vs modelo estático. |
 | `sdd-parallel inspect` | `[--plan PATH] [--output PATH] [--open]` — Abre o Wave Inspector HTML. |
 
 </details>

@@ -33,7 +33,7 @@ flowchart LR
     subgraph Engine["サブシステム 2: 六角形 DAG エンジンおよび競合解決エンジン"]
         E1["ASTHotspotScanner\n(3パス静的解析：Spine vs 追記型レジストリ)"]
         E2["CRGSidecarAdapter\n(code-review-graph v2.3.9 重み付けコールグラフ WAL)"]
-        E3["BSPWaveScheduler\n(決定論的ウェーブ分割、K トラック)"]
+        E3["BSPWaveScheduler\n(貪欲 First-Fit ウェーブ分割、K トラック、チェックポイント)"]
     end
 
     subgraph Actuation["サブシステム 3: ワークツリープロビジョナーおよびマージゲート"]
@@ -58,28 +58,18 @@ class SDDAdapterProtocol(Protocol):
 
     kit_id: str
 
+    def __init__(self, repo_root: Path) -> None: ...
+
     def detect(self) -> bool:
         """リポジトリ内に当該 SDD フレームワークが存在するか検出する。"""
         ...
 
-    def load_tasks(self, include_done: bool = False) -> list[TaskNode]:
+    def load_tasks(
+        self,
+        include_done: bool = False,
+        plan_source: str = "auto",
+    ) -> list[TaskNode]:
         """バックログやロードマップの成果物を標準 TaskNode モデルに変換する。"""
-        ...
-
-    def check_wave_zero_blockers(self, wave: Wave | None = None) -> list[str]:
-        """フレームワーク固有の事前条件（Git のクリーン状態、コンパイル済み文脈など）を検証する。"""
-        ...
-
-    def get_allowed_write_globs(self, track: WaveTrack) -> list[str]:
-        """ワークツリー内で変更が許可されるメタデータの glob パターンを返す。"""
-        ...
-
-    def get_forbidden_files(self, wave: Wave, track: WaveTrack) -> dict[str, str]:
-        """保護対象の仕様書や不変契約ファイルをマッピングする。"""
-        ...
-
-    def render_worker_command(self, track: WaveTrack) -> str:
-        """オペレーター向け実行ガイドおよび Autopilot 用のネイティブ CLI コマンドを生成する。"""
         ...
 
     def reset_tasks_status(
@@ -87,7 +77,7 @@ class SDDAdapterProtocol(Protocol):
         task_ids: Sequence[str],
         target_status: str = "ready-for-dev",
     ) -> None:
-        """トランザクション LIFO ロールバック時にタスク状態を元に戻す。"""
+        """トランザクション LIFO ウェーブ・ロールバック時にタスク状態を多態的に元に戻す。"""
         ...
 
     def cleanup_wave_artifacts(
@@ -95,7 +85,64 @@ class SDDAdapterProtocol(Protocol):
         wave_id: int,
         task_ids: Sequence[str],
     ) -> None:
-        """ウェーブ実行中に生成された一時成果物をクリーンアップする。"""
+        """ウェーブ実行中に生成された一時仕様および成果物をクリーンアップする。"""
+        ...
+
+    def check_wave_zero_blockers(self, wave: Wave | None = None) -> list[str]:
+        """フレームワーク固有の事前条件（クリーンな Git、コンパイル済み文脈、チェックリスト）を検証する。"""
+        ...
+
+    def check_preflight_context_gate(self, wave: Wave) -> list[str]:
+        """並列トラック起動前に事前コンパイル済みエピック／フィーチャー文脈ファイルを検証する。"""
+        ...
+
+    def get_allowed_write_globs(self, track: WaveTrack) -> list[str]:
+        """ワークツリー内で変更が許可されるフレームワークメタデータの glob パターンを返す。"""
+        ...
+
+    def get_forbidden_files(self, wave: Wave, track: WaveTrack) -> dict[str, str]:
+        """フレームワーク固有の保護対象契約および不変仕様ファイルをマッピングする。"""
+        ...
+
+    def get_track_env_vars(self, track: WaveTrack) -> dict[str, str]:
+        """トラック実行環境に注入されるキット固有の環境変数を返す。"""
+        ...
+
+    def prepare_worktree_overlay(self, worktree_path: Path, track: WaveTrack) -> list[str]:
+        """ワークツリーへキット固有のオーバーレイファイルを注入し、git exclude エントリを返す。"""
+        ...
+
+    def verify_track_spec_scope(
+        self,
+        worktree_path: Path,
+        track: WaveTrack,
+        forbidden_files: dict[str, str],
+    ) -> list[str]:
+        """マージ前にワークツリー内の仕様レベルのスコープ制約を検証する。"""
+        ...
+
+    def render_worker_command(self, track: WaveTrack) -> str:
+        """オペレーター向け実行ガイドおよび Autopilot 用のネイティブ CLI コマンドを生成する。"""
+        ...
+
+    def default_artifacts_dir(self) -> Path:
+        """生成されたウェーブ計画およびレポートのデフォルト出力ディレクトリを返す。"""
+        ...
+
+    def get_status_files(self) -> list[str]:
+        """3-way マージャーで統合されるフレームワークステータスファイルの相対パスを返す。"""
+        ...
+
+    def get_change_worktree(self, change_id: str) -> Path | None:
+        """change_id に対してフレームワークが割り当てた既存のワークツリーパスを返す（存在する場合）。"""
+        ...
+
+    def update_state_on_merge(
+        self,
+        wave_number: int,
+        merged_task_ids: Sequence[str],
+    ) -> Path | None:
+        """Wave K バリアマージチェックポイント後にフレームワークの状態または DB を同期する。"""
         ...
 ```
 
@@ -107,7 +154,7 @@ class SDDAdapterProtocol(Protocol):
 | **事前ブロッキング条件チェック** | `SDDAdapter` | 各キットの前提条件（`check_wave_zero_blockers`）：Git のクリーン状態、エピック文脈の存在、タスクリストの整合性を検証。 |
 | **AST ファイル分類** | `Core Engine` | 3パス静的解析（`ASTHotspotScanner`）により、パスのハードコードなしで `SPINE`、`ADDITIVE_REGISTRY`、`STANDARD` に分類。 |
 | **意味的影響半径の算出** | `Core Engine` | `CRGSidecarAdapter`（`code-review-graph v2.3.9` WAL）を用いて重み付けコールグラフの影響範囲（$W_A \cap I_B$）を算出。 |
-| **ウェーブ分割（BSP スケジューラー）** | `Core Engine` | 決定論的 `BSPWaveScheduler` により、100% のタスク網羅と Kahn 非巡回性を保証。 |
+| **ウェーブ分割（BSP スケジューラー）** | `Core Engine` | 決定論的貪欲 `First-Fit` `BSPWaveScheduler`（入力順に各トラック 1 タスクを割り当て）により、100% のタスク網羅と Kahn 非巡回性を保証。 |
 | **ワークツリースロットの割り当て** | `Core Engine` + `Adapter` | 固定スロット `track-<id>` と OS 権限（`chmod a-w`）を設定。アダプターが `allowed_write_globs` と `forbidden_files` を提供。 |
 | **エージェント起動コマンド生成** | `SDDAdapter` | ネイティブコマンド（`/speckit.implement`, `/gsd-execute-phase`, `/opsx:apply`, `bd update`, `/bmad-build`）を生成。 |
 | **多層スコープガード** | `Core Engine` | `PreToolUse` フック、ターミナルコマンド監視（`Bash`, `run_command`）、OS 読み取り専用ロックで範囲外編集を遮断。 |
@@ -139,10 +186,10 @@ class SDDAdapterProtocol(Protocol):
 2. **共有追記型レジストリ (`FileRole.ADDITIVE_REGISTRY`):**
    - 独立したコマンドやルートが登録されるエントリーポイント（`@app.command` を持つ `cli.py`、`__all__` を持つ `__init__.py` など）。
    - *不変条件 (ADR-0002)：* 共通フォーマットユーティリティ（`console.py` など）はレジストリから除外され、`STANDARD` に分類されます。
-   - **規則：** 追記型ファイルのみで交差するタスクは、**別個のワークツリーで並行実行が許可**され、追記専用ガイドが注入されます。
+   - **規則：** 真の `ADDITIVE_REGISTRY` ファイルのみで交差するタスクは、**別個の `git worktree` スロットで並行実行が許可**され、`.tmp/track-context.md` に追記専用ガイドが注入されます。ゼロコンフリクトの意味的マージが保証されるのは SDD ステータス追跡ファイル（`status_merger.py`）のみであり、コードレジストリには標準の Git 3-way マージが使われます（互いに重ならない挿入は問題なく通過しますが、隣接する import やファイル末尾（EOF）の編集は競合を引き起こし、トランザクションウェーブのロールバックをトリガーします）。
 3. **標準モジュールファイル (`FileRole.STANDARD`):**
    - 通常のビジネスロジックやアダプター。
-   - **規則：** $W(A) \cap W(B) \neq \emptyset$ となるタスクは同一ウェーブ内で並行実行できません。
+   - **規則：** $W(A) \cap W(B) \neq \emptyset$ となる場合、仕様で `shared_function_notes` に互いに独立した関数スコープ注記が宣言されていない限り（`_has_isolated_function_scope` により宣言的に検証）、同一ウェーブ内での並行実行は禁止されます。`STANDARD` ファイルが影響半径の計算から除外されることはありません。
 
 ### 2.2. 3パス静的 AST 解析パイプライン (`ASTHotspotScanner`)
 
@@ -263,35 +310,38 @@ class SDDAdapterProtocol(Protocol):
 
 ### 4.7. トランザクション LIFO ロールバックエンジン
 
-- **`abort-wave --wave K`：** 未マージのスロットをクリーンアップ。
+- **`abort-wave --wave K`：** デフォルトの `fixed_slots=True` では、スロット（`parallel/track-*`）をその場でリポジトリの `HEAD` にリセットし、リセットされたブランチを報告します。`--dynamic-worktrees` 指定時は一時ディレクトリを削除し、`parallel/wave-*` ブランチを削除します。また、古い `.parallel/wave-plan.json` をクリアします。
 - **`rollback-wave --wave K [--save-backup]`：** 厳格な LIFO 順で最新ウェーブを巻き戻し、安全ブランチ `backup/wave-<K>-before-rollback-*` を自動作成してタスク状態を復元。
 
 ### 4.8. 言語非依存のチェックポイントゲートとトランザクション自動破棄
 
 - **汎用ゲート解決：** `.parallel-config.json` または `pyproject.toml` からテストコマンドを自動検出し、Python、Node、Rust、Go に対応。
-- **自動ロールバック：** マージ中に品質ゲートが失敗した場合、直ちに `git reset --hard` を実行して `master` を復元（デバッグ用に各トラックは保持）。
+- **トランザクション自動ロールバック：** `sdd-parallel merge --wave K` の実行中に任意のトラックブランチでマージ競合、`update_state_on_merge()` の失敗、またはチェックポイント品質ゲートの失敗が発生した場合、オーケストレーターはスロットクリーンアップ前に `git merge --abort` と `git reset --hard pre_merge_head` を自動実行して `master` をアトミックに復元し、デバッグ用に各トラックスロットをそのまま保持します。
 
-### 4.9. 5秒オフライン完全検証コマンド (`sdd-parallel demo`)
+### 4.9. スタンドアロン・オフライン Merge-Bomb 検証コマンド (`sdd-parallel demo`)
 
-API キー不要で 5 大不変条件をローカル検証。`--kit all` で全 5 キットを一括テスト可能。
+`sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp]` により、API キーやネットワークアクセスなしで一時リポジトリを生成し、計画・隔離・状態マージの 5 大不変条件をオフラインでローカル検証できます（`--kit all` 指定時は 1 キットあたり約 `~6–9s`、合成サンドボックス内は `run_quality_gates=False`）。
 
 ### 4.10. CLI コマンドおよび全フラグリファレンス
 
 | コマンド | 目的 | 主要オプションおよびフラグ |
 | :--- | :--- | :--- |
-| `plan` | 競合 DAG を計算し並行ウェーブ計画を策定 | `--repo <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--plan-source <auto\|plan\|specs>`, `--include-done`, `--dry-run` |
-| `prepare` | ウェーブ K の固定トラックスロットと境界ロックを配備 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run` |
+| `plan` | 競合 DAG を計算し並行ウェーブ計画を策定 | `--repo <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--plan-source <auto\|plan\|specs>`, `--include-done`, `--dry-run`, `--routing-file <path>` |
+| `prepare` | ウェーブ K の固定トラックスロットと境界ロックを配備 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run`, `--routing-file <path>` |
 | `claim-track` | 既存の外部ワークツリーに境界ロックをアタッチ | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
-| `run-guide` | ウェーブ K のフォーマット済みオペレーター向け実行ガイドを表示 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout` |
-| `verify-wave` | merge-base に対するワークツリー差分およびロック遵守状況を監査 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | 3-way 状態マージおよび品質ゲートを伴うバリアチェックポイント統合 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `run-guide` | ウェーブ K のフォーマット済みオペレーター向け実行ガイドを表示 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
+| `verify-wave` | merge-base に対するワークツリー差分およびロック遵守状況を監査し、スコープエスカレーション処理とバリアマニフェスト記録を実施 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
+| `merge` | 3-way 状態マージ、品質ゲート、アトミックロールバック、およびマニフェスト記録を伴うバリアチェックポイント統合 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | sprint-status.yaml 専用の独立した決定論的 3-way マージツール | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | アクティブなフックロジックによるファイル変更権限の検査 | `--file <path>`, `--tool <name>`（`indent=2` の整形済み JSON を出力） |
 | `install-plugin` | ポータブルな Antigravity プラグインのパッケージ化とインストール | `--target-dir <path>`（デフォルトは `~/.gemini/config/plugins/sdd-parallel`） |
-| `autopilot` | Multi-Conversation Autopilot コマンドの生成または実行 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--harness <antigravity\|claude-code\|codex>`, `--antigravity-layout`, `--execute` |
-| `abort-wave` | 統合前のウェーブを中断し並行ブランチをクリーンアップ | `--repo <path>`, `--wave <K>`, `--dynamic-worktrees` |
+| `init-custom` | `.parallel/custom-kit.yaml` を生成する対話型オンボーディングウィザード | `--repo <path>`, `--specs-dir <dir>`, `--format <markdown\|yaml>`, `--test-cmd <cmd>`, `--non-interactive`, `--dry-run` |
+| `autopilot` | Multi-Conversation Autopilot コマンドの生成または実行 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--harness <antigravity\|claude-code\|codex>`, `--antigravity-layout`, `--execute`, `--routing-file <path>` |
+| `abort-wave` | 統合前のウェーブを中止し、固定スロットを `HEAD` にリセット（または動的ブランチを削除） | `--repo <path>`, `--wave <K>`, `--dynamic-worktrees` |
 | `rollback-wave` | 安全バックアップブランチを伴う統合済みウェーブのアトミック LIFO ロールバック | `--repo <path>`, `--wave <K>`, `--to-commit <hash>`, `--save-backup` / `--no-backup`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `demo` | 5秒間のオフライン Merge-Bomb デモ実行またはサンドボックス構築 | `--kit <bmad\|spec-kit\|gsd\|openspec\|beads\|all>`, `--keep-temp`, `--scaffold-only`, `--output-dir <path>` |
+| `demo` | オフライン Merge-Bomb デモ実行（1 キットあたり約 `~6–9s`）またはサンドボックス構築 | `--kit <bmad\|spec-kit\|gsd\|openspec\|beads\|all>`, `--keep-temp`, `--scaffold-only`, `--output-dir <path>` |
+| `bench` | Git 履歴またはデモに対して静的 `TaskNode` 競合モデルとの遡及バックテストを実行 | `--repo <path>`, `--since <rev>`, `--until <rev>`, `--demo`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--format <text\|json>` |
+| `inspect` | スタンドアロン・オフライン HTML Wave Inspector を生成して表示 | `--repo <path>`, `--plan <path>`, `--output <path>`, `--open`, `--kit <auto\|kit>` |
 
 ---
 

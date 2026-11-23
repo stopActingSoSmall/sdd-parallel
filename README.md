@@ -65,7 +65,7 @@ With 10–15 specs or stories, teams face two bad choices:
 | :--- | :--- | :--- | :--- |
 | **12-story sprint** | ~6–8 h | ~2 h coding + **~2 h fixing merges** | **~2.5 h total (2x–3x faster)** |
 | **Hidden API collisions** | By going slow | **Breaks `main`** ($W_A \cap I_B \neq \emptyset$) | **Prevented upfront** (Wave 1 → 2) |
-| **Shared CLI / routers** | Serialized | Git conflict per merge | **Parallel-safe** (`ADDITIVE_REGISTRY`) |
+| **Shared CLI / routers** | Serialized | Git conflict per merge | **Concurrent via Git 3-way merge** (`ADDITIVE_REGISTRY`, disjoint inserts) |
 | **Status files** | Serial updates | Constant `<<<<<<<` markers | **Monotonic 3-way merge** (0 markers) |
 | **Out-of-scope edits** | Prompt warning | Bypassed via `bash`/`sed` | **Blocked** (`PreToolUse` + Terminal Guard + `chmod a-w`) |
 | **Worktree clutter** | None | 15 leftover `task-*` dirs | **Fixed reusable slots** (`track-a/b/c`) |
@@ -82,7 +82,7 @@ No API key, no LLM subscription, no clone. Run via [`uv`](https://docs.astral.sh
 uvx sdd-parallel demo --kit all   # or single kit: uvx sdd-parallel demo --kit spec-kit
 ```
 
-Scaffolds real throwaway Git repos (5 tasks, 6 Python modules), runs AST analysis, tests Scope Guard `DENY` locks, and executes a 0-conflict 3-way merge:
+Scaffolds real throwaway Git repos (5 tasks, 6 Python modules), runs AST analysis, tests Scope Guard `DENY` locks, and executes a 0-conflict 3-way status merge (`~6–9s` per kit with `--kit all`, `run_quality_gates=False` in sandbox):
 
 ```text
 ================================================================
@@ -226,7 +226,7 @@ Legend: 🔒 read-only (`chmod a-w` + `PreToolUse` deny) · 👻 hidden (`info/e
 <summary><b>❓ Hard Engineering Questions &amp; Honest Boundaries (FAQ)</b></summary>
 
 1. **How does the planner know `write_files` before code is written?**
-   Three layers of protection: **(a)** explicit paths declared in specs (`Code Map`, `Files:`, GSD XML `<files>`, backticks) → **(b)** the Pre-Wave AST Symbol Linker resolving mentioned function/class names to files in $O(1)$ → **(c)** Dynamic Scope Escalation (`.tmp/scope-escalation.json`), which safely defers an under-specified task to the next wave at the `verify-wave` barrier instead of allowing silent collisions.
+   Three layers of protection: **(a)** explicit paths declared in specs (`Code Map`, `Files:`, GSD XML `<files>`, backticks) → **(b)** the Pre-Wave AST Symbol Linker resolving mentioned function/class names to files in $O(1)$ → **(c)** Dynamic Scope Escalation (`.tmp/scope-escalation.json`), where `PreToolUse` logs denied out-of-scope edits, `verify-wave` defers the task to Wave $K+1$ (resetting the emptied slot and updating `.parallel/wave-plan.json`), and `merge` executes against the updated plan.
 2. **What about TypeScript, Go, Rust, or non-Python repositories?**
    Honest boundary: the built-in zero-dependency AST scanner natively parses Python. For polyglot repositories (TS/JS, Go, Rust), `sdd-parallel` combines explicit spec file lists with the optional Tree-sitter sidecar **`code-review-graph`** (`CRGSidecarAdapter`) to compute cross-file import and impact edges.
 3. **Can an agent bypass `PreToolUse` hooks via shell (`sed -i`, `python -c`, `cp`)?**
@@ -264,7 +264,7 @@ flowchart TD
 ## 🛠️ Full CLI Reference
 
 <details>
-<summary><b>Click to expand: all 15 subcommands &amp; flags</b></summary>
+<summary><b>Click to expand: all 16 subcommands &amp; flags</b></summary>
 
 Shared flags: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-file FILE`, `--dry-run`, `--dynamic-worktrees`.
 
@@ -275,15 +275,16 @@ Shared flags: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-file FILE
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — Provision slots, OS locks, boundaries. |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — Lock an existing worktree. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — Print native launch command per slot. |
-| `sdd-parallel verify-wave --wave K` | Audit slots vs `.parallel-lock.json` & `merge-base` diff. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — Gates, 3-way merge, auto-rollback. |
-| `sdd-parallel abort-wave --wave K` | Reset unmerged slots and delete temporary branches. |
+| `sdd-parallel verify-wave --wave K` | Audit slots vs `.parallel-lock.json`, `merge-base` diff, and scope escalations. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — Gates, 3-way merge, atomic rollback on conflict/gate error. |
+| `sdd-parallel abort-wave --wave K` | Reset fixed slots in place to `HEAD` (or delete branches in `--dynamic-worktrees`). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO revert + safety branch + status reset. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — 3-way merge for `sprint-status.yaml`. |
 | `sdd-parallel check-lock` | `--file PATH [--tool TOOL]` — Check write against active lock manifest. |
 | `sdd-parallel install-plugin` | `[--target-dir DIR]` — Install portable Antigravity plugin. |
+| `sdd-parallel init-custom` | `[--specs-dir DIR] [--format {markdown,yaml}] [--test-cmd CMD] [--non-interactive]` — Initialize `.parallel/custom-kit.yaml`. |
 | `sdd-parallel autopilot --wave K` | `[--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--policy {single-shot,cyclic}] [--max-review-rounds N]` — Spawn tracks. |
-| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — Merge-Bomb backtest. |
+| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — Merge-Bomb backtest vs static model. |
 | `sdd-parallel inspect` | `[--plan PATH] [--output PATH] [--open]` — Open HTML Wave Inspector. |
 
 </details>

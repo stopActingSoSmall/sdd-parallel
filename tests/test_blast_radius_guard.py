@@ -502,3 +502,33 @@ def test_verify_wave_handles_scope_escalation_and_defers_to_next_wave(tmp_path: 
     assert any("11-2" in trk.task_ids for trk in wave_2.tracks)
     target_trk = next(trk for trk in wave_2.tracks if "11-2" in trk.task_ids)
     assert "src/common/types.py" in target_trk.exclusive_write_files
+
+
+def test_run_stdin_hook_records_scope_escalation_on_deny(
+    tmp_path: Path,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    """Verify run_stdin_hook writes .tmp/scope-escalation.json when denying a write."""
+    wt_root = tmp_path / "wt-a"
+    _setup_worktree_lock(wt_root)
+    forbidden_target = wt_root / "src/agentlens/canonical/manifest.py"
+
+    payload = {
+        "workspacePaths": [str(wt_root)],
+        "toolCall": {
+            "name": "write_file",
+            "args": {"TargetFile": str(forbidden_target)},
+        },
+    }
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    exit_code = run_stdin_hook()
+    assert exit_code == 0
+    resp = json.loads(capsys.readouterr().out)
+    assert resp["decision"] == "deny"
+
+    esc_file = wt_root / ".tmp" / "scope-escalation.json"
+    assert esc_file.is_file()
+    esc_data = json.loads(esc_file.read_text(encoding="utf-8"))
+    assert esc_data["story_id"] == "11-2"
+    assert esc_data["requested_file"] == "src/agentlens/canonical/manifest.py"
