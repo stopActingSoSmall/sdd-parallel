@@ -586,3 +586,88 @@ def test_merge_wave_atomic_rollback_on_state_update_failure(tmp_path: Path) -> N
     assert head_after == pre_merge_head
     assert (repo / "src" / "a.py").read_text(encoding="utf-8") == "a = 0\n"
 
+
+def test_verify_wave_blocks_on_ast_diff_gate_default_drift(tmp_path: Path) -> None:
+    """Verify verify_wave blocks when a track drifts a default arg read by a sibling."""
+    repo = tmp_path / "drift_verify_repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    (repo / "src").mkdir()
+    (repo / "src" / "core.py").write_text(
+        "def filter_items(min_steps: int = 1) -> list[str]:\n"
+        "    return [str(min_steps)]\n",
+        encoding="utf-8",
+    )
+    (repo / "src" / "consumer.py").write_text(
+        "from src.core import filter_items\n\n"
+        "def run() -> list[str]:\n"
+        "    return filter_items()\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "seed"], cwd=repo, check=True, capture_output=True)
+
+    from sdd_parallel.models import TaskNode
+
+    plan = WavePlan(
+        sdd_kit="spec-kit",
+        tasks=[
+            TaskNode(id="T001", title="Core", write_files=["src/core.py"]),
+            TaskNode(
+                id="T002",
+                title="Consumer",
+                write_files=["src/consumer.py"],
+                impact_files=["src/core.py"],
+            ),
+        ],
+        waves=[
+            Wave(
+                wave_number=1,
+                tracks=[
+                    WaveTrack(
+                        track_id="track-a",
+                        task_ids=["T001"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["src/core.py"],
+                    ),
+                    WaveTrack(
+                        track_id="track-b",
+                        task_ids=["T002"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["src/consumer.py"],
+                    ),
+                ],
+            )
+        ],
+        edges=[],
+    )
+
+    wm = WorktreeManager(repo, fixed_slots=True)
+    wt_a, wt_b = wm.prepare_wave(plan, wave_number=1, headless=True)
+
+    (wt_a / "src" / "core.py").write_text(
+        "def filter_items(min_steps: int = 2) -> list[str]:\n"
+        "    return [str(min_steps)]\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "src/core.py"], cwd=wt_a, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "drift default"], cwd=wt_a, check=True, capture_output=True
+    )
+
+    (wt_b / "src" / "consumer.py").write_text(
+        "from src.core import filter_items\n\n"
+        "def run() -> list[str]:\n"
+        "    return [x.strip() for x in filter_items()]\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "src/consumer.py"], cwd=wt_b, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "update consumer"], cwd=wt_b, check=True, capture_output=True
+    )
+
+    violations = wm.verify_wave(plan, wave_number=1)
+    assert any("[SIGNATURE_DEFAULT_DRIFT]" in v for v in violations)
+    assert any("filter_items" in v for v in violations)
+
+

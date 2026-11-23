@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from sdd_parallel.adapters import SDDAdapterProtocol, get_adapter
+from sdd_parallel.ast_diff_gate import run_pre_merge_ast_diff_gate
 from sdd_parallel.hooks.blast_radius_guard import _matches_any_glob
 from sdd_parallel.models import (
     EffortTier,
@@ -30,6 +31,39 @@ from sdd_parallel.status_merger import get_status_merger
 
 _DEFAULT_SHARED_DIRS = (".venv", "node_modules", ".cache")
 _DEFAULT_SHARED_FILES = (".env", ".env.local")
+
+_IGNORED_WORKTREE_PREFIXES = (
+    ".tmp/",
+    ".parallel/",
+    ".worktrees/",
+    "_bmad/custom/",
+    ".pytest_cache/",
+    "__pycache__/",
+    ".venv/",
+    "node_modules/",
+    ".cache/",
+)
+
+_IGNORED_WORKTREE_EXACT = {
+    ".worktrees",
+    ".worktrees/",
+    ".parallel",
+    ".parallel/",
+    ".parallel-lock.json",
+    "ACTIVE_TRACK.md",
+    ".env",
+    ".env.local",
+    ".venv",
+    "node_modules",
+    ".cache",
+}
+
+
+def _is_ignored_worktree_artifact(norm_path: str) -> bool:
+    return (
+        norm_path.startswith(_IGNORED_WORKTREE_PREFIXES)
+        or norm_path in _IGNORED_WORKTREE_EXACT
+    )
 
 _EXCLUDE_ENTRIES = (
     "_bmad/custom/bmad-build.user.toml",
@@ -1255,6 +1289,11 @@ class WorktreeManager:
         hooks = cfg.get("hooks", {})
         pre_verify_cmd = str(hooks.get("pre_verify", "")).strip()
 
+        active_wt_tracks: list[WaveTrack] = []
+        track_worktrees: dict[str, Path] = {}
+        track_changed_files: dict[str, list[str]] = {}
+        merge_base_map: dict[str, str] = {}
+
         for track in target_wave.tracks:
             if not track.task_ids:
                 continue
@@ -1297,6 +1336,9 @@ class WorktreeManager:
                 )
             )
 
+            changed_for_track: set[str] = set()
+            mb_sha = "HEAD"
+
             # 2. Defense-in-Depth Scope Guard: Working tree audit (git status --porcelain)
             if probe_root.is_dir() and (probe_root / ".git").exists():
                 st_proc = subprocess.run(
@@ -1312,33 +1354,17 @@ class WorktreeManager:
                         if " -> " in raw_file:
                             raw_file = raw_file.split(" -> ")[1].strip()
                         norm_f = raw_file.replace("\\", "/")
-                        ignored_prefixes = (
-                            ".tmp/",
-                            ".parallel/",
-                            ".worktrees/",
-                            "_bmad/custom/",
-                            ".pytest_cache/",
-                            "__pycache__/",
-                            ".venv/",
-                            "node_modules/",
-                            ".cache/",
-                        )
-                        if norm_f.startswith(ignored_prefixes):
+                        if _is_ignored_worktree_artifact(norm_f):
                             continue
-                        if norm_f in {
-                            ".worktrees",
-                            ".worktrees/",
-                            ".parallel",
-                            ".parallel/",
-                            ".parallel-lock.json",
-                            "ACTIVE_TRACK.md",
-                            ".env",
-                            ".env.local",
-                            ".venv",
-                            "node_modules",
-                            ".cache",
-                        }:
-                            continue
+                        candidate_abs = probe_root / norm_f.rstrip("/")
+                        if candidate_abs.is_dir():
+                            for sub in sorted(candidate_abs.rglob("*")):
+                                if sub.is_file():
+                                    rel_sub = sub.relative_to(probe_root).as_posix()
+                                    if not _is_ignored_worktree_artifact(rel_sub):
+                                        changed_for_track.add(rel_sub)
+                        else:
+                            changed_for_track.add(norm_f)
                         if norm_f in lock.forbidden_files:
                             violations.append(
                                 f"Wave {wave_number} / {track.track_id}: working tree has modified "
@@ -1373,7 +1399,8 @@ class WorktreeManager:
                         check=False,
                     )
                     if mb_proc.returncode == 0 and mb_proc.stdout.strip():
-                        diff_range = f"{mb_proc.stdout.strip()}...HEAD"
+                        mb_sha = mb_proc.stdout.strip()
+                        diff_range = f"{mb_sha}...HEAD"
 
                 diff_proc = subprocess.run(
                     ["git", "diff", "--name-only", diff_range],
@@ -1387,33 +1414,9 @@ class WorktreeManager:
                         norm_d = raw_diff.replace("\\", "/").strip()
                         if not norm_d:
                             continue
-                        diff_ignored = (
-                            ".tmp/",
-                            ".parallel/",
-                            ".worktrees/",
-                            "_bmad/custom/",
-                            ".pytest_cache/",
-                            "__pycache__/",
-                            ".venv/",
-                            "node_modules/",
-                            ".cache/",
-                        )
-                        if norm_d.startswith(diff_ignored):
+                        if _is_ignored_worktree_artifact(norm_d):
                             continue
-                        if norm_d in {
-                            ".worktrees",
-                            ".worktrees/",
-                            ".parallel",
-                            ".parallel/",
-                            ".parallel-lock.json",
-                            "ACTIVE_TRACK.md",
-                            ".env",
-                            ".env.local",
-                            ".venv",
-                            "node_modules",
-                            ".cache",
-                        }:
-                            continue
+                        changed_for_track.add(norm_d)
                         if norm_d in lock.forbidden_files:
                             violations.append(
                                 f"Wave {wave_number} / {track.track_id}: committed changes "
@@ -1428,6 +1431,27 @@ class WorktreeManager:
                                 f"Wave {wave_number} / {track.track_id}: committed file '{norm_d}' "
                                 "is outside declared Allowed Write Scope"
                             )
+
+            if probe_root.is_dir() and probe_root.resolve() != self.repo_root.resolve():
+                active_wt_tracks.append(track)
+                track_worktrees[track.track_id] = probe_root
+                track_changed_files[track.track_id] = sorted(changed_for_track)
+                merge_base_map[track.track_id] = mb_sha
+
+        # 4. Pre-Merge AST Diff Gate across active worktree tracks (Classes B, F, G, H)
+        if len(track_worktrees) >= 2 and any(track_changed_files.values()):
+            tasks_by_id = {t.id: t for t in plan.tasks}
+            ast_findings = run_pre_merge_ast_diff_gate(
+                repo_root=self.repo_root,
+                tracks=active_wt_tracks,
+                track_worktrees=track_worktrees,
+                track_changed_files=track_changed_files,
+                merge_base_map=merge_base_map,
+                tasks_by_id=tasks_by_id,
+            )
+            for finding in ast_findings:
+                if finding.severity == "ERROR":
+                    violations.append(finding.to_violation_str(wave_number))
 
         if escalated_files or escalated_stories:
             filtered_violations: list[str] = []
