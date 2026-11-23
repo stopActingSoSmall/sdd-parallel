@@ -101,11 +101,21 @@ class AutopilotLauncher:
             if track.execution_mode and track.execution_mode != "NORMAL"
             else ""
         )
+        has_nack = any(
+            (self.repo_root / ".parallel" / f"barrier-feedback-{sid}.json").is_file()
+            for sid in track.task_ids
+        )
+        nack_suffix = (
+            " PREVIOUS ATTEMPT FAILED BARRIER GATE: read .tmp/track-context.md section "
+            "'PREVIOUS WAVE BARRIER NACK' and inspect prior branch diff before editing."
+            if has_nack
+            else ""
+        )
         return (
             f"{mode_prefix}Working directory: {wt_path.as_posix()}. "
             f"Read .tmp/track-context.md and .parallel-lock.json first. "
             f"Execute Wave {wave_number} / {track.track_id} stories ({stories}) "
-            f"using `{worker_cmd}` strictly within the allowed write scope."
+            f"using `{worker_cmd}` strictly within the allowed write scope.{nack_suffix}"
         )
 
     def build_launch_specs(

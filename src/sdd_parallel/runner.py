@@ -557,6 +557,7 @@ class WaveRunner:
         plan: WavePlan,
         wave_number: int,
         auto_merge: bool = False,
+        partial_merge: bool = True,
     ) -> WaveRunSummary:
         """Execute tracks in `wave_number` concurrently with barrier and manifest harvest."""
         target_wave = next((w for w in plan.waves if w.wave_number == wave_number), None)
@@ -670,6 +671,7 @@ class WaveRunner:
                             wave_number,
                             run_quality_gates=True,
                             cleanup_worktrees=False,
+                            partial_merge=partial_merge,
                         )
                         auto_merged = True
                     except Exception as merge_exc:
