@@ -294,6 +294,40 @@ class ASTHotspotScanner:
         """Find relative file paths defining the given symbol name."""
         return set(self._symbols_to_files.get(symbol, ()))
 
+    @staticmethod
+    def extract_namespace_tokens(text: str) -> set[str]:
+        """Extract normalized ENV, CLI flag, and HTTP route namespace tokens from text."""
+        if not text:
+            return set()
+        tokens: set[str] = set()
+        env_matches = re.findall(
+            r"\b([A-Z][A-Z0-9_]{2,}_(?:MODE|KEY|PORT|DIR|URL|ENV|HOST|TOKEN|TIMEOUT|PATH|FLAG))\b",
+            text,
+        )
+        for m in env_matches:
+            tokens.add(f"ns:ENV:{m}")
+
+        cli_stop = {"--help", "--version"}
+        cli_matches = re.findall(r"(?:^|[\s`'\"(])(--[a-z][a-z0-9-]{2,})\b", text)
+        for m in cli_matches:
+            if m not in cli_stop:
+                tokens.add(f"ns:CLI:{m}")
+
+        route_matches = re.findall(
+            r"\b(GET|POST|PUT|DELETE|PATCH)\s+(/[A-Za-z0-9_./{}:-]+)",
+            text,
+        )
+        for method, route_path in route_matches:
+            cleaned_path = route_path.rstrip(".,;:)")
+            norm_path = re.sub(
+                r"\{[^}]+\}|:[A-Za-z_][A-Za-z0-9_]*|(?<=/)\d+(?=/|$)",
+                "{param}",
+                cleaned_path,
+            )
+            tokens.add(f"ns:ROUTE:{method.upper()} {norm_path}")
+
+        return tokens
+
     def resolve_symbols_in_text(self, text: str) -> set[str]:
         """Extract identifier tokens from text and match against known code symbols."""
         if not text or not self._symbols_to_files:
@@ -346,6 +380,11 @@ class ASTHotspotScanner:
                 ],
             )
         )
+        ns_tokens = self.extract_namespace_tokens(combined_text)
+        for tok in sorted(ns_tokens):
+            if tok not in task.namespace_tokens:
+                task.namespace_tokens.append(tok)
+
         found_files = self.resolve_symbols_in_text(combined_text)
         is_write_empty = not task.write_files
 

@@ -19,6 +19,32 @@ DEFAULT_CONTRACT_GLOBS: tuple[str, ...] = (
     "*.proto",
 )
 
+DEFAULT_SPINE_BUCKET_GLOBS: tuple[str, ...] = (
+    "**/migrations/**",
+    "**/versions/**",
+    "docs/adr/**",
+)
+
+
+def extract_spine_bucket(
+    path: str,
+    bucket_globs: Sequence[str] | None = None,
+) -> str | None:
+    """Return normalized parent directory bucket if path belongs to a sequential spine dir."""
+    norm = path.replace("\\", "/").strip("/")
+    if not norm or "/" not in norm:
+        return None
+    globs = bucket_globs if bucket_globs is not None else DEFAULT_SPINE_BUCKET_GLOBS
+    if not any(matches_path_pattern(norm, pat) for pat in globs):
+        return None
+    dir_parts = norm.split("/")[:-1]
+    for marker in ("migrations", "versions"):
+        if marker in dir_parts:
+            return "/".join(dir_parts[: dir_parts.index(marker) + 1])
+    if norm.startswith("docs/adr/"):
+        return "docs/adr"
+    return norm.rsplit("/", 1)[0]
+
 
 def matches_path_pattern(path: str, pattern: str) -> bool:
     """Match relative posix path against glob pattern with recursive directory support."""
@@ -127,6 +153,7 @@ class ConflictType(StrEnum):
     SPINE_ORDER = "spine_order"
     DIRECT_COLLISION = "direct_collision"
     SEMANTIC_COLLISION = "semantic_collision"
+    NAMESPACE_COLLISION = "namespace_collision"
 
 
 @dataclass(frozen=True)
@@ -205,6 +232,7 @@ class TaskNode:
     impact_files: list[str] = field(default_factory=list)
     depends_on: list[str] = field(default_factory=list)
     shared_function_notes: dict[str, str] = field(default_factory=dict)
+    namespace_tokens: list[str] = field(default_factory=list)
     description: str = ""
     structural_signals: TaskStructuralSignals | None = None
     model_override: str | None = None
@@ -222,6 +250,7 @@ class TaskNode:
             "impact_files": list(self.impact_files),
             "depends_on": list(self.depends_on),
             "shared_function_notes": dict(self.shared_function_notes),
+            "namespace_tokens": list(self.namespace_tokens),
             "description": self.description,
             "structural_signals": (
                 self.structural_signals.to_dict()
@@ -254,6 +283,7 @@ class TaskNode:
             shared_function_notes={
                 str(k): str(v) for k, v in data.get("shared_function_notes", {}).items()
             },
+            namespace_tokens=[str(t) for t in data.get("namespace_tokens", [])],
             description=str(data.get("description", "")),
             structural_signals=signals,
             model_override=str(model_val) if model_val is not None else None,
@@ -443,4 +473,51 @@ class LockManifest:
             additive_shared_files=[str(f) for f in data.get("additive_shared_files", [])],
             forbidden_files={str(k): str(v) for k, v in data.get("forbidden_files", {}).items()},
             env_vars={str(k): str(v) for k, v in data.get("env_vars", {}).items()},
+        )
+
+
+@dataclass(frozen=True)
+class BarrierFeedback:
+    """Structured NACK payload persisted when a track fails barrier verification or merge."""
+
+    story_ids: tuple[str, ...]
+    wave_number: int
+    track_id: str
+    failed_stage: str
+    failed_command: str = ""
+    diagnostic_output: str = ""
+    conflicting_files: tuple[str, ...] = ()
+    merged_sibling_commits: tuple[str, ...] = ()
+    prior_branch_ref: str = ""
+    timestamp: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "story_ids": list(self.story_ids),
+            "wave_number": self.wave_number,
+            "track_id": self.track_id,
+            "failed_stage": self.failed_stage,
+            "failed_command": self.failed_command,
+            "diagnostic_output": self.diagnostic_output,
+            "conflicting_files": list(self.conflicting_files),
+            "merged_sibling_commits": list(self.merged_sibling_commits),
+            "prior_branch_ref": self.prior_branch_ref,
+            "timestamp": self.timestamp,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> BarrierFeedback:
+        return cls(
+            story_ids=tuple(str(x) for x in data.get("story_ids", ())),
+            wave_number=int(data.get("wave_number", 0)),
+            track_id=str(data.get("track_id", "")),
+            failed_stage=str(data.get("failed_stage", "")),
+            failed_command=str(data.get("failed_command", "")),
+            diagnostic_output=str(data.get("diagnostic_output", "")),
+            conflicting_files=tuple(str(x) for x in data.get("conflicting_files", ())),
+            merged_sibling_commits=tuple(
+                str(x) for x in data.get("merged_sibling_commits", ())
+            ),
+            prior_branch_ref=str(data.get("prior_branch_ref", "")),
+            timestamp=str(data.get("timestamp", "")),
         )

@@ -155,6 +155,7 @@ def extract_prevented_conflicts(plan: WavePlan) -> list[PreventedConflictEntry]:
         ConflictType.DIRECT_COLLISION,
         ConflictType.SEMANTIC_COLLISION,
         ConflictType.SPINE_ORDER,
+        ConflictType.NAMESPACE_COLLISION,
     }
     entries: list[PreventedConflictEntry] = []
     for edge in plan.edges:
