@@ -65,7 +65,7 @@ https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-p
 | :--- | :--- | :--- | :--- |
 | **12개 스토리 스프린트** | ~6–8시간 | ~2시간 코딩 + **~2시간 머지 복구** | **총 ~2.5시간 (2~3배 빠름)** |
 | **숨겨진 API 충돌** | 느린 직렬화로 회피 | **`main` 손상** ($W_A \cap I_B \neq \emptyset$) | **사전 차단** (Wave 1 → 2 분할) |
-| **공유 CLI / 라우터** | 직렬 접근 | 매 병합마다 Git 충돌 | **병렬 안전** (`ADDITIVE_REGISTRY`) |
+| **공유 CLI / 라우터** | 직렬 접근 | 매 병합마다 Git 충돌 | **Git 3-way 병합을 통한 동시 실행** (`ADDITIVE_REGISTRY`, 비중복 삽입) |
 | **상태 파일** | 순차 갱신 | 반복적 `<<<<<<<` 마커 | **단조 3-way 병합** (마커 0개) |
 | **스코프 외 수정** | 프롬프트 경고 | `bash`/`sed`로 우회 | **차단** (`PreToolUse` + 터미널 가드 + `chmod a-w`) |
 | **worktree 잔재** | 없음 | 방치된 15개 `task-*` 폴더 | **고정 재사용 슬롯** (`track-a/b/c`) |
@@ -82,7 +82,7 @@ API 키, LLM 구독, 저장소 복제 불필요. [`uv`](https://docs.astral.sh/u
 uvx sdd-parallel demo --kit all   # 단일 키트: uvx sdd-parallel demo --kit spec-kit
 ```
 
-임시 Git 저장소(5개 작업, 6개 Python 모듈)를 생성해 AST 분석, Scope Guard `DENY` 잠금, 무충돌 3-way 병합을 실행합니다:
+임시 Git 저장소(5개 작업, 6개 Python 모듈)를 생성해 AST 분석, Scope Guard `DENY` 잠금, 무충돌 3-way 상태 병합을 실행합니다(`--kit all` 사용 시 키트당 약 `~6–9s`, 샌드박스 내 `run_quality_gates=False`):
 
 ```text
 ================================================================
@@ -226,7 +226,7 @@ my-project/
 <summary><b>❓ 핵심 엔지니어링 질문 및 정직한 적용 한계 (FAQ)</b></summary>
 
 1. **코드를 작성하기도 전에 플래너가 어떻게 `write_files`를 알 수 있나요?**
-   3단계 보호 계층으로 동작합니다: **(a)** 명세에 선언된 명시적 경로(`Code Map`, `Files:`, GSD XML `<files>`, 백틱 경로) → **(b)** 언급된 함수/클래스 이름을 $O(1)$에 파일로 해석하는 Pre-Wave AST 심볼 링커 → **(c)** 무음 충돌을 방치하는 대신 `verify-wave` 배리어에서 과소 명세된 작업을 다음 웨이브로 안전하게 이월하는 동적 스코프 에스컬레이션(`.tmp/scope-escalation.json`).
+   3단계 보호 계층으로 동작합니다: **(a)** 명세에 선언된 명시적 경로(`Code Map`, `Files:`, GSD XML `<files>`, 백틱 경로) → **(b)** 언급된 함수/클래스 이름을 $O(1)$에 파일로 해석하는 Pre-Wave AST 심볼 링커 → **(c)** 동적 스코프 에스컬레이션(`.tmp/scope-escalation.json`): `PreToolUse`가 거부된 범위 밖 편집을 기록하고, `verify-wave`가 해당 작업을 Wave $K+1$로 이월하며(비워진 슬롯을 초기화하고 `.parallel/wave-plan.json`을 저장), `merge`가 갱신된 계획에 따라 병합을 실행합니다.
 2. **TypeScript, Go, Rust 또는 비-Python 저장소는 어떻게 처리하나요?**
    정직한 한계: 내장된 무의존성 AST 스캐너는 Python을 네이티브로 파싱합니다. 다중 언어 저장소(TS/JS, Go, Rust)의 경우 `sdd-parallel`은 명세의 명시적 파일 목록과 선택적 Tree-sitter 사이드카 **`code-review-graph`**(`CRGSidecarAdapter`)를 결합하여 파일 간 임포트 및 영향 간선을 계산합니다.
 3. **에이전트가 셸(`sed -i`, `python -c`, `cp`)로 `PreToolUse` 훅을 우회할 수 있지 않나요?**
@@ -264,7 +264,7 @@ flowchart TD
 ## 🛠️ 전체 CLI 명령어 레퍼런스
 
 <details>
-<summary><b>클릭하여 펼치기: 15개 서브커맨드 및 플래그 전체 목록</b></summary>
+<summary><b>클릭하여 펼치기: 16개 서브커맨드 및 플래그 전체 목록</b></summary>
 
 공통 플래그: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-file FILE`, `--dry-run`, `--dynamic-worktrees`.
 
@@ -275,15 +275,16 @@ flowchart TD
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — 슬롯 프로비저닝, OS 잠금, 경계 주입. |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — 기존 worktree에 잠금 연결. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — 슬롯별 네이티브 실행 명령어 출력. |
-| `sdd-parallel verify-wave --wave K` | `.parallel-lock.json` 및 `merge-base` diff 기준으로 슬롯 감사. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — 게이트 검증, 3-way 병합, 자동 롤백. |
-| `sdd-parallel abort-wave --wave K` | 미병합 슬롯 초기화 및 임시 브랜치 삭제. |
+| `sdd-parallel verify-wave --wave K` | `.parallel-lock.json`, `merge-base` diff 및 스코프 에스컬레이션 기준으로 슬롯 감사. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — 게이트 검증, 3-way 병합, 충돌 또는 게이트 오류 시 원자적 롤백. |
+| `sdd-parallel abort-wave --wave K` | 고정 슬롯을 제자리에서 `HEAD`로 리셋(또는 `--dynamic-worktrees`에서 브랜치 삭제). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO 되돌리기 + 안전 브랜치 + 상태 복원. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — `sprint-status.yaml` 3-way 병합. |
 | `sdd-parallel check-lock` | `--file PATH [--tool TOOL]` — 활성 잠금 매니페스트 대비 쓰기 검증. |
 | `sdd-parallel install-plugin` | `[--target-dir DIR]` — 이식형 Antigravity 플러그인 설치. |
+| `sdd-parallel init-custom` | `[--specs-dir DIR] [--format {markdown,yaml}] [--test-cmd CMD] [--non-interactive]` — `.parallel/custom-kit.yaml` 초기화. |
 | `sdd-parallel autopilot --wave K` | `[--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--policy {single-shot,cyclic}] [--max-review-rounds N]` — 트랙 자동 실행. |
-| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — 머지 폭탄 백테스트. |
+| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — 정적 모델 대비 머지 폭탄 백테스트. |
 | `sdd-parallel inspect` | `[--plan PATH] [--output PATH] [--open]` — HTML Wave Inspector 열기. |
 
 </details>

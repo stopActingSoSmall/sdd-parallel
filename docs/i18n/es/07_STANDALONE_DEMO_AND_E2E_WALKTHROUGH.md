@@ -130,8 +130,8 @@ src/demo_app/schema.py                 | spine                  | -
 **Qué ocurrió:**  
 El motor analiza la estructura AST sin listas de archivos preconcebidas y determina el comportamiento de concurrencia de cada archivo:
 1. **`spine` (Columna vertebral — Cola estricta):** Archivos que definen contratos de datos o concentran dependencias (`SCHEMA_VERSION`, `models.py`, o in-degree $\ge 5$). Dos tareas sobre un archivo `spine` **nunca** se ejecutan en la misma ola.
-2. **`additive_registry` (Registro aditivo — Adición segura):** Puntos de extensión donde las tareas solo agregan registros (`@app.command`, `@router.get`, `__all__`). Las modificaciones paralelas en distintas ramas están explícitamente permitidas.
-3. **`standard` (Módulo estándar — Exclusión mutua + Análisis de impacto):** Servicios habituales. Se prohíbe que dos tareas concurrentes escriban en el mismo archivo estándar y se audita el grafo de llamadas (columna **`Importers`**). ¡El escáner detectó que `api.py` importa `normalizer.py`!
+2. **`additive_registry` (Registro aditivo — Adición segura):** Puntos de extensión donde las funciones solo registran exportaciones o comandos (`@app.command`, `@router.get`, `__all__`). Las ediciones concurrentes en worktrees paralelos están permitidas y se fusionan mediante Git 3-way merge (mientras que los rastreadores de estado se fusionan sin conflictos mediante `status_merger.py`).
+3. **`standard` (Módulo estándar — Exclusión mutua + Seguimiento de dependencias):** Servicios habituales de la aplicación. Las ediciones concurrentes sobre el mismo archivo están prohibidas salvo que las especificaciones declaren notas distintas de funciones aisladas (`shared_function_notes`), y se rastrean estrictamente las relaciones inversas de importación (columna **`Importers`**). ¡Observa que el escáner detectó que `src/demo_app/api.py` importa `normalizer.py`!
 
 ---
 
@@ -302,7 +302,7 @@ uv run sdd-parallel check-lock --file "<DEMO_DIR>/.worktrees/track-b/src/demo_ap
 ```powershell
 uv run sdd-parallel abort-wave --repo "<DEMO_DIR>" --wave 1
 ```
-*Resultado:* Las ranuras se limpian de manifiestos temporales sin afectar a la rama principal.
+*Resultado:* Las ranuras fijas de pista se reinician in situ al `HEAD` de `master` y se limpian el archivo obsoleto `.parallel/wave-plan.json` y los bloqueos de ola sin alterar `master` (pasa `--dynamic-worktrees` para eliminar directorios efímeros y borrar las ramas `parallel/wave-*`).
 
 ---
 

@@ -589,6 +589,36 @@ def _compute_repo_plan(
     return scheduler, tasks, plan
 
 
+def _load_or_compute_repo_plan(
+    repo_root: Path,
+    max_tracks: int,
+    kit: str = "auto",
+    routing_file: Path | None = None,
+) -> WavePlan:
+    """Load persisted .parallel/wave-plan.json (e.g. after escalation deferral) or compute fresh."""
+    plan_file = repo_root / ".parallel" / "wave-plan.json"
+    if plan_file.is_file() and routing_file is None:
+        try:
+            raw = json.loads(plan_file.read_text(encoding="utf-8-sig"))
+            if isinstance(raw, dict):
+                loaded = WavePlan.from_dict(raw)
+                norm_kit = kit.strip().lower()
+                if norm_kit == "speckit":
+                    norm_kit = "spec-kit"
+                if loaded.waves and (norm_kit == "auto" or loaded.sdd_kit == norm_kit):
+                    return loaded
+        except Exception:
+            pass
+
+    _scheduler, _tasks, computed = _compute_repo_plan(
+        repo_root=repo_root,
+        max_tracks=max_tracks,
+        kit=kit,
+        routing_file=routing_file,
+    )
+    return computed
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -621,6 +651,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 json.dumps(plan_dict, indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
+            esc_plan = repo_root / ".parallel" / "wave-plan.json"
+            if (
+                esc_plan.is_file()
+                and esc_plan.resolve() != (out_dir / "wave-plan.json").resolve()
+            ):
+                try:
+                    esc_plan.unlink()
+                except OSError:
+                    pass
             # Monotonic history archive: .parallel/history/run-NNN-<timestamp>/wave-plan.json
             p_state = read_parallel_state(repo_root)
             run_id = int(p_state.get("run_counter", 0)) + 1
@@ -719,7 +758,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "verify-wave":
         repo_root = args.repo.resolve()
-        _scheduler, _tasks, plan = _compute_repo_plan(
+        plan = _load_or_compute_repo_plan(
             repo_root=repo_root,
             max_tracks=args.max_tracks,
             kit=args.kit,
@@ -776,7 +815,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             merge_out = demo_merge_step(repo_root, wave=args.wave)
             print(merge_out, end="")
             return 0
-        _scheduler, _tasks, plan = _compute_repo_plan(
+        plan = _load_or_compute_repo_plan(
             repo_root=repo_root,
             max_tracks=args.max_tracks,
             kit=args.kit,
@@ -931,12 +970,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             fixed_slots=not getattr(args, "dynamic_worktrees", False),
         )
         deleted = rm.abort_wave(wave_id=args.wave)
+        reset_slots = [b for b in deleted if b.startswith("parallel/track-")]
         print(
             json.dumps(
                 {
                     "action": "abort-wave",
                     "wave": args.wave,
                     "deleted_branches": deleted,
+                    "reset_slots": reset_slots,
                     "status": "aborted",
                 },
                 indent=2,

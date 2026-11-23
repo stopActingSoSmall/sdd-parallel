@@ -69,7 +69,7 @@ Every production repository consists of heterogeneous files. Naive file-level lo
    Files defining fundamental data contracts (database migrations, schema versioning, core IR models). Any mutation of a `Spine` file is structured by the scheduler into a strictly serialized dependency chain. Tasks within the same Spine chain are never scheduled in the same wave.
 2. **`Additive Registry` (Shared Extension Hubs):**
    High-traffic integration points where independent features append isolated registrations (e.g., CLI command decorators, `__all__` symbol exports, MCP tool registries).
-   `sdd-parallel` allows concurrent tasks to append changes to these files simultaneously, isolating them across worktrees and reconciling them at the wave merge barrier.
+   `sdd-parallel` allows concurrent tasks to append changes to these files in separate worktrees; status trackers reconcile deterministically via `status_merger.py`, while code registries merge via standard Git 3-way merge (with atomic wave rollback if adjacent/EOF edits collide).
 3. **`Standard Module` (Application Logic):**
    Standard business logic modules. Governed by the classical disjoint write constraint ($W_A \cap W_B = \emptyset$) and the semantic impact radius check ($I(T)$).
 
@@ -188,7 +188,8 @@ In SDD environments, sprint state is persisted in repository files (`sprint-stat
 
 ### 7.2. LIFO Transactional Wave Rollback Engine
 If a wave fails integration testing or requires rollback:
-- The command `abort-wave --wave K` removes unmerged track branches and unlocks slots.
+- The command `abort-wave --wave K` resets fixed slots (`parallel/track-*`) in place to `HEAD` (or deletes `parallel/wave-*` branches with `--dynamic-worktrees`), clears `.parallel/wave-plan.json`, and unlocks slots.
+- During `merge --wave K`, any merge conflict, `update_state_on_merge` failure, or checkpoint gate failure triggers an atomic rollback to `pre_merge_head` (`git merge --abort` + `git reset --hard pre_merge_head`) strictly before slot cleanup.
 - The command `rollback-wave --wave K [--save-backup]` executes a safe, atomic rollback of the latest integrated wave:
   - Enforces strict LIFO ordering (only the most recently integrated wave can be reversed).
   - Automatically provisions an immutable backup branch `backup/wave-<K>-before-rollback-<timestamp>`.

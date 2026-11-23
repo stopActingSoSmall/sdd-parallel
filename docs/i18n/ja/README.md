@@ -65,7 +65,7 @@ https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-p
 | :--- | :--- | :--- | :--- |
 | **12 ストーリー** | 約 6〜8 時間 | 実装 2h ＋ **修正 2h** | **合計約 2.5h（2〜3 倍高速）** |
 | **潜在 API 衝突** | 低速で回避 | **`main` 破損** ($W_A \cap I_B \neq \emptyset$) | **事前防止** (Wave 1 → 2) |
-| **共有 CLI/ルーター** | 直列実行 | マージ毎に衝突 | **並行安全** (`ADDITIVE_REGISTRY`) |
+| **共有 CLI/ルーター** | 直列実行 | マージ毎に衝突 | **Git 3-Way マージによる並行実行**（`ADDITIVE_REGISTRY`、非重複挿入） |
 | **ステータスファイル** | 直列更新 | `<<<<<<<` 頻発 | **単調 3-Way マージ** (衝突 0) |
 | **スコープ外編集** | プロンプト警告 | `bash`/`sed` で迂回 | **遮断** (`PreToolUse` + Terminal Guard + `chmod a-w`) |
 | **Worktree 散乱** | なし | `task-*` が 15 個残留 | **固定再利用スロット** (`track-a/b/c`) |
@@ -82,7 +82,7 @@ API キー・LLM 契約・クローン不要。[`uv`](https://docs.astral.sh/uv/
 uvx sdd-parallel demo --kit all   # 単一キット: uvx sdd-parallel demo --kit spec-kit
 ```
 
-使い捨て Git リポ（5 タスク・6 モジュール）を生成し、AST 解析・Scope Guard `DENY`・衝突 0 マージを約 4 秒で検証：
+使い捨て Git リポ（5 タスク・6 モジュール）を生成し、AST 解析・Scope Guard `DENY`・衝突 0 の 3-Way ステータスマージを実行します（`--kit all` 指定時は 1 キットあたり約 `~6–9s`、サンドボックス内は `run_quality_gates=False`）：
 
 ```text
 ================================================================
@@ -226,7 +226,7 @@ my-project/
 <summary><b>❓ 技術的質問と誠実な限界 (FAQ)</b></summary>
 
 1. **コードを書く前に、プランナーはどうやって `write_files` を知るのですか？**
-   3 段階の保護レイヤーがあります：**(a)** 仕様内で明示されたパス（`Code Map`、`Files:`、GSD XML `<files>`、バッククォート表記） → **(b)** 言及された関数名・クラス名を $O(1)$ でファイルへ解決する Pre-Wave AST シンボルリンカー → **(c)** `verify-wave` バリアで仕様記述不足のタスクを静かな衝突として放置せず次ウェーブへ安全に繰り越す動的スコープエスカレーション（`.tmp/scope-escalation.json`）。
+   3 段階の保護レイヤーがあります：**(a)** 仕様内で明示されたパス（`Code Map`、`Files:`、GSD XML `<files>`、バッククォート表記） → **(b)** 言及された関数名・クラス名を $O(1)$ でファイルへ解決する Pre-Wave AST シンボルリンカー → **(c)** 動的スコープエスカレーション（`.tmp/scope-escalation.json`）：`PreToolUse` が拒否された範囲外編集を記録し、`verify-wave` が該当タスクを Wave $K+1$ へ繰り越し（空になったスロットをリセットして `.parallel/wave-plan.json` を更新）、`merge` が更新済みプランに基づいて統合を実行します。
 2. **TypeScript、Go、Rust など非 Python リポジトリはどうなりますか？**
    誠実な限界：依存ゼロの組み込み AST スキャナがネイティブ解析するのは Python です。多言語リポジトリ（TS/JS、Go、Rust）では、仕様内の明示ファイルリストとオプションの Tree-sitter サイドカー **`code-review-graph`**（`CRGSidecarAdapter`）を組み合わせ、ファイル間の import および影響エッジを計算します。
 3. **エージェントはシェル（`sed -i`、`python -c`、`cp`）経由で `PreToolUse` フックを迂回できませんか？**
@@ -264,7 +264,7 @@ flowchart TD
 ## 🛠️ 完全 CLI コマンドリファレンス
 
 <details>
-<summary><b>クリックして展開：全 15 サブコマンドとフラグ</b></summary>
+<summary><b>クリックして展開：全 16 サブコマンドとフラグ</b></summary>
 
 共通フラグ：`--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-file FILE`, `--dry-run`, `--dynamic-worktrees`.
 
@@ -275,15 +275,16 @@ flowchart TD
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — スロット確保、OS ロック、境界ファイル注入。 |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — 既存 worktree へロックを適用。 |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — スロット別の起動コマンドを表示。 |
-| `sdd-parallel verify-wave --wave K` | `.parallel-lock.json` と `merge-base` diff に対してスロットを監査。 |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — ゲート検証、3-Way マージ、自動ロールバック。 |
-| `sdd-parallel abort-wave --wave K` | 未マージスロットのリセットと一時ブランチ削除。 |
+| `sdd-parallel verify-wave --wave K` | `.parallel-lock.json`、`merge-base` diff、およびスコープエスカレーションに対してスロットを監査。 |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — ゲート検証、3-Way マージ、競合またはゲートエラー時のアトミックロールバック。 |
+| `sdd-parallel abort-wave --wave K` | 固定スロットをその場で `HEAD` にリセット（または `--dynamic-worktrees` でブランチ削除）。 |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO リバート＋退避ブランチ＋状態復元。 |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — `sprint-status.yaml` 用 3-Way マージ。 |
 | `sdd-parallel check-lock` | `--file PATH [--tool TOOL]` — ロックマニフェストに対する書き込み可否判定。 |
 | `sdd-parallel install-plugin` | `[--target-dir DIR]` — ポータブル Antigravity プラグイン導入。 |
+| `sdd-parallel init-custom` | `[--specs-dir DIR] [--format {markdown,yaml}] [--test-cmd CMD] [--non-interactive]` — `.parallel/custom-kit.yaml` を初期化。 |
 | `sdd-parallel autopilot --wave K` | `[--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--policy {single-shot,cyclic}] [--max-review-rounds N]` — トラック自動起動。 |
-| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — マージボム遡及ベンチマーク。 |
+| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — 静的モデルに対するマージボム遡及ベンチマーク。 |
 | `sdd-parallel inspect` | `[--plan PATH] [--output PATH] [--open]` — HTML Wave Inspector を開く。 |
 
 </details>

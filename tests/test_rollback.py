@@ -277,3 +277,72 @@ def test_e2e_merge_and_rollback_wave_with_backup(tmp_path: Path) -> None:
     state_after = read_parallel_state(tmp_path)
     assert state_after["last_merged_wave_id"] is None
     assert len(state_after["history"]) == 0
+
+
+def test_abort_wave_fixed_slots_reports_reset_branches(tmp_path: Path) -> None:
+    """Verify abort_wave in fixed_slots=True resets slot branches to repo HEAD and reports them."""
+    _init_git_repo(tmp_path)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("x = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True)
+
+    repo_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    from sdd_parallel.models import WavePlan
+
+    plan = WavePlan(
+        sdd_kit="bmad",
+        waves=[
+            Wave(
+                wave_number=1,
+                tracks=[
+                    WaveTrack(
+                        track_id="track-a",
+                        task_ids=["1-1"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["src/main.py"],
+                    ),
+                    WaveTrack(
+                        track_id="track-b",
+                        task_ids=["1-2"],
+                        effort=EffortTier.LOW,
+                    ),
+                ],
+            )
+        ],
+        edges=[],
+    )
+
+    wm = WorktreeManager(tmp_path, fixed_slots=True)
+    wt_a, wt_b = wm.prepare_wave(plan, wave_number=1, headless=True)
+
+    # Simulate worker commit inside track-a slot
+    (wt_a / "src" / "main.py").write_text("x = 99\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/main.py"], cwd=wt_a, check=True)
+    subprocess.run(["git", "commit", "-m", "aborted work"], cwd=wt_a, check=True)
+
+    rm = WorktreeRollbackManager(tmp_path, fixed_slots=True)
+    reported = rm.abort_wave(wave_id=1)
+
+    assert "parallel/track-a" in reported
+    assert "parallel/track-b" in reported
+    assert wt_a.is_dir()
+    assert wt_b.is_dir()
+
+    # Fixed slot branch must actually point back to repo_head (not stay on aborted commit)
+    wt_a_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=wt_a,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert wt_a_head == repo_head
+    assert not (wt_a / ".parallel-lock.json").exists()

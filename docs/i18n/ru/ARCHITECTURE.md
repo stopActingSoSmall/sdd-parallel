@@ -33,7 +33,7 @@ flowchart LR
     subgraph Engine["Модуль 2: Гексагональный DAG-движок & Conflict Solver"]
         E1["ASTHotspotScanner\n(3-проходная эвристика: Spine vs Additive Registries)"]
         E2["CRGSidecarAdapter\n(code-review-graph v2.3.9 Взвешенный Call-Graph WAL)"]
-        E3["BSPWaveScheduler\n(Детерминированная упаковка волн, K-треки, чекпоинты)"]
+        E3["BSPWaveScheduler\n(Жадный First-Fit упаковщик волн, K-треки, чекпоинты)"]
     end
 
     subgraph Actuation["Модуль 3: Провайдер ворк-три & Merge Gate"]
@@ -58,28 +58,18 @@ class SDDAdapterProtocol(Protocol):
 
     kit_id: str
 
+    def __init__(self, repo_root: Path) -> None: ...
+
     def detect(self) -> bool:
         """Обнаружение маркеров присутствия данного SDD-фреймворка в репозитории."""
         ...
 
-    def load_tasks(self, include_done: bool = False) -> list[TaskNode]:
+    def load_tasks(
+        self,
+        include_done: bool = False,
+        plan_source: str = "auto",
+    ) -> list[TaskNode]:
         """Парсинг артефактов дорожной карты/бэклога и конвертация в канонические TaskNode."""
-        ...
-
-    def check_wave_zero_blockers(self, wave: Wave | None = None) -> list[str]:
-        """Проверка специфичных для фреймворка предусловий (Clean Git, скомпилированные контексты, чек-листы)."""
-        ...
-
-    def get_allowed_write_globs(self, track: WaveTrack) -> list[str]:
-        """Список путей метаданных активного фреймворка, разрешённых для записи внутри ворк-три."""
-        ...
-
-    def get_forbidden_files(self, wave: Wave, track: WaveTrack) -> dict[str, str]:
-        """Словарь защищаемых системных файлов и спецификаций активного фреймворка."""
-        ...
-
-    def render_worker_command(self, track: WaveTrack) -> str:
-        """Команда запуска агентного воркера для шпаргалки run-guide и режима Autopilot."""
         ...
 
     def reset_tasks_status(
@@ -97,6 +87,63 @@ class SDDAdapterProtocol(Protocol):
     ) -> None:
         """Удаление сгенерированных во время исполнения волны временных спецификаций."""
         ...
+
+    def check_wave_zero_blockers(self, wave: Wave | None = None) -> list[str]:
+        """Проверка специфичных для фреймворка предусловий (Clean Git, скомпилированные контексты, чек-листы)."""
+        ...
+
+    def check_preflight_context_gate(self, wave: Wave) -> list[str]:
+        """Проверка предкомпилированных контекстов эпиков/фич перед запуском параллельных треков."""
+        ...
+
+    def get_allowed_write_globs(self, track: WaveTrack) -> list[str]:
+        """Список путей метаданных активного фреймворка, разрешённых для записи внутри ворк-три."""
+        ...
+
+    def get_forbidden_files(self, wave: Wave, track: WaveTrack) -> dict[str, str]:
+        """Словарь защищаемых системных файлов и спецификаций активного фреймворка."""
+        ...
+
+    def get_track_env_vars(self, track: WaveTrack) -> dict[str, str]:
+        """Возвращает переменные окружения кита, пробрасываемые в исполнение трека."""
+        ...
+
+    def prepare_worktree_overlay(self, worktree_path: Path, track: WaveTrack) -> list[str]:
+        """Записывает оверлейные файлы кита в worktree и возвращает записи для git info/exclude."""
+        ...
+
+    def verify_track_spec_scope(
+        self,
+        worktree_path: Path,
+        track: WaveTrack,
+        forbidden_files: dict[str, str],
+    ) -> list[str]:
+        """Проверяет ограничения скоупа на уровне спецификаций в worktree до слияния."""
+        ...
+
+    def render_worker_command(self, track: WaveTrack) -> str:
+        """Команда запуска агентного воркера для шпаргалки run-guide и режима Autopilot."""
+        ...
+
+    def default_artifacts_dir(self) -> Path:
+        """Возвращает каталог по умолчанию для сгенерированных планов и отчётов волн."""
+        ...
+
+    def get_status_files(self) -> list[str]:
+        """Возвращает относительные пути файлов статусов кита для 3-way мерджа."""
+        ...
+
+    def get_change_worktree(self, change_id: str) -> Path | None:
+        """Возвращает назначенный фреймворком путь worktree для change_id, если задан."""
+        ...
+
+    def update_state_on_merge(
+        self,
+        wave_number: int,
+        merged_task_ids: Sequence[str],
+    ) -> Path | None:
+        """Синхронизирует состояние/БД фреймворка после барьерного слияния Волны K."""
+        ...
 ```
 
 ### 1.2. Матрица разделения ответственности: Agnostic Core Engine vs Polymorphic Kit Adapter
@@ -109,7 +156,7 @@ class SDDAdapterProtocol(Protocol):
 | **Проверка pre-flight блокеров** | `SDDAdapter` | Знает правила готовности: проверка `epic-*-context.md` (BMAD), валидность чек-листов (Spec Kit), отсутствие незакрытых блокировок (Beads). |
 | **AST-анализ и классификация файлов** | `Core Engine` | Полностью проектно- и фреймворк-агностичен (`ASTHotspotScanner`). Находит `SPINE`, `ADDITIVE_REGISTRY` и `STANDARD` модули без хардкода путей. |
 | **Семантический радиус поражения** | `Core Engine` | Вычисляет взвешенный Call-Graph радиус ($W_A \cap I_B$) через `CRGSidecarAdapter` (`code-review-graph v2.3.9` WAL). |
-| **Планирование волн (BSP Scheduler)** | `Core Engine` | Детерминированный планировщик волн `BSPWaveScheduler` с гарантией 100% покрытия задач и ацикличности (алгоритм Кана). |
+| **Планирование волн (BSP Scheduler)** | `Core Engine` | Детерминированный жадный `First-Fit` планировщик `BSPWaveScheduler` (по 1 задаче на трек в порядке входа) с гарантией 100% покрытия и ацикличности (Кан). |
 | **Подготовка слотов ворк-три** | `Core Engine` + `Adapter` | Ядро выделяет постоянные слоты `track-<id>` и применяет права ОС (`chmod a-w`). Адаптер поставляет `allowed_write_globs` и `forbidden_files`. |
 | **Инструкции запуска воркеров** | `SDDAdapter` | Формирует нативную команду для инструмента (`/speckit.implement`, `/gsd-execute-phase`, `/opsx:apply`, `bd update`, `/bmad-build`). |
 | **Многоуровневый Scope Guard** | `Core Engine` | Перехватывает вызовы `PreToolUse`, терминальные команды (`Bash`, `run_command`) и предотвращает побег агента из ворк-три. |
@@ -141,10 +188,10 @@ class SDDAdapterProtocol(Protocol):
 2. **Shared Additive Registries (`FileRole.ADDITIVE_REGISTRY`):**
    - Крупные файлы-точки входа, куда разные фичи добавляют независимые блоки регистрации (исключительно `cli.py` с декораторами `@app.command`, `mcp/server.py` с `@mcp.tool`, `__init__.py` с `__all__`).
    - *Важное разграничение (ADR-0002):* Модули форматирования вывода (`console.py`, `markdown.py`, каталог `egress/`) категорически **запрещено** относить к аддитивным реестрам, так как они содержат общие функции рендеринга и монолитные хелперы. Они относятся к `FileRole.STANDARD`.
-   - **Правило:** Задачи, пересекающиеся *только* по истинным `ADDITIVE_REGISTRY`, **могут исполняться параллельно** в разных `git worktree` при условии инъекции правила аддитивной вставки в `.tmp/track-context.md` и обязательного прогона тестов на `merge` чекпоинте.
+   - **Правило:** Задачи, пересекающиеся *только* по истинным `ADDITIVE_REGISTRY`, **могут исполняться параллельно** в разных `git worktree` при инъекции правила аддитивной вставки в `.tmp/track-context.md`. Бесконфликтный семантический мердж гарантирован для трекеров статусов (`status_merger.py`); код реестров сливается обычным Git 3-way merge (разнесённые вставки проходят, а правки соседних импортов или одного конца файла вызывают конфликт и транзакционный откат волны).
 3. **Standard Module Files (`FileRole.STANDARD`):**
    - Обычные модули бизнес-логики, адаптеров и модули вывода/презентации.
-   - **Правило:** Пересечение $W(A) \cap W(B) \neq \emptyset$ блокирует параллельный запуск в одной волне (кроме случая, когда доказано редактирование строго непересекающихся функций через AST-анализатор `_has_isolated_function_scope` без общих внутренних вызовов). Файлы `STANDARD` никогда не вычитаются из семантического радиуса поражения (Impact Radius).
+   - **Правило:** Пересечение $W(A) \cap W(B) \neq \emptyset$ блокирует параллельный запуск в одной волне, кроме случаев, когда в спецификациях задекларированы различные изолированные заметки о функциях в `shared_function_notes` (декларативная проверка `_has_isolated_function_scope`). Файлы `STANDARD` никогда не вычитаются из семантического радиуса поражения (Impact Radius).
 
 ### 2.2. Алгоритмический конвейер детекции ролей (`ASTHotspotScanner` — 3 прохода без хардкода)
 
@@ -275,7 +322,7 @@ class SDDAdapterProtocol(Protocol):
 
 ### 4.7. LIFO Transactional Wave Rollback Engine
 
-- **`abort-wave --wave K`:** Очистка слотов и удаление параллельных веток до слияния.
+- **`abort-wave --wave K`:** В режиме по умолчанию (`fixed_slots=True`) сбрасывает слоты (`parallel/track-*`) на месте к `HEAD` репозитория и очищает устаревший `.parallel/wave-plan.json`; с флагом `--dynamic-worktrees` удаляет временные папки и ветки `parallel/wave-*`.
 - **`rollback-wave --wave K [--save-backup]`:**
   - Строгий инвариант LIFO: разрешён откат только последней подмерженной волны.
   - Автоматическое создание страховочной ветки `backup/wave-<K>-before-rollback-<timestamp>`.
@@ -289,11 +336,11 @@ class SDDAdapterProtocol(Protocol):
   2. *Приоритет 2:* `pyproject.toml` (`[tool.sdd-parallel].checkpoint_gates`).
   3. *Приоритет 3:* Автоопределение стека (Python `pytest/ruff/mypy`, Node/TS `npm test`, Rust `cargo test`, Go `go test ./...`).
 - **Устойчивость к пустым сьютам (`_is_no_tests_collected`):** Код выхода 5 в `pytest` (`NO_TESTS_COLLECTED`) или `"no test files found"` не ломает слияние при `strict_gates=False`.
-- **Транзакционный авто-откат:** Если гейт завершается ошибкой при `sdd-parallel merge --wave K`, оркестратор выполняет `git reset --hard pre_merge_head`, возвращая `master` в исходное состояние и сохраняя слоты для отладки.
+- **Транзакционный авто-откат:** При merge-конфликте на любой ветке волны, ошибке `update_state_on_merge()` или падении любого checkpoint gate во время `sdd-parallel merge --wave K` оркестратор прерывает слияние и выполняет `git reset --hard pre_merge_head` до очистки слотов, атомарно возвращая `master` и сохраняя слоты для отладки.
 
 ### 4.9. Standalone Offline Merge-Bomb Demonstration (`sdd-parallel demo`)
 
-Автономная команда `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp]` разворачивает временный репозиторий и проверяет ключевые инварианты за <5 секунд без API-ключей и сети:
+Автономная команда `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp]` разворачивает временный репозиторий и проверяет базовые инварианты планирования, изоляции и слияния статусов офлайн без API-ключей и сети (`~6–9 с` на кит при `run_quality_gates=False` в синтетической песочнице):
 1. AST-классификация файлов (`SPINE`, `ADDITIVE_REGISTRY`, `STANDARD`).
 2. Отлов семантического конфликта 2-го рода ($W_{1-2} \cap I_{2-1} \neq \emptyset$).
 3. Развёртывание слотов, проверка чистоты Git и работа Scope Guard.
@@ -308,16 +355,17 @@ class SDDAdapterProtocol(Protocol):
 | `prepare` | Подготовка слотов треков и локов для Wave K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run`, `--routing-file <path>` |
 | `claim-track` | Присоединение локов к существующему ворк-три | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
 | `run-guide` | Вывод форматированной таблицы запуска для оператора | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
-| `verify-wave` | Аудит диффов, соблюдения локов и сбор манифеста | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | Барьерное слияние с 3-way мерджем статусов, гейтами и манифестом | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `verify-wave` | Аудит диффов, соблюдения локов, обработка scope-эскалаций и сбор манифеста | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
+| `merge` | Барьерное слияние с 3-way мерджем статусов, гейтами, атомарным откатом и манифестом | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | Автономный 3-way детерминированный мердж sprint-status.yaml | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | Проверка разрешения на запись в файл через логику хука | `--file <path>`, `--tool <name>` (вывод форматированного JSON с `indent=2`) |
 | `install-plugin` | Сборка и установка портативного плагина Antigravity | `--target-dir <path>` (по умолчанию `~/.gemini/config/plugins/sdd-parallel`) |
+| `init-custom` | Интерактивный мастер создания манифеста `.parallel/custom-kit.yaml` | `--repo <path>`, `--specs-dir <dir>`, `--format <markdown\|yaml>`, `--test-cmd <cmd>`, `--non-interactive`, `--dry-run` |
 | `autopilot` | Генерация или запуск команд в режиме Autopilot | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--harness <antigravity\|claude-code\|codex>`, `--antigravity-layout`, `--execute`, `--routing-file <path>` |
-| `abort-wave` | Отмена волны до слияния и удаление параллельных веток | `--repo <path>`, `--wave <K>`, `--dynamic-worktrees` |
+| `abort-wave` | Отмена волны до слияния: сброс fixed slots к `HEAD` (или удаление временных веток) | `--repo <path>`, `--wave <K>`, `--dynamic-worktrees` |
 | `rollback-wave` | Атомарный LIFO-откат волны со страховочной веткой | `--repo <path>`, `--wave <K>`, `--to-commit <hash>`, `--save-backup` / `--no-backup`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `demo` | Запуск 5-секундного автономного оффлайн-демо | `--kit <bmad\|spec-kit\|gsd\|openspec\|beads\|all>`, `--keep-temp`, `--scaffold-only`, `--output-dir <path>` |
-| `bench` | Ретроспективный бэктест на истории коммитов Git или демо-репо | `--repo <path>`, `--since <rev>`, `--until <rev>`, `--demo`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--format <text\|json>` |
+| `demo` | Запуск автономного офлайн-демо (`~6–9 с` на кит) | `--kit <bmad\|spec-kit\|gsd\|openspec\|beads\|all>`, `--keep-temp`, `--scaffold-only`, `--output-dir <path>` |
+| `bench` | Ретроспективный бэктест против статической модели `TaskNode` на истории Git или демо | `--repo <path>`, `--since <rev>`, `--until <rev>`, `--demo`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--format <text\|json>` |
 | `inspect` | Генерация и открытие offline HTML Wave Inspector | `--repo <path>`, `--plan <path>`, `--output <path>`, `--open`, `--kit <auto\|kit>` |
 
 ### 4.11. Модульные границы Dark Software Factory, Манифест исполнения и Cognitive Router (ADR-0009)

@@ -130,8 +130,8 @@ src/demo_app/schema.py                 | spine                  | -
 **What happened:**  
 The engine inspects the codebase syntax tree (`AST`) without pre-configured file lists, determining the **concurrency profile** of each module:
 1. **`spine` (Schema Core — Strict Sequence):** Files governing data contracts or carrying broad transitive dependencies (`SCHEMA_VERSION` markers, `models.py`, or in-degree $\ge 5$). Two tasks touching a `spine` file are **never** scheduled in the same wave.
-2. **`additive_registry` (Additive Hub — Safe Append):** Modules where features only register exports or commands (`@app.command`, `@router.get`, `__all__`). Concurrent edits in parallel worktrees are explicitly permitted and reconciled at the merge checkpoint.
-3. **`standard` (Business Logic — Mutual Exclusion + Dependency Tracking):** Standard application services. Concurrent edits to the same file are barred unless functional scopes are isolated, and reverse import relationships (**`Importers`**) are strictly tracked. Notice that the scanner detected `src/demo_app/api.py` importing `normalizer.py`!
+2. **`additive_registry` (Additive Hub — Safe Append):** Modules where features only register exports or commands (`@app.command`, `@router.get`, `__all__`). Concurrent edits in parallel worktrees are permitted and merged via Git 3-way merge (while status trackers merge conflict-free via `status_merger.py`).
+3. **`standard` (Business Logic — Mutual Exclusion + Dependency Tracking):** Standard application services. Concurrent edits to the same file are barred unless specifications declare distinct isolated function notes (`shared_function_notes`), and reverse import relationships (**`Importers`**) are strictly tracked. Notice that the scanner detected `src/demo_app/api.py` importing `normalizer.py`!
 
 ---
 
@@ -262,7 +262,7 @@ The Wave Inspector layout exposes the complete internal state across four dedica
 2. **Tab 1 — `🌊 Waves & Tracks` & CLI Action Bridge:**
    - **Track Slot Cards:** Displays planned waves and parallel slots (`track-a`, `track-b`, etc.) with strict file role color-coding:
      - 🟢 **Exclusive Write Scope:** Files exclusively owned by this task during the wave.
-     - 🔷 **Additive Registry (`ADDITIVE_REGISTRY`):** Shared files with AST function scope isolation (e.g. `fn: register_...`).
+     - 🔷 **Additive Registry (`ADDITIVE_REGISTRY`):** Shared files with declarative function scope notes (e.g. `fn: register_...`).
      - 🟣 **Spine Contract (`SPINE`):** Protected schema files locked by the spine serialization invariant.
    - **Blocking Rules Badge:** Explicit dependency annotations (e.g. `T002 blocks T004`).
    - **CLI Action Bridge:** One-click **Copy** buttons in the wave header (`sdd-parallel prepare --wave K`) and the barrier footer (`sdd-parallel merge --wave K`) for seamless terminal execution.
@@ -270,7 +270,7 @@ The Wave Inspector layout exposes the complete internal state across four dedica
    - **Interactive SVG DAG:** A directed acyclic graph organizing tasks into topological wave columns with dependency and conflict edges.
    - **Task Specification Modal:** Clicking any task node opens a rich modal dialog displaying its blast-radius passport:
      - *Exclusive Write Scope* — exact file set granted to the slot;
-     - *Additive Shared Files & AST Function Scopes* — safely appended functions;
+     - *Additive Shared Files & Declared Function Scopes* — safely appended functions;
      - *Protected Spine Locks* — contracts shielded from unauthorized mutation;
      - *Related Conflict Constraints* — why sibling tasks were scheduled in earlier or later waves.
 4. **Tab 3 — `⚡ Conflict Matrix`:**
@@ -343,7 +343,7 @@ uv run sdd-parallel check-lock --file "<DEMO_DIR>/.worktrees/track-b/src/demo_ap
 ```bash
 uv run sdd-parallel abort-wave --repo "<DEMO_DIR>" --wave 1
 ```
-*Result:* Track slots are reset and unmerged wave manifests are safely removed without altering `master`.
+*Result:* Fixed track slots are reset in place to `master` `HEAD`, stale `.parallel/wave-plan.json` and wave locks are cleared without altering `master` (pass `--dynamic-worktrees` to remove ephemeral directories and delete `parallel/wave-*` branches).
 
 ---
 

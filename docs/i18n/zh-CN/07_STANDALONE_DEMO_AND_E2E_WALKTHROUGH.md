@@ -130,8 +130,8 @@ src/demo_app/schema.py                 | spine                  | -
 **处理逻辑：**  
 引擎静态扫描各模块的 AST 结构，识别其在并行开发中的**架构角色**：
 1. **`spine`（架构脊柱 - 强制排队）：** 决定核心数据结构或高扇入的关键文件（含 `SCHEMA_VERSION` 的数据库模型，或入度 $\ge 5$ 的节点）。同一波次中**绝对禁止**同时安排两个修改 `spine` 文件的任务。
-2. **`additive_registry`（累加注册表 - 安全并发追加）：** 仅用于注册命令、路由或导出的扩展点（`@app.command`, `@router.get`, `__all__`）。在不同分支中并发追加互不干扰，支持安全合并。
-3. **`standard`（业务逻辑模块 - 互斥修改 + 依赖追踪）：** 常规应用逻辑。禁止两个任务并发修改同一标准模块，并严格追踪导入关系（**`Importers`** 列）。扫描器成功识别出 `api.py` 导入了 `normalizer.py`！
+2. **`additive_registry`（累加注册表 - 安全并发追加）：** 仅用于注册命令、路由或导出的扩展点（`@app.command`, `@router.get`, `__all__`）。允许在独立的并行 worktree 中并发编辑并通过 Git 三方合并集成（而 SDD 状态追踪文件则通过 `status_merger.py` 实现无冲突合并）。
+3. **`standard`（业务逻辑模块 - 互斥修改 + 依赖追踪）：** 常规应用逻辑。除非规范声明了互不重叠的独立函数作用域说明（`shared_function_notes`），否则禁止并发修改同一文件，并严格追踪反向导入关系（**`Importers`** 列）。扫描器成功识别出 `src/demo_app/api.py` 导入了 `normalizer.py`！
 
 ---
 
@@ -302,7 +302,7 @@ uv run sdd-parallel check-lock --file "<DEMO_DIR>/.worktrees/track-b/src/demo_ap
 ```powershell
 uv run sdd-parallel abort-wave --repo "<DEMO_DIR>" --wave 1
 ```
-*结果：* 槽位完全复原并清空临时文件，主干无任何残留。
+*结果：* 固定轨道槽位就地重置至 `master` `HEAD`，在不修改 `master` 的前提下清除过期的 `.parallel/wave-plan.json` 与波次锁定（传入 `--dynamic-worktrees` 可移除临时目录并删除 `parallel/wave-*` 分支）。
 
 ---
 

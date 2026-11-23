@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from sdd_parallel.models import (
     DEFAULT_CONTRACT_GLOBS,
+    DEFAULT_SPINE_BUCKET_GLOBS,
     ConflictEdge,
     ConflictType,
     FileRole,
@@ -17,6 +18,7 @@ from sdd_parallel.models import (
     Wave,
     WavePlan,
     WaveTrack,
+    extract_spine_bucket,
     is_contract_file,
 )
 
@@ -39,6 +41,7 @@ class BSPWaveScheduler:
         ast_scanner: Any | None = None,
         contract_globs: Sequence[str] | None = None,
         repo_root: Path | None = None,
+        spine_bucket_globs: Sequence[str] | None = None,
     ) -> None:
         if max_tracks < 1:
             raise ValueError("max_tracks must be >= 1")
@@ -47,6 +50,11 @@ class BSPWaveScheduler:
         self.ast_scanner = ast_scanner
         self.contract_globs = (
             tuple(contract_globs) if contract_globs is not None else DEFAULT_CONTRACT_GLOBS
+        )
+        self.spine_bucket_globs = (
+            tuple(spine_bucket_globs)
+            if spine_bucket_globs is not None
+            else DEFAULT_SPINE_BUCKET_GLOBS
         )
         self.repo_root = (
             repo_root
@@ -126,6 +134,17 @@ class BSPWaveScheduler:
 
                 shared_writes = sorted(write_a & write_b)
                 spine_shared = [f for f in shared_writes if self.get_file_role(f) == FileRole.SPINE]
+                buckets_a = {
+                    b
+                    for f in write_a
+                    if (b := extract_spine_bucket(f, self.spine_bucket_globs)) is not None
+                }
+                buckets_b = {
+                    b
+                    for f in write_b
+                    if (b := extract_spine_bucket(f, self.spine_bucket_globs)) is not None
+                }
+                shared_buckets = sorted(buckets_a & buckets_b)
                 standard_shared = [
                     f
                     for f in shared_writes
@@ -133,7 +152,7 @@ class BSPWaveScheduler:
                     and not self._has_isolated_function_scope(task_a, task_b, f)
                 ]
 
-                if spine_shared:
+                if spine_shared or shared_buckets:
                     # Respect existing explicit dependency direction
                     if self._can_reach(task_b.id, task_a.id, explicit_adj):
                         src_id, dst_id = task_b.id, task_a.id
@@ -143,13 +162,23 @@ class BSPWaveScheduler:
                         src_id, dst_id = task_a.id, task_b.id
                     if not self._can_reach(dst_id, src_id, explicit_adj):
                         explicit_adj[src_id].add(dst_id)
+                        combined_shared = sorted(set(spine_shared) | set(shared_buckets))
+                        reason_parts: list[str] = []
+                        if spine_shared:
+                            reason_parts.append(
+                                f"Shared Spine Lock file(s): {', '.join(spine_shared)}"
+                            )
+                        if shared_buckets:
+                            reason_parts.append(
+                                f"Shared Spine bucket(s): {', '.join(shared_buckets)}"
+                            )
                         edges.append(
                             ConflictEdge(
                                 source=src_id,
                                 target=dst_id,
                                 conflict_type=ConflictType.SPINE_ORDER,
-                                reason=f"Shared Spine Lock file(s): {', '.join(spine_shared)}",
-                                shared_files=tuple(spine_shared),
+                                reason="; ".join(reason_parts),
+                                shared_files=tuple(combined_shared),
                                 directed=True,
                             )
                         )
@@ -185,6 +214,21 @@ class BSPWaveScheduler:
                                     f"{', '.join(sem_overlap)}"
                                 ),
                                 shared_files=tuple(sem_overlap),
+                                directed=False,
+                            )
+                        )
+
+                    ns_shared = sorted(
+                        set(task_a.namespace_tokens) & set(task_b.namespace_tokens)
+                    )
+                    if ns_shared:
+                        edges.append(
+                            ConflictEdge(
+                                source=task_a.id,
+                                target=task_b.id,
+                                conflict_type=ConflictType.NAMESPACE_COLLISION,
+                                reason=f"Shared namespace token(s): {', '.join(ns_shared)}",
+                                shared_files=tuple(ns_shared),
                                 directed=False,
                             )
                         )
@@ -340,22 +384,7 @@ class BSPWaveScheduler:
             waves.append(Wave(wave_number=wave_num, tracks=tracks))
             wave_num += 1
 
-        spine_files = sorted(
-            {
-                f.replace("\\", "/")
-                for t in tasks
-                for f in t.write_files
-                if self.get_file_role(f) == FileRole.SPINE
-            }
-        )
-        additive_registries = sorted(
-            {
-                f.replace("\\", "/")
-                for t in tasks
-                for f in t.write_files
-                if self.get_file_role(f) == FileRole.ADDITIVE_REGISTRY
-            }
-        )
+        spine_files, additive_registries = self._collect_role_files(tasks)
 
         plan = WavePlan(
             sdd_kit=sdd_kit,
@@ -373,6 +402,133 @@ class BSPWaveScheduler:
             raise CoverageInvariantError(f"Tasks lost during scheduling: {sorted(missing)}")
 
         return plan
+
+    def _collect_role_files(self, tasks: Sequence[TaskNode]) -> tuple[list[str], list[str]]:
+        """Collect sorted SPINE and ADDITIVE_REGISTRY write files across tasks."""
+        spine_files = sorted(
+            {
+                f.replace("\\", "/")
+                for t in tasks
+                for f in t.write_files
+                if self.get_file_role(f) == FileRole.SPINE
+            }
+        )
+        additive_registries = sorted(
+            {
+                f.replace("\\", "/")
+                for t in tasks
+                for f in t.write_files
+                if self.get_file_role(f) == FileRole.ADDITIVE_REGISTRY
+            }
+        )
+        return spine_files, additive_registries
+
+    def reschedule_remaining_waves(
+        self,
+        plan: WavePlan,
+        current_wave: int,
+        deferred_task_ids: Sequence[str],
+        enriched_writes: Mapping[str, Sequence[str]] | None = None,
+    ) -> WavePlan:
+        """Re-schedule unfinished waves (> current_wave) plus deferred tasks via full DAG."""
+        deferred_set = set(deferred_task_ids)
+        prefix_waves: list[Wave] = []
+        current_wave_gates: list[str] = []
+        future_task_ids: set[str] = set()
+
+        for w in plan.waves:
+            if w.wave_number < current_wave:
+                prefix_waves.append(w)
+            elif w.wave_number == current_wave:
+                current_wave_gates = list(w.checkpoint_gates)
+                updated_tracks: list[WaveTrack] = []
+                for track in w.tracks:
+                    kept_ids = [tid for tid in track.task_ids if tid not in deferred_set]
+                    updated_tracks.append(
+                        WaveTrack(
+                            track_id=track.track_id,
+                            task_ids=kept_ids,
+                            effort=track.effort,
+                            exclusive_write_files=(
+                                list(track.exclusive_write_files) if kept_ids else []
+                            ),
+                            additive_shared_files=(
+                                list(track.additive_shared_files) if kept_ids else []
+                            ),
+                            function_scope_notes=dict(track.function_scope_notes),
+                            model_override=track.model_override,
+                            execution_mode=track.execution_mode,
+                        )
+                    )
+                prefix_waves.append(
+                    Wave(
+                        wave_number=w.wave_number,
+                        tracks=updated_tracks,
+                        checkpoint_gates=list(w.checkpoint_gates),
+                    )
+                )
+            else:
+                future_task_ids.update(w.all_task_ids)
+
+        remaining_ids = future_task_ids | deferred_set
+        remaining_tasks = [t for t in plan.tasks if t.id in remaining_ids]
+
+        if enriched_writes:
+            for t in remaining_tasks:
+                for raw_path in enriched_writes.get(t.id, ()):
+                    norm = raw_path.replace("\\", "/")
+                    if norm not in t.write_files:
+                        t.write_files.append(norm)
+
+        all_tasks = list(plan.tasks)
+        spine_files, additive_registries = self._collect_role_files(all_tasks)
+
+        if not remaining_tasks:
+            edges = self.build_edges(all_tasks) if all_tasks else []
+            return WavePlan(
+                sdd_kit=plan.sdd_kit,
+                waves=prefix_waves,
+                edges=edges,
+                wave_zero_blockers=list(plan.wave_zero_blockers),
+                spine_files=spine_files,
+                additive_registries=additive_registries,
+                tasks=all_tasks,
+            )
+
+        sub_plan = self.schedule(
+            remaining_tasks,
+            sdd_kit=plan.sdd_kit,
+            wave_zero_blockers=plan.wave_zero_blockers,
+        )
+        shifted_waves = [
+            Wave(
+                wave_number=w.wave_number + current_wave,
+                tracks=w.tracks,
+                checkpoint_gates=(
+                    list(w.checkpoint_gates) if w.checkpoint_gates else list(current_wave_gates)
+                ),
+            )
+            for w in sub_plan.waves
+        ]
+
+        all_waves = prefix_waves + shifted_waves
+        edges = self.build_edges(all_tasks)
+        new_plan = WavePlan(
+            sdd_kit=plan.sdd_kit,
+            waves=all_waves,
+            edges=edges,
+            wave_zero_blockers=list(plan.wave_zero_blockers),
+            spine_files=spine_files,
+            additive_registries=additive_registries,
+            tasks=all_tasks,
+        )
+
+        task_order = [t.id for t in all_tasks]
+        if all_tasks and set(new_plan.scheduled_task_ids) != set(task_order):
+            missing = set(task_order) - set(new_plan.scheduled_task_ids)
+            raise CoverageInvariantError(f"Tasks lost during rescheduling: {sorted(missing)}")
+
+        return new_plan
 
     @staticmethod
     def _assert_acyclic(

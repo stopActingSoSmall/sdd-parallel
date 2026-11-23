@@ -65,7 +65,7 @@ https://github.com/user-attachments/assets/5dcfeb80-e48f-4bf8-8e90-76cc463f5edd
 | :--- | :--- | :--- | :--- |
 | **Спринт (12 задач)** | ~6–8 ч | ~2 ч кода + **~2 ч мерджей** | **~2.5 ч (2x–3x быстрее)** |
 | **Коллизии API** | Медленным ходом | **Ломают `main`** ($W_A \cap I_B \neq \emptyset$) | **Отсечены** (Волна 1 → 2) |
-| **CLI / роутеры** | По очереди | Конфликт Git на мердже | **Параллельно** (`ADDITIVE_REGISTRY`) |
+| **CLI / роутеры** | По очереди | Конфликт Git на мердже | **Параллельно через Git 3-way** (`ADDITIVE_REGISTRY`, разнесённые вставки) |
 | **Статусы** | Последовательно | Маркеры `<<<<<<<` | **3-way мердж** (0 маркеров) |
 | **Чужие файлы** | Просьба в промпте | Обход через `bash`/`sed` | **Блок** (`PreToolUse` + Terminal Guard + `chmod a-w`) |
 | **Worktree** | Нет | 15 папок `task-*` | **Слоты** (`track-a/b/c`) |
@@ -82,7 +82,7 @@ https://github.com/user-attachments/assets/5dcfeb80-e48f-4bf8-8e90-76cc463f5edd
 uvx sdd-parallel demo --kit all   # или один: uvx sdd-parallel demo --kit spec-kit
 ```
 
-Создаёт Git-репо (5 задач, 6 модулей Python), гоняет AST, `DENY`-блоки и 3-way мердж без конфликтов:
+Создаёт Git-репо (5 задач, 6 модулей Python), гоняет AST, `DENY`-блоки и 3-way мердж статусов без конфликтов (`~6–9 с` на кит в `--kit all`, `run_quality_gates=False` в песочнице):
 
 ```text
 ================================================================
@@ -226,7 +226,7 @@ my-project/
 <summary><b>❓ Сложные инженерные вопросы и честные границы (FAQ)</b></summary>
 
 1. **Откуда планировщик знает `write_files` до того, как код написан?**
-   Три рубежа защиты: **(a)** явные пути в спеках (`Code Map`, `Files:`, GSD XML `<files>`, пути в backticks) → **(b)** Pre-Wave AST Symbol Linker, резолвящий упомянутые имена функций и классов в файлы за $O(1)$ → **(c)** Dynamic Scope Escalation (`.tmp/scope-escalation.json`), которая на барьере `verify-wave` безопасно переносит недоописанную задачу в следующую волну вместо тихих коллизий.
+   Три рубежа защиты: **(a)** явные пути в спеках (`Code Map`, `Files:`, GSD XML `<files>`, пути в backticks) → **(b)** Pre-Wave AST Symbol Linker, резолвящий упомянутые имена функций и классов в файлы за $O(1)$ → **(c)** Dynamic Scope Escalation (`.tmp/scope-escalation.json`), где `PreToolUse` фиксирует запрещённый доступ, `verify-wave` переносит задачу в Волну $K+1$ (сбрасывая слот и обновляя `.parallel/wave-plan.json`), а `merge` работает по обновлённому плану.
 2. **А что насчёт TypeScript, Go, Rust и не-Python репозиториев?**
    Честная граница: встроенный AST-сканер без внешних зависимостей нативно парсит Python. Для полиглотных репозиториев (TS/JS, Go, Rust) `sdd-parallel` комбинирует явные списки файлов из спек с опциональным Tree-sitter сайдкаром **`code-review-graph`** (`CRGSidecarAdapter`) для расчёта межфайловых импортов и радиуса влияния.
 3. **Может ли агент обойти `PreToolUse` хуки через shell (`sed -i`, `python -c`, `cp`)?**
@@ -264,7 +264,7 @@ flowchart TD
 ## 🛠️ Полный справочник команд CLI
 
 <details>
-<summary><b>Раскрыть: все 15 подкоманд и флагов</b></summary>
+<summary><b>Раскрыть: все 16 подкоманд и флагов</b></summary>
 
 Общие: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-file FILE`, `--dry-run`, `--dynamic-worktrees`.
 
@@ -275,15 +275,16 @@ flowchart TD
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — Слоты, блокировки, границы. |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — Привязка к внешнему worktree. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — Команда запуска для слота. |
-| `sdd-parallel verify-wave --wave K` | Аудит слотов по `.parallel-lock.json` и `merge-base`. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — Gates, 3-way merge, откат. |
-| `sdd-parallel abort-wave --wave K` | Сброс слотов и удаление временных веток. |
+| `sdd-parallel verify-wave --wave K` | Аудит слотов по `.parallel-lock.json`, `merge-base` и scope-эскалациям. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — Gates, 3-way merge, атомарный откат при конфликте/ошибке. |
+| `sdd-parallel abort-wave --wave K` | Сброс fixed slots к `HEAD` (или удаление веток в `--dynamic-worktrees`). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO-откат + backup + статусы. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — 3-way merge `sprint-status.yaml`. |
 | `sdd-parallel check-lock` | `--file PATH [--tool TOOL]` — Проверка записи по lock-манифесту. |
 | `sdd-parallel install-plugin` | `[--target-dir DIR]` — Плагин Antigravity. |
+| `sdd-parallel init-custom` | `[--specs-dir DIR] [--format {markdown,yaml}] [--test-cmd CMD] [--non-interactive]` — Генерация `.parallel/custom-kit.yaml`. |
 | `sdd-parallel autopilot --wave K` | `[--harness {antigravity,claude-code,codex}] [--antigravity-layout] [--execute] [--policy {single-shot,cyclic}] [--max-review-rounds N]` — Автозапуск. |
-| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — Бэктест. |
+| `sdd-parallel bench` | `[--since REV] [--until REV] [--demo] [--format {text,json}] [--output-file FILE]` — Бэктест по модели `TaskNode`. |
 | `sdd-parallel inspect` | `[--plan PATH] [--output PATH] [--open]` — HTML Wave Inspector. |
 
 </details>

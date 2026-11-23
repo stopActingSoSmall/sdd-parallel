@@ -434,6 +434,7 @@ def run_stdin_hook() -> int:
             tool_name=tool_name,
             tool_input=tool_input,
             cwd=cwd_path,
+            record_escalation=True,
         )
         print(json.dumps(decision.to_dict(), ensure_ascii=False))
         return 0

@@ -478,6 +478,65 @@ class WorktreeManager:
             return local_dir / track_id
         return local_dir / f"wave-{wave_number}-{track_id}"
 
+    def _resolve_repo_head(self, ref: str = "HEAD") -> str:
+        """Resolve a git ref against repo_root so worktree cwd never shadows main HEAD."""
+        proc = subprocess.run(
+            ["git", "rev-parse", "--verify", ref],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+        return ref
+
+    def _rollback_merge_to_head(self, pre_merge_head: str) -> None:
+        """Abort active merge state and hard-reset repo_root back to pre_merge_head."""
+        merge_head = self.repo_root / ".git" / "MERGE_HEAD"
+        if merge_head.exists():
+            subprocess.run(
+                ["git", "merge", "--abort"],
+                cwd=self.repo_root,
+                capture_output=True,
+                check=False,
+            )
+        if pre_merge_head:
+            subprocess.run(
+                ["git", "reset", "--hard", pre_merge_head],
+                cwd=self.repo_root,
+                capture_output=True,
+                check=False,
+            )
+
+    def _reset_worktree_slot(self, wt_path: Path, branch_name: str, target_ref: str) -> None:
+        """Unlock OS read-only files, reset slot branch to target_ref, and clean temp artifacts."""
+        _restore_os_writable(wt_path)
+        subprocess.run(
+            ["git", "checkout", "-B", branch_name, target_ref],
+            cwd=wt_path,
+            capture_output=True,
+            check=False,
+        )
+        subprocess.run(
+            ["git", "clean", "-fd"],
+            cwd=wt_path,
+            capture_output=True,
+            check=False,
+        )
+        for f_tmp in (
+            ".parallel-lock.json",
+            ".tmp/track-context.md",
+            "ACTIVE_TRACK.md",
+            ".tmp/scope-escalation.json",
+        ):
+            p_tmp = wt_path / f_tmp
+            if p_tmp.is_file():
+                try:
+                    p_tmp.unlink()
+                except OSError:
+                    pass
+
     def build_lock_manifest(
         self,
         wave: Wave,
@@ -793,10 +852,11 @@ class WorktreeManager:
             if self.fixed_slots and wt_path.exists() and (wt_path / ".git").exists():
                 # Step 1: Unlock previous wave locks before reset
                 _restore_os_writable(wt_path)
-                # Step 2: In-place branch reset
+                # Step 2: In-place branch reset against repo_root ref
                 _configure_worktree_filemode(wt_path)
+                resolved_base = self._resolve_repo_head(base_branch)
                 subprocess.run(
-                    ["git", "checkout", "-B", branch_name, base_branch],
+                    ["git", "checkout", "-B", branch_name, resolved_base],
                     cwd=wt_path,
                     check=True,
                     capture_output=True,
@@ -913,6 +973,7 @@ class WorktreeManager:
                         ):
                             candidate_paths.append(entry)
 
+        repo_head = self._resolve_repo_head("HEAD")
         seen: set[str] = set()
         for p in candidate_paths:
             is_junc = hasattr(p, "is_junction") and p.is_junction()
@@ -931,27 +992,7 @@ class WorktreeManager:
 
             is_fixed_slot_entry = p.name.startswith("track-") and self.fixed_slots
             if not should_remove and is_fixed_slot_entry and (p / ".git").exists():
-                _restore_os_writable(p)
-                b_name = f"parallel/{p.name}"
-                subprocess.run(
-                    ["git", "checkout", "-B", b_name, "HEAD"],
-                    cwd=p,
-                    capture_output=True,
-                    check=False,
-                )
-                subprocess.run(
-                    ["git", "clean", "-fd"],
-                    cwd=p,
-                    capture_output=True,
-                    check=False,
-                )
-                for f_tmp in (".parallel-lock.json", ".tmp/track-context.md", "ACTIVE_TRACK.md"):
-                    p_tmp = p / f_tmp
-                    if p_tmp.is_file():
-                        try:
-                            p_tmp.unlink()
-                        except OSError:
-                            pass
+                self._reset_worktree_slot(p, f"parallel/{p.name}", repo_head)
                 cleaned.append(p)
             else:
                 _restore_os_writable(p)
@@ -1076,11 +1117,18 @@ class WorktreeManager:
 
         curr_wave = next((w for w in plan.waves if w.wave_number == current_wave), None)
         effort = EffortTier.MEDIUM
+        escalated_track: WaveTrack | None = None
+        track_emptied = False
         if curr_wave is not None:
             for trk in curr_wave.tracks:
                 if story_id in trk.task_ids:
                     trk.task_ids.remove(story_id)
                     effort = trk.effort
+                    escalated_track = trk
+                    if not trk.task_ids:
+                        trk.exclusive_write_files.clear()
+                        trk.additive_shared_files.clear()
+                        track_emptied = True
                     break
 
         next_wave = next((w for w in plan.waves if w.wave_number == next_wave_num), None)
@@ -1118,13 +1166,46 @@ class WorktreeManager:
                 )
                 next_wave.tracks.append(new_track)
 
+        repo_esc = self.repo_root / ".tmp" / "scope-escalation.json"
+        if repo_esc.is_file():
+            try:
+                repo_esc.unlink()
+            except OSError:
+                pass
+
+        if escalated_track is not None:
+            repo_head = self._resolve_repo_head("HEAD") if track_emptied else ""
+            candidates = [
+                (
+                    self.worktree_path_for_track(current_wave, escalated_track.track_id),
+                    self.branch_name_for_track(current_wave, escalated_track.track_id),
+                ),
+                (
+                    self.worktrees_dir / f"wave-{current_wave}-{escalated_track.track_id}",
+                    f"parallel/wave-{current_wave}-{escalated_track.track_id}",
+                ),
+            ]
+            seen_wt: set[Path] = set()
+            for wt_cand, branch_cand in candidates:
+                resolved_wt = wt_cand.resolve() if wt_cand.exists() else wt_cand
+                if resolved_wt in seen_wt:
+                    continue
+                seen_wt.add(resolved_wt)
+                esc_file = wt_cand / ".tmp" / "scope-escalation.json"
+                if esc_file.is_file():
+                    try:
+                        esc_file.unlink()
+                    except OSError:
+                        pass
+                if track_emptied and wt_cand.is_dir() and (wt_cand / ".git").exists():
+                    self._reset_worktree_slot(wt_cand, branch_cand, repo_head)
+
         p_file = self.repo_root / ".parallel" / "wave-plan.json"
-        if p_file.is_file() or (self.repo_root / ".parallel").is_dir():
-            p_file.parent.mkdir(parents=True, exist_ok=True)
-            p_file.write_text(
-                json.dumps(plan.to_dict(), indent=2, ensure_ascii=False) + "\n",
-                encoding="utf-8",
-            )
+        p_file.parent.mkdir(parents=True, exist_ok=True)
+        p_file.write_text(
+            json.dumps(plan.to_dict(), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
         return plan
 
@@ -1175,6 +1256,8 @@ class WorktreeManager:
         pre_verify_cmd = str(hooks.get("pre_verify", "")).strip()
 
         for track in target_wave.tracks:
+            if not track.task_ids:
+                continue
             candidate_path = self.worktree_path_for_track(wave_number, track.track_id)
             if not candidate_path.is_dir():
                 dyn_path = self.worktrees_dir / f"wave-{wave_number}-{track.track_id}"
@@ -1384,8 +1467,9 @@ class WorktreeManager:
         if target_wave is None:
             raise ValueError(f"Wave {wave_number} not found in plan")
 
+        active_tracks = [t for t in target_wave.tracks if t.task_ids]
         branch_names: list[str] = []
-        for track in target_wave.tracks:
+        for track in active_tracks:
             candidate = self.branch_name_for_track(wave_number, track.track_id)
             chk = subprocess.run(
                 ["git", "rev-parse", "--verify", candidate],
@@ -1422,8 +1506,9 @@ class WorktreeManager:
             pre_merge_head = head_rev.stdout.strip()
 
         merged_branches: list[str] = []
+        merged_pairs: list[tuple[WaveTrack, str]] = []
 
-        for track, branch_name in zip(target_wave.tracks, branch_names, strict=True):
+        for track, branch_name in zip(active_tracks, branch_names, strict=True):
             # Check if branch exists in git
             chk = subprocess.run(
                 ["git", "rev-parse", "--verify", branch_name],
@@ -1534,13 +1619,15 @@ class WorktreeManager:
             )
             if unmerged_proc.stdout.strip():
                 conflicted = unmerged_proc.stdout.strip().splitlines()
-                subprocess.run(
-                    ["git", "merge", "--abort"],
-                    cwd=self.repo_root,
-                    capture_output=True,
-                    check=False,
+                self._rollback_merge_to_head(pre_merge_head)
+                rb_suffix = (
+                    f" (transactional auto-rollback to {pre_merge_head[:7]} completed)"
+                    if pre_merge_head
+                    else ""
                 )
-                raise RuntimeError(f"Merge conflict while merging {branch_name}: {conflicted}")
+                raise RuntimeError(
+                    f"Merge conflict while merging {branch_name}: {conflicted}{rb_suffix}"
+                )
 
             # Commit if merge_head exists or staged changes exist
             merge_head = self.repo_root / ".git" / "MERGE_HEAD"
@@ -1556,75 +1643,44 @@ class WorktreeManager:
                     f"merge(wave-{wave_number}): integrate {track.track_id} "
                     f"({', '.join(track.task_ids)})"
                 )
-                subprocess.run(
+                commit_proc = subprocess.run(
                     ["git", "commit", "--no-edit", "-m", msg],
                     cwd=self.repo_root,
                     capture_output=True,
-                    check=True,
+                    text=True,
+                    check=False,
                 )
+                if commit_proc.returncode != 0:
+                    self._rollback_merge_to_head(pre_merge_head)
+                    rb_suffix = (
+                        f" (transactional auto-rollback to {pre_merge_head[:7]} completed)"
+                        if pre_merge_head
+                        else ""
+                    )
+                    raise RuntimeError(
+                        f"git commit failed while merging {branch_name}{rb_suffix}: "
+                        f"{commit_proc.stderr.strip()}"
+                    )
             elif merge_proc.returncode != 0:
+                self._rollback_merge_to_head(pre_merge_head)
+                rb_suffix = (
+                    f" (transactional auto-rollback to {pre_merge_head[:7]} completed)"
+                    if pre_merge_head
+                    else ""
+                )
                 raise RuntimeError(
-                    f"git merge failed for {branch_name}: {merge_proc.stderr.strip()}"
+                    f"git merge failed for {branch_name}{rb_suffix}: {merge_proc.stderr.strip()}"
                 )
 
             merged_branches.append(branch_name)
+            merged_pairs.append((track, branch_name))
 
-            if cleanup_worktrees:
-                wt_path = self.worktree_path_for_track(wave_number, track.track_id)
-                if not wt_path.exists():
-                    wt_path = self.worktrees_dir / f"wave-{wave_number}-{track.track_id}"
-
-                if self.fixed_slots and wt_path.exists() and (wt_path / ".git").exists():
-                    # Fixed slot hygiene: reset branch to HEAD and unlock, preserving directory
-                    _restore_os_writable(wt_path)
-                    subprocess.run(
-                        ["git", "checkout", "-B", branch_name, "HEAD"],
-                        cwd=wt_path,
-                        check=False,
-                        capture_output=True,
-                    )
-                    subprocess.run(
-                        ["git", "clean", "-fd"],
-                        cwd=wt_path,
-                        check=False,
-                        capture_output=True,
-                    )
-                    for f_tmp in (
-                        ".parallel-lock.json",
-                        ".tmp/track-context.md",
-                        "ACTIVE_TRACK.md",
-                    ):
-                        p_tmp = wt_path / f_tmp
-                        if p_tmp.is_file():
-                            try:
-                                p_tmp.unlink()
-                            except OSError:
-                                pass
-                elif not self.fixed_slots:
-                    if self.layout == "antigravity":
-                        local_link = (
-                            self.repo_root / ".worktrees" / f"wave-{wave_number}-{track.track_id}"
-                        )
-                        remove_directory_link(local_link)
-                    if wt_path.exists():
-                        for shared_d in _DEFAULT_SHARED_DIRS:
-                            inner_link = wt_path / shared_d
-                            if (
-                                hasattr(inner_link, "is_junction") and inner_link.is_junction()
-                            ) or inner_link.is_symlink():
-                                remove_directory_link(inner_link)
-                        subprocess.run(
-                            ["git", "worktree", "remove", "--force", str(wt_path)],
-                            cwd=self.repo_root,
-                            check=False,
-                        )
-
+        active_task_ids = [tid for t in active_tracks for tid in t.task_ids]
         if merged_branches:
             try:
-                _, adapter = get_adapter(self.repo_root, kit=plan.sdd_kit or "auto")
                 updated_state = adapter.update_state_on_merge(
                     wave_number=wave_number,
-                    merged_task_ids=target_wave.all_task_ids,
+                    merged_task_ids=active_task_ids,
                 )
                 if updated_state and updated_state.is_file():
                     subprocess.run(
@@ -1641,8 +1697,16 @@ class WorktreeManager:
                         cwd=self.repo_root,
                         check=False,
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                self._rollback_merge_to_head(pre_merge_head)
+                rb_suffix = (
+                    f" (transactional auto-rollback to {pre_merge_head[:7]} completed)"
+                    if pre_merge_head
+                    else ""
+                )
+                raise RuntimeError(
+                    f"Post-merge state update failed for Wave {wave_number}{rb_suffix}: {exc}"
+                ) from exc
 
         if run_quality_gates and merged_branches:
             gates = (
@@ -1664,13 +1728,7 @@ class WorktreeManager:
                         gate_cmd, gate_proc.returncode, gate_proc.stdout, gate_proc.stderr
                     ):
                         continue
-                    if pre_merge_head:
-                        subprocess.run(
-                            ["git", "reset", "--hard", pre_merge_head],
-                            cwd=self.repo_root,
-                            capture_output=True,
-                            check=False,
-                        )
+                    self._rollback_merge_to_head(pre_merge_head)
                     rb_msg = (
                         f"Checkpoint quality gate '{gate_cmd}' failed after merging Wave "
                         f"{wave_number} (transactional auto-rollback to {pre_merge_head[:7]} "
@@ -1698,13 +1756,42 @@ class WorktreeManager:
                     "wave_number": wave_number,
                     "pre_merge_commit": pre_merge_head,
                     "post_merge_commit": post_merge_head,
-                    "task_ids": target_wave.all_task_ids,
+                    "task_ids": active_task_ids,
                     "merged_branches": list(merged_branches),
                     "timestamp": datetime.now(UTC).isoformat(),
                 }
             )
             state["history"] = history
             write_parallel_state(self.repo_root, state)
+
+        if cleanup_worktrees and merged_pairs:
+            cleanup_head = self._resolve_repo_head("HEAD")
+            for track, branch_name in merged_pairs:
+                wt_path = self.worktree_path_for_track(wave_number, track.track_id)
+                if not wt_path.exists():
+                    wt_path = self.worktrees_dir / f"wave-{wave_number}-{track.track_id}"
+
+                if self.fixed_slots and wt_path.exists() and (wt_path / ".git").exists():
+                    # Fixed slot hygiene: reset branch to post-merge repo HEAD, preserving directory
+                    self._reset_worktree_slot(wt_path, branch_name, cleanup_head)
+                elif not self.fixed_slots:
+                    if self.layout == "antigravity":
+                        local_link = (
+                            self.repo_root / ".worktrees" / f"wave-{wave_number}-{track.track_id}"
+                        )
+                        remove_directory_link(local_link)
+                    if wt_path.exists():
+                        for shared_d in _DEFAULT_SHARED_DIRS:
+                            inner_link = wt_path / shared_d
+                            if (
+                                hasattr(inner_link, "is_junction") and inner_link.is_junction()
+                            ) or inner_link.is_symlink():
+                                remove_directory_link(inner_link)
+                        subprocess.run(
+                            ["git", "worktree", "remove", "--force", str(wt_path)],
+                            cwd=self.repo_root,
+                            check=False,
+                        )
 
         return merged_branches
 
@@ -1745,13 +1832,38 @@ class WorktreeRollbackManager:
         self.worktree_mgr = WorktreeManager(self.repo_root, fixed_slots=fixed_slots)
 
     def abort_wave(self, wave_id: int) -> list[str]:
-        """Abort wave before merge: remove worktrees, prune, delete parallel branches."""
-        # 1. Clean worktrees and junction links
-        self.worktree_mgr.cleanup_wave(wave_id, force=True)
+        """Abort wave before merge: reset/remove worktrees, prune, clean branches and stale plan."""
+        # 1. Clean worktrees and junction links (resets fixed slots to repo_root HEAD)
+        cleaned_paths = self.worktree_mgr.cleanup_wave(wave_id, force=True)
         # 2. Prune git worktrees
-        subprocess.run(["git", "worktree", "prune"], cwd=self.repo_root, check=False)
-        # 3. Find and delete parallel/wave-{wave_id}-* branches
-        deleted_branches: list[str] = []
+        subprocess.run(
+            ["git", "worktree", "prune"],
+            cwd=self.repo_root,
+            capture_output=True,
+            check=False,
+        )
+        # 2b. Remove stale escalation-modified wave plan if present
+        stale_plan = self.repo_root / ".parallel" / "wave-plan.json"
+        if stale_plan.is_file():
+            try:
+                stale_plan.unlink()
+            except OSError:
+                pass
+        # 3. Report reset fixed-slot branches and delete any parallel/wave-{wave_id}-* branches
+        reported_branches: list[str] = []
+        if self.fixed_slots:
+            for p in cleaned_paths:
+                if p.name.startswith("track-"):
+                    b_name = f"parallel/{p.name}"
+                    chk = subprocess.run(
+                        ["git", "rev-parse", "--verify", b_name],
+                        cwd=self.repo_root,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if chk.returncode == 0 and b_name not in reported_branches:
+                        reported_branches.append(b_name)
         branch_proc = subprocess.run(
             ["git", "branch", "--list", f"parallel/wave-{wave_id}-*"],
             cwd=self.repo_root,
@@ -1768,8 +1880,9 @@ class WorktreeRollbackManager:
                     capture_output=True,
                     check=False,
                 )
-                deleted_branches.append(b_name)
-        return deleted_branches
+                if b_name not in reported_branches:
+                    reported_branches.append(b_name)
+        return reported_branches
 
     def rollback_wave(
         self,
