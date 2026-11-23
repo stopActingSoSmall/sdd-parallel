@@ -47,6 +47,7 @@ from sdd_parallel.worktree import (
     WorktreeManager,
     WorktreeRollbackManager,
     default_antigravity_worktrees_dir,
+    load_parallel_config,
     read_parallel_state,
     write_parallel_state,
 )
@@ -187,6 +188,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Print branches to be merged without modifying Git state",
+    )
+    p_merge.add_argument(
+        "--partial-merge",
+        action="store_true",
+        help=(
+            "Commit healthy tracks and isolate/reschedule failing tracks "
+            "instead of rolling back the whole wave"
+        ),
     )
 
     # merge-status
@@ -836,6 +845,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             manifest_path = save_wave_manifest(repo_root, manifest)
 
+            use_partial_merge = bool(
+                getattr(args, "partial_merge", False)
+                or load_parallel_config(repo_root).get("partial_merge", False)
+            )
             merged = wm.merge_wave(
                 plan=plan,
                 wave_number=args.wave,
@@ -843,6 +856,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 cleanup_worktrees=args.cleanup,
                 dry_run=args.dry_run,
                 strict_gates=args.strict_gates,
+                partial_merge=use_partial_merge,
             )
         except (RuntimeError, ValueError, LIFORollbackViolationError) as exc:
             err_payload = {
@@ -856,16 +870,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+        merge_payload: dict[str, Any] = {
+            "wave": args.wave,
+            "dry_run": args.dry_run,
+            "merged_branches": merged,
+            "manifest_path": manifest_path.as_posix(),
+            "prevented_conflicts_count": len(manifest.prevented_conflicts),
+        }
+        if wm.last_merge_outcome is not None and wm.last_merge_outcome.rejected_tracks:
+            merge_payload["partial_merge"] = True
+            merge_payload["rejected_tracks"] = [
+                fb.to_dict() for fb in wm.last_merge_outcome.rejected_tracks.values()
+            ]
+            merge_payload["backup_branches"] = dict(wm.last_merge_outcome.backup_branches)
+            if wm.last_merge_outcome.rescheduled_plan_path is not None:
+                merge_payload["rescheduled_plan"] = (
+                    wm.last_merge_outcome.rescheduled_plan_path.as_posix()
+                )
         print(
             json.dumps(
-                {
-                    "wave": args.wave,
-                    "dry_run": args.dry_run,
-                    "merged_branches": merged,
-                    "manifest_path": manifest_path.as_posix(),
-                    "prevented_conflicts_count": len(manifest.prevented_conflicts),
-                },
+                merge_payload,
                 indent=2,
+                ensure_ascii=False,
             )
         )
         return 0
