@@ -208,6 +208,7 @@ class SDDAdapterProtocol(Protocol):
 2. **`SPINE_ORDER` (척추 체인 유향 종속성 $A \to B$):** `SPINE` 파일에 대한 순차적 수정 체인.
 3. **`DIRECT_COLLISION` (직접 쓰기 충돌 $A \leftrightarrow B$):** $W(A) \cap W(B) \setminus \text{AdditiveRegistries} \neq \emptyset$.
 4. **`SEMANTIC_COLLISION` (제2종 시맨틱 충돌 $A \leftrightarrow B$):** $(W(A) \cap I(B)) \cup (W(B) \cap I(A)) \neq \emptyset$.
+5. **`NAMESPACE_COLLISION` (클래스 D):** 서로 다른 파일 간 `namespace_tokens`(CLI 플래그, ENV 변수, HTTP 라우트) 충돌; `extract_spine_bucket()`(클래스 C)는 동일 디렉터리 내 마이그레이션을 직렬화합니다.
 
 ---
 
@@ -314,6 +315,7 @@ class SDDAdapterProtocol(Protocol):
 - **`rollback-wave --wave K [--save-backup]`:** 엄격한 LIFO 순서로 최신 웨이브를 되돌리고, 안전 브랜치 `backup/wave-<K>-before-rollback-*`를 자동 생성하며 작업 상태를 다형적으로 복원.
 
 ### 4.8. 스택 무관 체크포인트 품질 게이트 및 트랜잭션 자동 롤백
+- **병합 전 AST Diff 게이트 (`ast_diff_gate.py`) 및 부분 병합 (`--partial-merge`):** `verify-wave`는 가상 임포트 순환(Tarjan, 클래스 G), 기본값 드리프트(클래스 A/B), AST 슁글 중복 헬퍼(클래스 F), 락파일 충돌(클래스 H)을 감지합니다. `merge --partial-merge`는 정상 트랙을 증분 커밋하고 이분 탐색으로 원인 트랙을 격리하여 `.parallel/barrier-feedback-<story_id>.json`을 기록한 뒤 `reschedule_remaining_waves()`를 실행합니다.
 
 - **범용 게이트 해석:** `.parallel-config.json` 또는 `pyproject.toml`에서 게이트를 읽어오며, Python, Node, Rust, Go를 자동 감지.
 - **트랜잭션 자동 롤백:** `sdd-parallel merge --wave K` 실행 중 임의의 트랙 브랜치에서 병합 충돌, `update_state_on_merge()` 실패 또는 체크포인트 품질 게이트 실패가 발생하면, 오케스트레이터는 슬롯 정리 전에 자동으로 `git merge --abort` 및 `git reset --hard pre_merge_head`를 실행하여 `master`를 원자적으로 복구하고 디버깅을 위해 트랙 슬롯은 그대로 보존합니다.
@@ -331,7 +333,7 @@ class SDDAdapterProtocol(Protocol):
 | `claim-track` | 기존 외부 워크트리에 경계 잠금 매니페스트 연결 | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
 | `run-guide` | 웨이브 K에 대한 운영자 실행 가이드 매트릭스 출력 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
 | `verify-wave` | merge-base 대비 워크트리 diff 및 잠금 규정 준수 감사, 스코프 에스컬레이션 처리 및 배리어 매니페스트 기록 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | 3-Way 상태 병합, 품질 게이트, 원자적 롤백 및 매니페스트 기록을 포함한 배리어 체크포인트 병합 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `merge` | 3-Way 상태 병합, 품질 게이트, 원자적 롤백 및 매니페스트 기록을 포함한 배리어 체크포인트 병합 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | sprint-status.yaml 전용 독립형 결정론적 3-Way 병합 | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | 훅 로직을 통해 파일 쓰기 권한 여부 검사 | `--file <path>`, `--tool <name>` (`indent=2`로 포맷팅된 JSON 출력) |
 | `install-plugin` | 포터블 Antigravity 플러그인 패키징 및 설치 | `--target-dir <path>` (기본값: `~/.gemini/config/plugins/sdd-parallel`) |

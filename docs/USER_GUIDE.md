@@ -479,12 +479,14 @@ Use this decision path when a wave fails verification or breaks tests at the bar
 
 | Situation | Command | What Happens on Disk |
 | :--- | :--- | :--- |
-| **Unmerged wave:** `verify-wave --wave K` flags a scope violation or uncommitted drift | Fix inside `.worktrees/track-<id>`, commit, and re-run `sdd-parallel verify-wave --wave K` | No changes to `main`; manifest `.parallel/wave-<K>-manifest.json` updates when compliant |
+| **Unmerged wave:** `verify-wave --wave K` flags a scope violation, `ast_diff_gate` finding (cycle, default drift, duplicate helper, lockfile collision), or uncommitted drift | Fix inside `.worktrees/track-<id>`, commit, and re-run `sdd-parallel verify-wave --wave K` | No changes to `main`; manifest `.parallel/wave-<K>-manifest.json` updates when compliant |
 | **Unmerged wave:** you want to throw away Wave $K$ slots and re-plan | `sdd-parallel abort-wave --wave K` | Resets fixed slots (`parallel/track-*`) in place to `main` `HEAD` (or deletes `parallel/wave-*` with `--dynamic-worktrees`), clears `.parallel/wave-plan.json`; `main` untouched |
-| **During `merge --wave K`:** merge conflict, state sync error, or quality gates fail | Automatic transactional rollback | Engine aborts active merge and resets `main` atomically back to `pre_merge_head` before slot cleanup |
+| **During `merge --wave K` (default):** merge conflict, state sync error, or quality gates fail | Automatic transactional rollback | Engine aborts active merge and resets `main` atomically back to `pre_merge_head` before slot cleanup |
+| **During `merge --wave K --partial-merge`:** one track conflicts or fails gates while sibling tracks are clean | Partial Wave Commit + Culprit Bisection | Healthy tracks commit to `main`; failing track is isolated on `backup/wave-<K>-<track>-failed-<ts>`, `.parallel/barrier-feedback-<story_id>.json` is saved, and remaining waves re-plan via `reschedule_remaining_waves()` |
 | **Already merged wave:** tests fail later or you need to undo Wave $K$ | `sdd-parallel rollback-wave --wave K --save-backup` | Preserves `backup/wave-<K>-before-rollback-*` branch, reverts `HEAD` in strict **LIFO** order, and polymorphically resets SDD task statuses (`[x]` → `[ ]`, `done` → `ready-for-dev`, `closed` → `open`) |
 
 **Common `merge` flags:**
+- `sdd-parallel merge --wave K --partial-merge` — incrementally commit healthy tracks, isolate culprit tracks via bisection, record `.parallel/barrier-feedback-<story_id>.json` for next-wave NACK injection, and re-schedule the remaining wave DAG.
 - `sdd-parallel merge --wave K --strict-gates` — enforce strict non-zero exit if any quality gate command fails or is missing.
 - `sdd-parallel merge --wave K --skip-gates` — merge after `verify-wave` scope audit without running test/lint gates (use only when gates are run externally in CI).
 - `sdd-parallel merge --wave K --cleanup` — tear down slots after merging the final wave.

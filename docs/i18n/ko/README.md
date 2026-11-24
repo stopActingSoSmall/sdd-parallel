@@ -203,7 +203,7 @@ my-project/
 | OpenSpec | `/openspec-apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
-> 📦 **Spec Kit 확장 (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip` (또는 `specify extension add sdd-parallel`)로 `/specify plan-waves`, `/specify prepare-wave --wave 1`, `/specify merge-wave --wave 1`을 추가합니다.
+> 📦 **Spec Kit 확장 (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.2.zip` (또는 `specify extension add sdd-parallel`)로 `/specify plan-waves`, `/specify prepare-wave --wave 1`, `/specify merge-wave --wave 1`을 추가합니다.
 
 | 하네스 | 연동 방식 |
 | :--- | :--- |
@@ -276,7 +276,7 @@ flowchart TD
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — 기존 worktree에 잠금 연결. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — 슬롯별 네이티브 실행 명령어 출력. |
 | `sdd-parallel verify-wave --wave K` | `.parallel-lock.json`, `merge-base` diff 및 스코프 에스컬레이션 기준으로 슬롯 감사. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — 게이트 검증, 3-way 병합, 충돌 또는 게이트 오류 시 원자적 롤백. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge] [--cleanup]` — 게이트 검증, 3-way 병합, 충돌 또는 게이트 오류 시 원자적 롤백. |
 | `sdd-parallel abort-wave --wave K` | 고정 슬롯을 제자리에서 `HEAD`로 리셋(또는 `--dynamic-worktrees`에서 브랜치 삭제). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO 되돌리기 + 안전 브랜치 + 상태 복원. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — `sprint-status.yaml` 3-way 병합. |
@@ -291,10 +291,11 @@ flowchart TD
 
 ---
 
-## 🚢 릴리스 매트릭스: 완료 항목 (v0.2.1) vs 로드맵 (v0.3+)
+## 🚢 릴리스 매트릭스: 완료 항목 (v0.2.2) vs 로드맵 (v0.3+)
 
-### ✅ `v0.1.0 – v0.2.1` 구현 완료 항목
+### ✅ `v0.1.0 – v0.2.2` 구현 완료 항목
 - [x] BSP 웨이브 스케줄러(Kahn 비순환성) + AST 핫스팟 스캐너 + `code-review-graph v2.3.9` 사이드카.
+- [x] **8클래스 충돌 방어 (A–H):** `extract_spine_bucket()` (C), `NAMESPACE_COLLISION` (D), `ast_diff_gate.py` (A/B/F/G/H) 및 `merge --partial-merge` 원인 이분 탐색과 `.parallel/barrier-feedback-<story_id>.json`.
 - [x] 제자리 재설정, `info/exclude` 마스킹, `.venv`/`node_modules` NTFS Junctions (Windows, no admin) / POSIX symlinks를 지원하는 고정 슬롯(`track-a/b/c`).
 - [x] 3계층 스코프 가드(`PreToolUse` + 터미널 가드 + `chmod a-w`), 심볼 링커, `.tmp/scope-escalation.json`.
 - [x] 단조 3-way 상태 병합기(YAML, Markdown, `STATE.md`, JSONL) + LIFO 트랜잭션 롤백.
@@ -305,7 +306,6 @@ flowchart TD
 
 ### 🚧 `v0.3+` 로드맵 예정 항목
 - [ ] 엄격한 키트 자동 감지 (무음 폴백 제로, TTY 모호성 해소)
-- [ ] 그래프 안전 에스컬레이션 및 원인 이분 탐색 (부분 웨이브 병합 + 수정 루프)
 - [ ] 네이티브 다중 언어 Tree-sitter AST 및 자동 CRG 인덱싱 (TS/JS, Go, Rust)
 - [ ] 선택적 System-1 사전 추출기 (`--extractor none|gliner|clairic`) 및 적응형 `--max-tracks auto`
 

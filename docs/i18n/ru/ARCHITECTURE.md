@@ -201,15 +201,18 @@ class SDDAdapterProtocol(Protocol):
 3. **Проход 3 (Детерминированная классификация `SPINE > ADDITIVE_REGISTRY > STANDARD`):**
    - Тесты (`tests/`, `test_*.py`) $\to$ всегда `STANDARD`.
    - `SPINE`: если `has_schema_version == True` $\lor$ имя файла `{"models.py", "schema.py"}` $\lor$ **топологическая центральность $\text{In-Degree} \ge 5$**.
+   - **Spine-бакеты (Класс C):** `DEFAULT_SPINE_BUCKET_GLOBS` (`**/migrations/**`, `**/versions/**`, `docs/adr/**`) через `extract_spine_bucket()` сериализуют параллельные задачи с разными именами файлов в одной упорядоченной директории.
    - `ADDITIVE_REGISTRY`: если `has_registry_decorators == True` $\lor$ точка входа `{"cli.py", "__init__.py"}` $\lor$ `*/mcp/server.py`.
    - `STANDARD`: все остальные модули бизнес-логики.
+   - **Экстрактор пространств имён (Класс D):** `extract_namespace_tokens()` извлекает нормализованные CLI-флаги (`cli:--flag`), переменные окружения (`env:VAR`) и HTTP-роуты (`route:METHOD /path`) для перехвата коллизий в разных файлах.
 
 ### 2.3. Типы рёбер в графе планирования (`ConflictEdge`)
 
 1. **`EXPLICIT_DEP` (Направленное ребро $A \to B$):** Явная зависимость из роадмапа/спеки или семантическая зависимость по потоку данных. Задача $B$ обязана выполняться в волне $\text{wave}(B) > \text{wave}(A)$.
-2. **`SPINE_ORDER` (Направленное ребро $A \to B$):** Последовательная цепочка модификации `SPINE`-файла (например, миграции БД `v4 -> v5 -> v6`).
+2. **`SPINE_ORDER` (Направленное ребро $A \to B$):** Последовательная цепочка модификации `SPINE`-файла или общего `Spine Bucket` (`extract_spine_bucket()`, Класс C — например, миграции `005_a.sql` и `005_b.sql`).
 3. **`DIRECT_COLLISION` (Ненаправленное ребро конфликта $A \leftrightarrow B$):** $W(A) \cap W(B) \setminus \text{AdditiveRegistries} \neq \emptyset$. Задачи $A$ и $B$ не могут находиться в одной волне ($\text{wave}(A) \neq \text{wave}(B)$).
 4. **`SEMANTIC_COLLISION` (Конфликт 2-го рода $A \leftrightarrow B$):** $(W(A) \cap I(B)) \cup (W(B) \cap I(A)) \neq \emptyset$. Задача $A$ меняет контракт модуля, от которого напрямую зависит код задачи $B$.
+5. **`NAMESPACE_COLLISION` (Ненаправленное ребро конфликта $A \leftrightarrow B$, Класс D):** Пересечение `namespace_tokens` (общие CLI-флаги, ENV-переменные или HTTP-роуты в разных файлах).
 
 ---
 
@@ -336,7 +339,8 @@ class SDDAdapterProtocol(Protocol):
   2. *Приоритет 2:* `pyproject.toml` (`[tool.sdd-parallel].checkpoint_gates`).
   3. *Приоритет 3:* Автоопределение стека (Python `pytest/ruff/mypy`, Node/TS `npm test`, Rust `cargo test`, Go `go test ./...`).
 - **Устойчивость к пустым сьютам (`_is_no_tests_collected`):** Код выхода 5 в `pytest` (`NO_TESTS_COLLECTED`) или `"no test files found"` не ломает слияние при `strict_gates=False`.
-- **Транзакционный авто-откат:** При merge-конфликте на любой ветке волны, ошибке `update_state_on_merge()` или падении любого checkpoint gate во время `sdd-parallel merge --wave K` оркестратор прерывает слияние и выполняет `git reset --hard pre_merge_head` до очистки слотов, атомарно возвращая `master` и сохраняя слоты для отладки.
+- **Добарьерный AST-анализатор диффов (`ast_diff_gate.py`):** Выполняется в `WorktreeManager.verify_wave()` при наличии `>= 2` слотов до `git merge`. Перехватывает виртуальные циклы импортов (Тарьян, Класс G), дрейф сигнатур/дефолтов/констант относительно `merge-base` (Классы A/B), структурное сходство новых хелперов по AST-шинглам (Jaccard $\ge 0.75$, Класс F) и одновременную правку манифестов зависимостей/lock-файлов (Класс H).
+- **Транзакционный авто-откат и Partial Barrier Merge (`--partial-merge`):** По умолчанию при merge-конфликте, ошибке `update_state_on_merge()` или падении checkpoint gate во время `sdd-parallel merge --wave K` оркестратор прерывает слияние и выполняет `git reset --hard pre_merge_head`. При флаге `--partial-merge` (или `partial_merge: true` в `.parallel-config.json`) здоровые треки коммитятся инкрементально, виновник изолируется детерминированной бисекцией (`_isolate_culprit_tracks_by_bisection`), сохраняется в `backup/wave-<K>-<track>-failed-<ts>`, записывается `.parallel/barrier-feedback-<story_id>.json`, а хвост волн перепланируется через `BSPWaveScheduler.reschedule_remaining_waves()`.
 
 ### 4.9. Standalone Offline Merge-Bomb Demonstration (`sdd-parallel demo`)
 
@@ -356,7 +360,7 @@ class SDDAdapterProtocol(Protocol):
 | `claim-track` | Присоединение локов к существующему ворк-три | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
 | `run-guide` | Вывод форматированной таблицы запуска для оператора | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
 | `verify-wave` | Аудит диффов, соблюдения локов, обработка scope-эскалаций и сбор манифеста | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | Барьерное слияние с 3-way мерджем статусов, гейтами, атомарным откатом и манифестом | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `merge` | Барьерное слияние с 3-way мерджем статусов, гейтами, атомарным откатом и манифестом | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | Автономный 3-way детерминированный мердж sprint-status.yaml | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | Проверка разрешения на запись в файл через логику хука | `--file <path>`, `--tool <name>` (вывод форматированного JSON с `indent=2`) |
 | `install-plugin` | Сборка и установка портативного плагина Antigravity | `--target-dir <path>` (по умолчанию `~/.gemini/config/plugins/sdd-parallel`) |

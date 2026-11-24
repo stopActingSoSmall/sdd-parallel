@@ -203,15 +203,18 @@ In compliance with **Invariant 7 (Anti-Overfitting & Invariant-First Architectur
 3. **Pass 3 (Deterministic Classification `SPINE > ADDITIVE_REGISTRY > STANDARD`):**
    - Tests (`tests/`, `test_*.py`) $\to$ always `STANDARD`.
    - `SPINE`: if `has_schema_version == True` $\lor$ filename in `{"models.py", "schema.py"}` $\lor$ **Topological Centrality $\text{In-Degree} \ge 5$**.
+   - **Spine Buckets (Class C):** `DEFAULT_SPINE_BUCKET_GLOBS` (`**/migrations/**`, `**/versions/**`, `docs/adr/**`) mapped via `extract_spine_bucket()` serialize concurrent tasks creating different filenames inside the same ordered directory.
    - `ADDITIVE_REGISTRY`: if `has_registry_decorators == True` $\lor$ entrypoint in `{"cli.py", "__init__.py"}` $\lor$ `*/mcp/server.py`.
    - `STANDARD`: all remaining business logic modules.
+   - **Namespace Token Extraction (Class D):** `extract_namespace_tokens()` extracts normalized CLI flags (`cli:--flag`), environment variables (`env:VAR`), and HTTP routes (`route:METHOD /path`) from task descriptions to detect cross-file registry collisions.
 
 ### 2.3. Conflict Graph Edge Types (`ConflictEdge`)
 
 1. **`EXPLICIT_DEP` (Directed Edge $A \to B$):** Explicit dependency declared in roadmap or dataflow requirement. Task $B$ executes in wave $\text{wave}(B) > \text{wave}(A)$.
-2. **`SPINE_ORDER` (Directed Edge $A \to B$):** Sequential chain modifying a `SPINE` file (e.g., database schema migrations `v4 -> v5 -> v6`).
+2. **`SPINE_ORDER` (Directed Edge $A \to B$):** Sequential chain modifying a `SPINE` file or sharing a `Spine Bucket` (`extract_spine_bucket()`, Class C — e.g., database migrations `005_a.sql` vs `005_b.sql`).
 3. **`DIRECT_COLLISION` (Undirected Conflict Edge $A \leftrightarrow B$):** $W(A) \cap W(B) \setminus \text{AdditiveRegistries} \neq \emptyset$. Tasks $A$ and $B$ cannot run in the same wave ($\text{wave}(A) \neq \text{wave}(B)$).
 4. **`SEMANTIC_COLLISION` (Type-2 Conflict Edge $A \leftrightarrow B$):** $(W(A) \cap I(B)) \cup (W(B) \cap I(A)) \neq \emptyset$. Task $A$ modifies an interface that Task $B$ directly invokes.
+5. **`NAMESPACE_COLLISION` (Undirected Conflict Edge $A \leftrightarrow B$, Class D):** Overlapping `namespace_tokens` (shared CLI flags, ENV vars, or HTTP routes across distinct files).
 
 ---
 
@@ -340,7 +343,8 @@ Rather than recreating filesystem directories per wave, the orchestrator provisi
   2. *Priority 2:* `pyproject.toml` (`[tool.sdd-parallel].checkpoint_gates`).
   3. *Priority 3:* Automatic stack detection (Python `pytest/ruff/mypy`, Node/TS `npm test`, Rust `cargo test`, Go `go test ./...`).
 - **Empty Suite Resilience (`_is_no_tests_collected`):** Code 5 in pytest (`NO_TESTS_COLLECTED`) or `"no test files found"` does not fail the merge unless `--strict-gates` is enabled.
-- **Transactional Auto-Rollback:** If any merge conflict, `update_state_on_merge` failure, or checkpoint gate failure occurs during `sdd-parallel merge --wave K`, the orchestrator automatically aborts any active merge and executes `git reset --hard pre_merge_head` before slot cleanup, restoring `master` atomically while leaving track slots intact for debugging.
+- **Pre-Merge AST Diff Gate (`ast_diff_gate.py`):** Executed inside `WorktreeManager.verify_wave()` across `>= 2` isolated worktree slots before `git merge`. Detects virtual cross-track import cycles (Tarjan SCC, Class G), signature/default/constant drift vs `merge-base` (Classes A/B), structurally duplicate new helper functions via normalized AST shingles (Jaccard $\ge 0.75$, Class F), and concurrent dependency manifest/lockfile edits (Class H).
+- **Transactional Auto-Rollback & Partial Barrier Merge (`--partial-merge`):** By default, if any merge conflict, `update_state_on_merge` failure, or checkpoint gate failure occurs during `sdd-parallel merge --wave K`, the orchestrator aborts any active merge and executes `git reset --hard pre_merge_head`. With `--partial-merge` (or `partial_merge: true` in `.parallel-config.json`), healthy tracks are committed incrementally while failing tracks are isolated via deterministic culprit bisection (`_isolate_culprit_tracks_by_bisection`), preserved on `backup/wave-<K>-<track>-failed-<ts>`, recorded in `.parallel/barrier-feedback-<story_id>.json`, and remaining waves are re-planned via `BSPWaveScheduler.reschedule_remaining_waves()`.
 
 ### 4.9. Standalone Offline Merge-Bomb Demonstration (`sdd-parallel demo`)
 
@@ -360,7 +364,7 @@ The autonomous command `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,bea
 | `claim-track` | Attach boundary locks to an existing external worktree | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
 | `run-guide` | Display formatted operator run-guide matrix for Wave K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
 | `verify-wave` | Audit worktree diffs, lock compliance, handle scope escalations, and record barrier manifest | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | Barrier checkpoint merge with 3-way status merge, gates, atomic rollback, and manifest | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `merge` | Barrier checkpoint merge with 3-way status merge, gates, atomic rollback, and manifest | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | Standalone 3-way deterministic merge for sprint-status.yaml | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | Inspect file modification permission via active hook logic | `--file <path>`, `--tool <name>` (outputs formatted JSON with `indent=2`) |
 | `install-plugin` | Package and install portable Antigravity plugin | `--target-dir <path>` (defaults to `~/.gemini/config/plugins/sdd-parallel`) |

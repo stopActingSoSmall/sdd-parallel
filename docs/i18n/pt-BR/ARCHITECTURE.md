@@ -208,6 +208,7 @@ Sob o **Invariante 7 (Anti-Overfitting)**, os papéis são determinados dinamica
 2. **`SPINE_ORDER` (Ordem Espinhal Direcionada $A \to B$):** Alteração sequencial sobre arquivo `SPINE`.
 3. **`DIRECT_COLLISION` (Colisão Direta de Escrita $A \leftrightarrow B$):** $W(A) \cap W(B) \setminus \text{AdditiveRegistries} \neq \emptyset$.
 4. **`SEMANTIC_COLLISION` (Colisão Semântica Tipo 2 $A \leftrightarrow B$):** $(W(A) \cap I(B)) \cup (W(B) \cap I(A)) \neq \emptyset$.
+5. **`NAMESPACE_COLLISION` (Classe D):** Colisão de `namespace_tokens` (flags CLI, variáveis ENV ou rotas HTTP entre arquivos distintos); `extract_spine_bucket()` (Classe C) serializa migrações no mesmo diretório.
 
 ---
 
@@ -314,6 +315,7 @@ Mantém um pool permanente de $K = \text{max\_tracks}$ slots (`track-a`, `track-
 - **`rollback-wave --wave K [--save-backup]`:** Reverte em estrita ordem LIFO, cria branch de segurança `backup/wave-<K>-before-rollback-*` e restaura status polimorficamente.
 
 ### 4.8. Portões de Qualidade Agnósticos e Auto-Rollback Transacional
+- **Portão AST Pré-Merge (`ast_diff_gate.py`) e Merge Parcial (`--partial-merge`):** `verify-wave` detecta ciclos virtuais (Tarjan, Classe G), deriva de padrões (Classes A/B), helpers duplicados por AST shingles (Classe F) e colisões de lockfiles (Classe H); `merge --partial-merge` faz commit incremental dos tracks saudáveis, isola o culpado por bisseção e grava `.parallel/barrier-feedback-<story_id>.json` antes de `reschedule_remaining_waves()`.
 
 - **Resolução Universal:** Lê portões de `.parallel-config.json` ou `pyproject.toml`, com autodeteção para Python, Node, Rust e Go.
 - **Auto-Rollback Transacional:** Se ocorrer qualquer conflito de merge em uma branch de trilha, falha em `update_state_on_merge()` ou falha em qualquer portão de verificação durante `sdd-parallel merge --wave K`, o orquestrador aborta automaticamente qualquer merge ativo (`git merge --abort`) e executa `git reset --hard pre_merge_head` antes da limpeza dos slots, restaurando a `master` atomicamente enquanto mantém os slots intactos para depuração.
@@ -331,7 +333,7 @@ O comando autônomo `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,
 | `claim-track` | Vincula travas de limites a uma worktree externa existente | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
 | `run-guide` | Exibe a matriz formatada do guia do operador para a Onda K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
 | `verify-wave` | Audita diffs de worktrees, conformidade de travas, trata escalonamentos de escopo e registra o manifesto de barreira | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | Merge no checkpoint de barreira com merge 3-way de status, quality gates, rollback atômico e manifesto | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `merge` | Merge no checkpoint de barreira com merge 3-way de status, quality gates, rollback atômico e manifesto | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | Ferramenta determinística independente de merge 3-way para sprint-status.yaml | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | Inspeciona permissão de modificação de arquivo via lógica de hook ativo | `--file <path>`, `--tool <name>` (produz JSON formatado com `indent=2`) |
 | `install-plugin` | Empacota e instala o plugin portátil do Antigravity | `--target-dir <path>` (padrão: `~/.gemini/config/plugins/sdd-parallel`) |

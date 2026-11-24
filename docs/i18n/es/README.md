@@ -203,7 +203,7 @@ Leyenda: 🔒 solo lectura (`chmod a-w` + `PreToolUse` deny) · 👻 oculto (`in
 | OpenSpec | `/openspec-apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
-> 📦 **Extensión de Spec Kit (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip` (o `specify extension add sdd-parallel`) añade `/specify plan-waves`, `/specify prepare-wave --wave 1`, `/specify merge-wave --wave 1`.
+> 📦 **Extensión de Spec Kit (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.2.zip` (o `specify extension add sdd-parallel`) añade `/specify plan-waves`, `/specify prepare-wave --wave 1`, `/specify merge-wave --wave 1`.
 
 | Harness | Cómo se integra |
 | :--- | :--- |
@@ -276,7 +276,7 @@ Opciones compartidas: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-f
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — Bloquea un worktree existente. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — Imprime comando de lanzamiento nativo por ranura. |
 | `sdd-parallel verify-wave --wave K` | Audita ranuras frente a `.parallel-lock.json`, diff respecto a `merge-base` y escalados de alcance. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — Quality gates, fusión 3-way, rollback atómico ante conflicto/error de compuerta. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge] [--cleanup]` — Quality gates, fusión 3-way, rollback atómico ante conflicto/error de compuerta. |
 | `sdd-parallel abort-wave --wave K` | Reinicia ranuras fijas in situ a `HEAD` (o elimina ramas en `--dynamic-worktrees`). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — Reversión LIFO + rama de respaldo + reinicio de estado. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — Fusión 3-way para `sprint-status.yaml`. |
@@ -291,10 +291,11 @@ Opciones compartidas: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-f
 
 ---
 
-## 🚢 Matriz de versiones: Publicado (v0.2.1) vs Hoja de ruta (v0.3+)
+## 🚢 Matriz de versiones: Publicado (v0.2.2) vs Hoja de ruta (v0.3+)
 
-### ✅ Publicado en `v0.1.0 – v0.2.1`
+### ✅ Publicado en `v0.1.0 – v0.2.2`
 - [x] Planificador de olas BSP (aciclicidad de Kahn) + escáner AST de puntos calientes + sidecar `code-review-graph v2.3.9`.
+- [x] **Defensa de 8 clases (A–H):** `extract_spine_bucket()` (C), `NAMESPACE_COLLISION` (D), `ast_diff_gate.py` (A/B/F/G/H) y `merge --partial-merge` con bisección de culpables y `.parallel/barrier-feedback-<story_id>.json`.
 - [x] Ranuras fijas (`track-a/b/c`) con reinicio in-situ, enmascaramiento `info/exclude`, `.venv`/`node_modules` vía NTFS Junctions (Windows, no admin) / POSIX symlinks.
 - [x] Scope Guard de 3 niveles (`PreToolUse` + Terminal Guard + `chmod a-w`), enlazador de símbolos, `.tmp/scope-escalation.json`.
 - [x] Fusionador 3-way monótono de estados (YAML, Markdown, `STATE.md`, JSONL) + reversión transaccional LIFO.

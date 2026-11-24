@@ -203,7 +203,7 @@ my-project/
 | OpenSpec | `/openspec-apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
-> 📦 **Spec Kit Extension (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip`（または `specify extension add sdd-parallel`）で `/specify plan-waves`、`/specify prepare-wave --wave 1`、`/specify merge-wave --wave 1` を追加。
+> 📦 **Spec Kit Extension (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.2.zip`（または `specify extension add sdd-parallel`）で `/specify plan-waves`、`/specify prepare-wave --wave 1`、`/specify merge-wave --wave 1` を追加。
 
 | ハーネス | 接続方法 |
 | :--- | :--- |
@@ -276,7 +276,7 @@ flowchart TD
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — 既存 worktree へロックを適用。 |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — スロット別の起動コマンドを表示。 |
 | `sdd-parallel verify-wave --wave K` | `.parallel-lock.json`、`merge-base` diff、およびスコープエスカレーションに対してスロットを監査。 |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — ゲート検証、3-Way マージ、競合またはゲートエラー時のアトミックロールバック。 |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge] [--cleanup]` — ゲート検証、3-Way マージ、競合またはゲートエラー時のアトミックロールバック。 |
 | `sdd-parallel abort-wave --wave K` | 固定スロットをその場で `HEAD` にリセット（または `--dynamic-worktrees` でブランチ削除）。 |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO リバート＋退避ブランチ＋状態復元。 |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — `sprint-status.yaml` 用 3-Way マージ。 |
@@ -291,10 +291,11 @@ flowchart TD
 
 ---
 
-## 🚢 リリースマトリクス：実装済み (v0.2.1) vs ロードマップ (v0.3+)
+## 🚢 リリースマトリクス：実装済み (v0.2.2) vs ロードマップ (v0.3+)
 
-### ✅ `v0.1.0 – v0.2.1` で実装済み
+### ✅ `v0.1.0 – v0.2.2` で実装済み
 - [x] BSP スケジューラ（Kahn 非巡回性）+ AST スキャナ + `code-review-graph v2.3.9` サイドカー。
+- [x] **8クラス衝突防御 (A–H):** `extract_spine_bucket()` (C), `NAMESPACE_COLLISION` (D), `ast_diff_gate.py` (A/B/F/G/H), および `merge --partial-merge` 原因二分探索と `.parallel/barrier-feedback-<story_id>.json`。
 - [x] 固定スロット（`track-a/b/c`）、その場リセット、`info/exclude` 不可視化、`.venv`/`node_modules` の NTFS Junctions (Windows, no admin) / POSIX symlinks。
 - [x] 三層 Scope Guard（`PreToolUse` + Terminal Guard + `chmod a-w`）、シンボルリンカー、`.tmp/scope-escalation.json`。
 - [x] 単調 3-Way ステータスマージャー（YAML, Markdown, `STATE.md`, JSONL）+ LIFO ロールバック。
@@ -305,7 +306,6 @@ flowchart TD
 
 ### 🚧 `v0.3+` ロードマップ
 - [ ] 厳格なキット自動検出（サイレントフォールバック廃止、TTY 曖昧性解消）
-- [ ] グラフ安全エスカレーション＆原因特定バイセクション（部分ウェーブ着地＋修復ループ）
 - [ ] ネイティブ多言語 Tree-sitter AST＆自動 CRG インデックス化（TS/JS, Go, Rust）
 - [ ] オプション System-1 事前抽出器（`--extractor none|gliner|clairic`）＆適応型 `--max-tracks auto`
 

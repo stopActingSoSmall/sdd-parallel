@@ -203,7 +203,7 @@ Legenda: 🔒 somente leitura (`chmod a-w` + rejeição no `PreToolUse`) · 👻
 | OpenSpec | `/openspec-apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
-> 📦 **Extensão do Spec Kit (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip` (ou `specify extension add sdd-parallel`) adiciona `/specify plan-waves`, `/specify prepare-wave --wave 1`, `/specify merge-wave --wave 1`.
+> 📦 **Extensão do Spec Kit (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.2.zip` (ou `specify extension add sdd-parallel`) adiciona `/specify plan-waves`, `/specify prepare-wave --wave 1`, `/specify merge-wave --wave 1`.
 
 | Harness | Como se integra |
 | :--- | :--- |
@@ -276,7 +276,7 @@ Opções compartilhadas: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routin
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — Vincula worktree externa existente. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — Exibe comando nativo de execução por slot. |
 | `sdd-parallel verify-wave --wave K` | Audita slots contra `.parallel-lock.json`, diff do `merge-base` e escalonamentos de escopo. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — Quality gates, merge 3-vias, rollback atômico em conflito/erro de gate. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge] [--cleanup]` — Quality gates, merge 3-vias, rollback atômico em conflito/erro de gate. |
 | `sdd-parallel abort-wave --wave K` | Redefine slots fixos in-place para `HEAD` (ou exclui branches em `--dynamic-worktrees`). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — Reversão LIFO + branch de segurança + reset de status. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — Merge 3-vias para `sprint-status.yaml`. |
@@ -291,10 +291,11 @@ Opções compartilhadas: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routin
 
 ---
 
-## 🚢 Matriz de lançamento: Entregue (v0.2.1) vs Roadmap (v0.3+)
+## 🚢 Matriz de lançamento: Entregue (v0.2.2) vs Roadmap (v0.3+)
 
-### ✅ Entregue na `v0.1.0 – v0.2.1`
+### ✅ Entregue na `v0.1.0 – v0.2.2`
 - [x] Agendador de ondas BSP (aciclicidade de Kahn) + scanner AST de hotspots + sidecar `code-review-graph v2.3.9`.
+- [x] **Defesa de 8 classes (A–H):** `extract_spine_bucket()` (C), `NAMESPACE_COLLISION` (D), `ast_diff_gate.py` (A/B/F/G/H) e `merge --partial-merge` com bisseção de culpados e `.parallel/barrier-feedback-<story_id>.json`.
 - [x] Slots fixos (`track-a/b/c`) com reset in-place, mascaramento `info/exclude` e `.venv`/`node_modules` via NTFS Junctions (Windows, no admin) / POSIX symlinks.
 - [x] Scope Guard em 3 níveis (`PreToolUse` + Terminal Guard + `chmod a-w`), linker de símbolos e `.tmp/scope-escalation.json`.
 - [x] Merger monótono de status 3-vias (YAML, Markdown, `STATE.md`, JSONL) + rollback transacional LIFO.

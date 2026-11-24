@@ -186,10 +186,11 @@ $$\text{Wave } 1 \longrightarrow \text{Merge Checkpoint } 1 \longrightarrow \tex
   $$\text{Status}_{\text{merged}} = \max(\text{Status}_{\text{base}}, \text{Status}_{\text{ours}}, \text{Status}_{\text{theirs}})$$
 - Все комментарии, структура YAML и штампы времени консистентно сохраняются без единого конфликта Git.
 
-### 7.2. LIFO Transactional Wave Rollback Engine
+### 7.2. LIFO Transactional Wave Rollback Engine и Partial Barrier Merge
 Если волна завершилась неудачно или требует отмены:
 - Команда `abort-wave --wave K` сбрасывает постоянные слоты (`parallel/track-*`) на месте к `HEAD` (или удаляет ветки `parallel/wave-*` при `--dynamic-worktrees`), очищает `.parallel/wave-plan.json` и снимает блокировки.
-- При `merge --wave K` любой merge-конфликт, сбой `update_state_on_merge()` или провал quality gates запускает атомарный откат к `pre_merge_head` (`git merge --abort` + `git reset --hard pre_merge_head`) строго до очистки слотов.
+- До `git merge` команда `verify-wave` запускает `ast_diff_gate.py` по параллельным слотам для перехвата виртуальных циклов импортов (Тарьян, Класс G), дрейфа сигнатур/дефолтов (Классы A/B), дубликатов новых хелперов по AST-шинглам (Класс F) и коллизий lock-файлов (Класс H).
+- При `merge --wave K` любой merge-конфликт, сбой `update_state_on_merge()` или провал quality gates запускает атомарный откат к `pre_merge_head` (`git merge --abort` + `git reset --hard pre_merge_head`) строго до очистки слотов. С флагом `--partial-merge` здоровые треки коммитятся инкрементально, виновник изолируется бисекцией с сохранением в `backup/wave-<K>-<track>-failed-<ts>`, формируется `.parallel/barrier-feedback-<story_id>.json`, а хвост волн перепланируется через `reschedule_remaining_waves()`.
 - Команда `rollback-wave --wave K [--save-backup]` гарантирует безопасный откат последней волны:
   - Строго соблюдается инвариант LIFO (только последняя подмерженная волна).
   - Автоматически создается неизменяемая резервная ветка `backup/wave-<K>-before-rollback-<timestamp>`.
