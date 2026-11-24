@@ -307,3 +307,268 @@ def test_cli_scope_escalation_e2e_verify_and_merge(
     assert (tmp_path / "src" / "beta.py").read_text(encoding="utf-8") == "beta = 0\n"
 
 
+def test_cli_e2e_partial_merge_to_prepare_next_wave_delivers_nack(tmp_path: Path) -> None:
+    """E2E CLI test: merge default partial_merge=True -> prepare Wave 2 delivers NACK."""
+    from sdd_parallel.worktree import _restore_os_writable
+
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test Runner"], cwd=tmp_path, check=True)
+
+    spec_dir = tmp_path / "specs" / "001-feat"
+    spec_dir.mkdir(parents=True)
+    (spec_dir / "tasks.md").write_text(
+        "# Tasks\n"
+        "- [ ] T001 [P] Alpha work in `src/shared.py`\n"
+        "- [ ] T002 [P] Beta work in `src/beta.py`\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "shared.py").write_text("shared = 0\n", encoding="utf-8")
+    (tmp_path / "src" / "beta.py").write_text("beta = 0\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+
+    assert main(["plan", "--repo", str(tmp_path), "--kit", "spec-kit"]) == 0
+    assert (
+        main(["prepare", "--repo", str(tmp_path), "--wave", "1", "--kit", "spec-kit", "--headless"])
+        == 0
+    )
+
+    wt_a = tmp_path / ".worktrees" / "track-a"
+    wt_b = tmp_path / ".worktrees" / "track-b"
+
+    # Track A edits src/shared.py and marks T001 done
+    (wt_a / "src" / "shared.py").write_text("shared = 1\n", encoding="utf-8")
+    tasks_a = wt_a / "specs" / "001-feat" / "tasks.md"
+    tasks_a.write_text(
+        tasks_a.read_text(encoding="utf-8").replace("[ ] T001", "[x] T001"),
+        encoding="utf-8",
+    )
+    subprocess.run(
+        ["git", "add", "src/shared.py", "specs/001-feat/tasks.md"],
+        cwd=wt_a,
+        check=True,
+    )
+    subprocess.run(["git", "commit", "-m", "feat(T001)"], cwd=wt_a, check=True)
+
+    # Track B edits src/beta.py and conflicts on src/shared.py
+    (wt_b / "src" / "beta.py").write_text("beta = 1\n", encoding="utf-8")
+    _restore_os_writable(wt_b, ["src/shared.py"])
+    (wt_b / "src" / "shared.py").write_text("shared = 2\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/beta.py", "src/shared.py"], cwd=wt_b, check=True)
+    subprocess.run(["git", "commit", "-m", "conflict(T002)"], cwd=wt_b, check=True)
+
+    # CLI merge WITHOUT --partial-merge (uses new CLI default partial_merge=True)
+    merge_out = io.StringIO()
+    with redirect_stdout(merge_out):
+        rc_merge = main(
+            ["merge", "--repo", str(tmp_path), "--wave", "1", "--kit", "spec-kit", "--skip-gates"]
+        )
+    assert rc_merge == 0
+    m_payload = json.loads(merge_out.getvalue())
+    assert m_payload["partial_merge"] is True
+    assert m_payload["merged_branches"] == ["parallel/track-a"]
+    assert len(m_payload["rejected_tracks"]) == 1
+
+    # Master working tree stays completely clean
+    st_master = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert st_master == "", f"Expected clean master after partial merge, got: {st_master}"
+
+    # Prepare Wave 2 reads .parallel/wave-plan.json, keeps enriched_writes, and injects NACK
+    prep2_out = io.StringIO()
+    with redirect_stdout(prep2_out):
+        rc_prep2 = main(
+            ["prepare", "--repo", str(tmp_path), "--wave", "2", "--kit", "spec-kit", "--headless"]
+        )
+    assert rc_prep2 == 0
+    p2_payload = json.loads(prep2_out.getvalue())
+    assert len(p2_payload["worktrees"]) == 1
+    wt_w2 = Path(p2_payload["worktrees"][0])
+
+    lock_w2 = json.loads((wt_w2 / ".parallel-lock.json").read_text(encoding="utf-8"))
+    assert lock_w2["stories"] == ["T002"]
+    assert "src/shared.py" in lock_w2["allowed_write_globs"]
+
+    ctx_md = (wt_w2 / ".tmp" / "track-context.md").read_text(encoding="utf-8")
+    assert "PREVIOUS WAVE BARRIER NACK (ADAPT TO UPDATED MASTER)" in ctx_md
+    assert "src/shared.py" in ctx_md
+
+    wt_fb = json.loads((wt_w2 / ".tmp" / "barrier-feedback.json").read_text(encoding="utf-8"))
+    assert wt_fb["failed_stage"] == "git_merge"
+    assert len(wt_fb["all_feedbacks"]) == 1
+
+
+def test_cli_merge_no_partial_merge_flag_forces_atomic_rollback(tmp_path: Path) -> None:
+    """--no-partial-merge rolls back the entire wave to pre_merge_head and exits with code 2."""
+    from sdd_parallel.worktree import _restore_os_writable
+
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test Runner"], cwd=tmp_path, check=True)
+
+    spec_dir = tmp_path / "specs" / "001-feat"
+    spec_dir.mkdir(parents=True)
+    (spec_dir / "tasks.md").write_text(
+        "# Tasks\n"
+        "- [ ] T001 [P] Alpha work in `src/shared.py`\n"
+        "- [ ] T002 [P] Beta work in `src/beta.py`\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "shared.py").write_text("shared = 0\n", encoding="utf-8")
+    (tmp_path / "src" / "beta.py").write_text("beta = 0\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+
+    pre_merge_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    assert main(["plan", "--repo", str(tmp_path), "--kit", "spec-kit"]) == 0
+    assert (
+        main(["prepare", "--repo", str(tmp_path), "--wave", "1", "--kit", "spec-kit", "--headless"])
+        == 0
+    )
+
+    wt_a = tmp_path / ".worktrees" / "track-a"
+    wt_b = tmp_path / ".worktrees" / "track-b"
+
+    (wt_a / "src" / "shared.py").write_text("shared = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/shared.py"], cwd=wt_a, check=True)
+    subprocess.run(["git", "commit", "-m", "a"], cwd=wt_a, check=True)
+
+    _restore_os_writable(wt_b, ["src/shared.py"])
+    (wt_b / "src" / "shared.py").write_text("shared = 2\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/shared.py"], cwd=wt_b, check=True)
+    subprocess.run(["git", "commit", "-m", "b conflict"], cwd=wt_b, check=True)
+
+    err_buf = io.StringIO()
+    with redirect_stderr(err_buf):
+        rc = main(
+            [
+                "merge",
+                "--repo",
+                str(tmp_path),
+                "--wave",
+                "1",
+                "--kit",
+                "spec-kit",
+                "--skip-gates",
+                "--no-partial-merge",
+            ]
+        )
+    assert rc == 2
+    err_json = json.loads(err_buf.getvalue())
+    assert err_json["status"] == "error"
+    assert "transactional auto-rollback" in err_json["error"]
+
+    head_after = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert head_after == pre_merge_head
+    assert (tmp_path / "src" / "shared.py").read_text(encoding="utf-8") == "shared = 0\n"
+
+
+def test_plan_and_abort_clear_stale_barrier_feedback(tmp_path: Path) -> None:
+    """sdd-parallel plan and abort-wave delete stale .parallel/barrier-feedback-*.json files."""
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test Runner"], cwd=tmp_path, check=True)
+
+    spec_dir = tmp_path / "specs" / "001-feat"
+    spec_dir.mkdir(parents=True)
+    (spec_dir / "tasks.md").write_text(
+        "- [ ] T001 Alpha in `src/a.py`\n", encoding="utf-8"
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("a = 0\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+
+    parallel_dir = tmp_path / ".parallel"
+    parallel_dir.mkdir(parents=True, exist_ok=True)
+    stale_1 = parallel_dir / "barrier-feedback-OLD-1.json"
+    stale_1.write_text('{"failed_stage": "git_merge"}\n', encoding="utf-8")
+
+    assert main(["plan", "--repo", str(tmp_path), "--kit", "spec-kit"]) == 0
+    assert not stale_1.exists()
+
+    stale_2 = parallel_dir / "barrier-feedback-OLD-2.json"
+    stale_2.write_text('{"failed_stage": "checkpoint_gate"}\n', encoding="utf-8")
+    assert main(["abort-wave", "--repo", str(tmp_path), "--wave", "1"]) == 0
+    assert not stale_2.exists()
+
+
+def test_cli_plan_cache_validation_and_inspector_priority(tmp_path: Path) -> None:
+    """Verify plan cache invalidation on new tasks/max_tracks and inspector priority."""
+    from sdd_parallel.cli import _load_or_compute_repo_plan
+    from sdd_parallel.inspector import inspect_plan
+
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test Runner"], cwd=tmp_path, check=True)
+
+    spec_dir = tmp_path / "specs" / "001-feat"
+    spec_dir.mkdir(parents=True)
+    tasks_md = spec_dir / "tasks.md"
+    tasks_md.write_text(
+        "- [ ] T001 [P] One in `src/one.py`\n"
+        "- [ ] T002 [P] Two in `src/two.py`\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "one.py").write_text("one = 1\n", encoding="utf-8")
+    (tmp_path / "src" / "two.py").write_text("two = 2\n", encoding="utf-8")
+    (tmp_path / "src" / "three.py").write_text("three = 3\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+
+    assert main(["plan", "--repo", str(tmp_path), "--kit", "spec-kit"]) == 0
+    artifacts_plan = tmp_path / ".parallel" / "artifacts" / "wave-plan.json"
+    runtime_plan = tmp_path / ".parallel" / "wave-plan.json"
+
+    # Simulate rescheduled runtime plan with Wave 2 marker in .parallel/wave-plan.json
+    art_data = json.loads(artifacts_plan.read_text(encoding="utf-8"))
+    rt_data = json.loads(json.dumps(art_data))
+    rt_data["spine_files"] = ["src/runtime_rescheduled_marker.py"]
+    runtime_plan.write_text(json.dumps(rt_data, indent=2), encoding="utf-8")
+
+    # 1. Valid cache is loaded when tasks and max_tracks match
+    loaded = _load_or_compute_repo_plan(tmp_path, max_tracks=3, kit="spec-kit")
+    assert loaded.spine_files == ["src/runtime_rescheduled_marker.py"]
+
+    # 2. Inspector prioritizes .parallel/wave-plan.json over .parallel/artifacts/wave-plan.json
+    out_html = tmp_path / "inspector_prio.html"
+    inspect_plan(repo_root=tmp_path, output_path=out_html, open_browser=False)
+    assert "src/runtime_rescheduled_marker.py" in out_html.read_text(encoding="utf-8")
+
+    # 3. Smaller --max-tracks invalidates cache (Wave 1 had 2 tracks > max_tracks=1)
+    recomputed_small = _load_or_compute_repo_plan(tmp_path, max_tracks=1, kit="spec-kit")
+    assert recomputed_small.spine_files != ["src/runtime_rescheduled_marker.py"]
+    assert all(len(w.tracks) <= 1 for w in recomputed_small.waves)
+
+    # 4. Adding a new task in tasks.md invalidates cache
+    tasks_md.write_text(
+        tasks_md.read_text(encoding="utf-8") + "- [ ] T003 [P] Three in `src/three.py`\n",
+        encoding="utf-8",
+    )
+    recomputed_new = _load_or_compute_repo_plan(tmp_path, max_tracks=3, kit="spec-kit")
+    assert "T003" in recomputed_new.scheduled_task_ids
+    assert recomputed_new.spine_files != ["src/runtime_rescheduled_marker.py"]
+
+

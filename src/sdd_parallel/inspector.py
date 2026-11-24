@@ -224,10 +224,10 @@ def inspect_plan(
         if isinstance(parsed, dict):
             plan_dict = parsed
     else:
-        # Search canonical locations
+        # Search canonical locations (prioritize rescheduled/runtime .parallel/wave-plan.json)
         candidates: Sequence[Path] = (
-            repo_root / ".parallel" / "artifacts" / "wave-plan.json",
             repo_root / ".parallel" / "wave-plan.json",
+            repo_root / ".parallel" / "artifacts" / "wave-plan.json",
             repo_root / "wave-plan.json",
             repo_root / "_bmad-output" / "parallel-artifacts" / "wave-plan.json",
         )

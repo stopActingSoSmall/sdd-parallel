@@ -75,6 +75,8 @@ _EXCLUDE_ENTRIES = (
     "_bmad/custom/bmad-build-auto.user.toml",
     "_bmad/custom/bmad-build.toml",
     "_bmad/custom/bmad-build-auto.toml",
+    ".parallel/",
+    ".worktrees/",
     ".parallel-lock.json",
     ".tmp/",
     "ACTIVE_TRACK.md",
@@ -485,7 +487,8 @@ def _save_barrier_feedback(
     saved: list[Path] = []
     parallel_dir = repo_root.resolve() / ".parallel"
     parallel_dir.mkdir(parents=True, exist_ok=True)
-    payload_text = json.dumps(feedback.to_dict(), indent=2, ensure_ascii=False) + "\n"
+    fb_dict = feedback.to_dict()
+    payload_text = json.dumps(fb_dict, indent=2, ensure_ascii=False) + "\n"
     for story_id in feedback.story_ids:
         sid = story_id.strip()
         if not sid:
@@ -497,7 +500,12 @@ def _save_barrier_feedback(
         tmp_dir = worktree_path.resolve() / ".tmp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         wt_fb = tmp_dir / "barrier-feedback.json"
-        wt_fb.write_text(payload_text, encoding="utf-8")
+        wt_payload = dict(fb_dict)
+        wt_payload["all_feedbacks"] = [fb_dict]
+        wt_fb.write_text(
+            json.dumps(wt_payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
         saved.append(wt_fb)
     return saved
 
@@ -543,6 +551,21 @@ def _clear_barrier_feedback(repo_root: Path, story_ids: Sequence[str]) -> None:
                 p.unlink()
             except OSError:
                 pass
+
+
+def clear_all_barrier_feedback(repo_root: Path) -> int:
+    """Delete all .parallel/barrier-feedback-*.json files on fresh plan/abort/rollback."""
+    parallel_dir = repo_root.resolve() / ".parallel"
+    if not parallel_dir.is_dir():
+        return 0
+    removed = 0
+    for p in parallel_dir.glob("barrier-feedback-*.json"):
+        try:
+            p.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return removed
 
 
 def _ensure_plan_tasks_populated(
@@ -824,6 +847,7 @@ class WorktreeManager:
         track: WaveTrack,
         lock: LockManifest,
         headless: bool = False,
+        feedbacks: Sequence[BarrierFeedback] | None = None,
     ) -> str:
         """Render .tmp/track-context.md injected into bmad-build / bmad-build-auto."""
         stories_str = ", ".join(track.task_ids)
@@ -872,9 +896,13 @@ class WorktreeManager:
             ]
         )
 
-        feedbacks = load_barrier_feedback(self.repo_root, track.task_ids)
-        if feedbacks:
-            lines.extend(self._render_barrier_feedback_lines(feedbacks))
+        loaded_feedbacks = (
+            list(feedbacks)
+            if feedbacks is not None
+            else load_barrier_feedback(self.repo_root, track.task_ids)
+        )
+        if loaded_feedbacks:
+            lines.extend(self._render_barrier_feedback_lines(loaded_feedbacks))
 
         if headless:
             lines.extend(
@@ -906,14 +934,24 @@ class WorktreeManager:
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
         # 1. Write .tmp/track-context.md (and .tmp/barrier-feedback.json if NACK exists)
-        context_md = self.render_track_context_md(wave, track, lock, headless=headless)
-        (tmp_dir / "track-context.md").write_text(context_md, encoding="utf-8")
         feedbacks = load_barrier_feedback(self.repo_root, track.task_ids)
+        context_md = self.render_track_context_md(
+            wave, track, lock, headless=headless, feedbacks=feedbacks
+        )
+        (tmp_dir / "track-context.md").write_text(context_md, encoding="utf-8")
+        wt_fb_file = tmp_dir / "barrier-feedback.json"
         if feedbacks:
-            (tmp_dir / "barrier-feedback.json").write_text(
-                json.dumps(feedbacks[0].to_dict(), indent=2, ensure_ascii=False) + "\n",
+            wt_fb_payload = feedbacks[0].to_dict()
+            wt_fb_payload["all_feedbacks"] = [fb.to_dict() for fb in feedbacks]
+            wt_fb_file.write_text(
+                json.dumps(wt_fb_payload, indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
+        elif wt_fb_file.is_file():
+            try:
+                wt_fb_file.unlink()
+            except OSError:
+                pass
 
         # 2. Write .parallel-lock.json
         (wt / ".parallel-lock.json").write_text(
@@ -1319,9 +1357,15 @@ class WorktreeManager:
         story_id: str,
         requested_file: str,
         current_wave: int,
+        extra_files: Sequence[str] = (),
     ) -> WavePlan:
         """Defer an escalated task via BSPWaveScheduler.reschedule_remaining_waves()."""
         norm_file = requested_file.replace("\\", "/").strip()
+        all_req_files: list[str] = []
+        for raw_f in (norm_file, *extra_files):
+            nf = raw_f.replace("\\", "/").strip()
+            if nf and nf not in all_req_files:
+                all_req_files.append(nf)
         curr_wave = next((w for w in plan.waves if w.wave_number == current_wave), None)
         effort = EffortTier.MEDIUM
         escalated_track: WaveTrack | None = None
@@ -1358,7 +1402,7 @@ class WorktreeManager:
             plan=plan,
             current_wave=current_wave,
             deferred_task_ids=deferred_ids,
-            enriched_writes={story_id: [norm_file]} if (story_id and norm_file) else None,
+            enriched_writes={story_id: all_req_files} if (story_id and all_req_files) else None,
         )
         plan.waves = [
             curr_wave if (curr_wave is not None and w.wave_number == current_wave) else w
@@ -1412,7 +1456,12 @@ class WorktreeManager:
 
         return plan
 
-    def verify_wave(self, plan: WavePlan, wave_number: int) -> list[str]:
+    def verify_wave(
+        self,
+        plan: WavePlan,
+        wave_number: int,
+        defer_ast_violations: bool = False,
+    ) -> list[str]:
         """Verify that generated story specs and worktree files do not violate locks."""
         target_wave = next((w for w in plan.waves if w.wave_number == wave_number), None)
         if target_wave is None:
@@ -1638,31 +1687,86 @@ class WorktreeManager:
                     for tid in target_tids:
                         findings_by_track.setdefault(tid, []).append(finding)
                 active_by_id = {t.track_id: t for t in active_wt_tracks}
+                deferred_ast_violations: set[str] = set()
                 for tid, trk_findings in findings_by_track.items():
                     trk_obj = active_by_id.get(tid)
                     if trk_obj is None or not trk_obj.task_ids:
                         continue
-                    fb = BarrierFeedback(
-                        story_ids=tuple(trk_obj.task_ids),
+                    branch_cand = self.branch_name_for_track(wave_number, trk_obj.track_id)
+                    chk_branch = subprocess.run(
+                        ["git", "rev-parse", "--verify", branch_cand],
+                        cwd=self.repo_root,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if chk_branch.returncode != 0:
+                        dyn_cand = f"parallel/wave-{wave_number}-{trk_obj.track_id}"
+                        chk_dyn = subprocess.run(
+                            ["git", "rev-parse", "--verify", dyn_cand],
+                            cwd=self.repo_root,
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        )
+                        if chk_dyn.returncode == 0:
+                            branch_cand = dyn_cand
+                    fb, backup_branch = self._record_track_barrier_nack(
                         wave_number=wave_number,
-                        track_id=trk_obj.track_id,
+                        track=trk_obj,
+                        branch_name=branch_cand,
                         failed_stage="ast_diff_gate",
                         failed_command=",".join(dict.fromkeys(f.category for f in trk_findings)),
                         diagnostic_output="\n".join(
                             f.to_violation_str(wave_number) for f in trk_findings
                         ),
-                        conflicting_files=tuple(
-                            dict.fromkeys(fp for f in trk_findings for fp in f.files)
-                        ),
+                        conflicting_files=[fp for f in trk_findings for fp in f.files],
                         merged_sibling_commits=(),
-                        prior_branch_ref=self.branch_name_for_track(
-                            wave_number, trk_obj.track_id
-                        ),
-                        timestamp=datetime.now(UTC).isoformat(),
                     )
-                    _save_barrier_feedback(
-                        self.repo_root, track_worktrees.get(trk_obj.track_id), fb
-                    )
+                    if defer_ast_violations:
+                        story_ids_to_defer = list(trk_obj.task_ids)
+                        conflicting_files = list(fb.conflicting_files)
+                        primary_file = conflicting_files[0] if conflicting_files else ""
+                        extra_files = conflicting_files[1:]
+                        for sid in story_ids_to_defer:
+                            self.defer_escalated_task(
+                                plan=plan,
+                                story_id=sid,
+                                requested_file=primary_file,
+                                current_wave=wave_number,
+                                extra_files=extra_files,
+                            )
+                            deferred_target_wave = next(
+                                (
+                                    w.wave_number
+                                    for w in plan.waves
+                                    if w.wave_number > wave_number and sid in w.all_task_ids
+                                ),
+                                wave_number + 1,
+                            )
+                            self.last_escalations.append(
+                                {
+                                    "story_id": sid,
+                                    "track_id": trk_obj.track_id,
+                                    "requested_file": primary_file,
+                                    "conflicting_files": conflicting_files,
+                                    "backup_branch": backup_branch,
+                                    "status": "ast_deferred",
+                                    "deferred_to_wave": deferred_target_wave,
+                                }
+                            )
+                        for f in trk_findings:
+                            deferred_ast_violations.add(f.to_violation_str(wave_number))
+                if deferred_ast_violations:
+                    violations = [v for v in violations if v not in deferred_ast_violations]
+                    if self.last_escalations:
+                        esc_hist = self.repo_root / ".parallel" / "escalations.json"
+                        esc_hist.parent.mkdir(parents=True, exist_ok=True)
+                        esc_hist.write_text(
+                            json.dumps(self.last_escalations, indent=2, ensure_ascii=False)
+                            + "\n",
+                            encoding="utf-8",
+                        )
 
         if escalated_files or escalated_stories:
             filtered_violations: list[str] = []
@@ -1707,6 +1811,45 @@ class WorktreeManager:
             check=False,
         )
         return backup_branch
+
+    def _record_track_barrier_nack(
+        self,
+        *,
+        wave_number: int,
+        track: WaveTrack,
+        branch_name: str,
+        failed_stage: str,
+        failed_command: str,
+        diagnostic_output: str,
+        conflicting_files: Sequence[str],
+        merged_sibling_commits: Sequence[str] = (),
+        persist_to_disk: bool = True,
+    ) -> tuple[BarrierFeedback, str]:
+        """Preserve failed branch into backup/*, build BarrierFeedback, and optionally save."""
+        backup_branch = self._preserve_failed_track_branch(
+            wave_number=wave_number,
+            track_id=track.track_id,
+            branch_name=branch_name,
+        )
+        fb = BarrierFeedback(
+            story_ids=tuple(track.task_ids),
+            wave_number=wave_number,
+            track_id=track.track_id,
+            failed_stage=failed_stage,
+            failed_command=failed_command,
+            diagnostic_output=diagnostic_output.strip()[-4000:],
+            conflicting_files=tuple(dict.fromkeys(conflicting_files)),
+            merged_sibling_commits=tuple(merged_sibling_commits),
+            prior_branch_ref=backup_branch,
+            timestamp=datetime.now(UTC).isoformat(),
+        )
+        if persist_to_disk:
+            _save_barrier_feedback(
+                self.repo_root,
+                self._resolve_existing_track_worktree(wave_number, track.track_id),
+                fb,
+            )
+        return fb, backup_branch
 
     def _merge_single_track_branch(
         self,
@@ -1904,27 +2047,17 @@ class WorktreeManager:
             )
             if not ok:
                 self._rollback_merge_to_head(step_head)
-                backup_branch = self._preserve_failed_track_branch(
-                    wave_number, track.track_id, branch_name
-                )
-                fb = BarrierFeedback(
-                    story_ids=tuple(track.task_ids),
+                fb, backup_branch = self._record_track_barrier_nack(
                     wave_number=wave_number,
-                    track_id=track.track_id,
+                    track=track,
+                    branch_name=branch_name,
                     failed_stage="git_merge",
                     failed_command=(
                         "git commit" if err_kind == "commit" else "git merge --no-ff --no-commit"
                     ),
-                    diagnostic_output=err_detail[-4000:],
+                    diagnostic_output=err_detail,
                     conflicting_files=conflicted,
-                    merged_sibling_commits=tuple(healthy_commits),
-                    prior_branch_ref=backup_branch,
-                    timestamp=datetime.now(UTC).isoformat(),
-                )
-                _save_barrier_feedback(
-                    self.repo_root,
-                    self._resolve_existing_track_worktree(wave_number, track.track_id),
-                    fb,
+                    merged_sibling_commits=healthy_commits,
                 )
                 rejected_tracks[track.track_id] = fb
                 backup_branches[track.track_id] = backup_branch
@@ -1938,26 +2071,16 @@ class WorktreeManager:
                 healthy_commits.append(self._resolve_repo_head("HEAD"))
             else:
                 self._rollback_merge_to_head(step_head)
-                backup_branch = self._preserve_failed_track_branch(
-                    wave_number, track.track_id, branch_name
-                )
                 affected_files = track_changed_map.get(track.track_id, changed)
-                fb = BarrierFeedback(
-                    story_ids=tuple(track.task_ids),
+                fb, backup_branch = self._record_track_barrier_nack(
                     wave_number=wave_number,
-                    track_id=track.track_id,
+                    track=track,
+                    branch_name=branch_name,
                     failed_stage="checkpoint_gate",
                     failed_command=gate_cmd_fail,
-                    diagnostic_output=gate_output.strip()[-4000:],
-                    conflicting_files=tuple(affected_files),
-                    merged_sibling_commits=tuple(healthy_commits),
-                    prior_branch_ref=backup_branch,
-                    timestamp=datetime.now(UTC).isoformat(),
-                )
-                _save_barrier_feedback(
-                    self.repo_root,
-                    self._resolve_existing_track_worktree(wave_number, track.track_id),
-                    fb,
+                    diagnostic_output=gate_output,
+                    conflicting_files=affected_files,
+                    merged_sibling_commits=healthy_commits,
                 )
                 rejected_tracks[track.track_id] = fb
                 backup_branches[track.track_id] = backup_branch
@@ -1970,28 +2093,66 @@ class WorktreeManager:
         wave_number: int,
         merged_task_ids: list[str],
         pre_merge_head: str,
+        reset_task_ids: Sequence[str] = (),
     ) -> None:
         """Persist adapter state update commit after merging healthy tracks."""
         try:
+            if reset_task_ids:
+                adapter.reset_tasks_status(list(reset_task_ids), target_status="ready-for-dev")
             updated_state = adapter.update_state_on_merge(
                 wave_number=wave_number,
                 merged_task_ids=merged_task_ids,
             )
+            files_to_stage: list[str] = []
             if updated_state and updated_state.is_file():
-                subprocess.run(
-                    ["git", "add", updated_state.relative_to(self.repo_root).as_posix()],
+                files_to_stage.append(updated_state.resolve().relative_to(self.repo_root).as_posix())
+            status_file_set = {
+                st.replace("\\", "/").strip()
+                for st in adapter.get_status_files()
+                if st.strip()
+            }
+            if status_file_set:
+                st_proc = subprocess.run(
+                    ["git", "status", "--porcelain"],
                     cwd=self.repo_root,
+                    capture_output=True,
+                    text=True,
                     check=False,
                 )
-                msg = (
-                    f"chore({adapter.kit_id}): update state after Wave {wave_number} "
-                    "checkpoint merge"
-                )
+                if st_proc.returncode == 0 and st_proc.stdout.strip():
+                    for line in st_proc.stdout.splitlines():
+                        raw_file = line[3:].strip().strip('"')
+                        if " -> " in raw_file:
+                            raw_file = raw_file.split(" -> ")[1].strip().strip('"')
+                        norm_f = raw_file.replace("\\", "/")
+                        if norm_f in status_file_set and norm_f not in files_to_stage:
+                            files_to_stage.append(norm_f)
+            if files_to_stage:
                 subprocess.run(
-                    ["git", "commit", "-m", msg],
+                    ["git", "add", "--", *files_to_stage],
                     cwd=self.repo_root,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                diff_chk = subprocess.run(
+                    ["git", "diff", "--cached", "--quiet"],
+                    cwd=self.repo_root,
+                    capture_output=True,
                     check=False,
                 )
+                if diff_chk.returncode != 0:
+                    msg = (
+                        f"chore({adapter.kit_id}): update state after Wave {wave_number} "
+                        "checkpoint merge"
+                    )
+                    subprocess.run(
+                        ["git", "commit", "-m", msg],
+                        cwd=self.repo_root,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
         except Exception as exc:
             self._rollback_merge_to_head(pre_merge_head)
             rb_suffix = (
@@ -2027,7 +2188,25 @@ class WorktreeManager:
         if target_wave is None:
             raise ValueError(f"Wave {wave_number} not found in plan")
 
-        active_tracks = [t for t in target_wave.tracks if t.task_ids]
+        tasks_by_id = {t.id: t for t in plan.tasks}
+
+        def _track_merge_priority(trk: WaveTrack) -> tuple[int, int, int, str]:
+            touches_spine = 0
+            max_fan_in = 0
+            conflict_deg = 0
+            for tid in trk.task_ids:
+                t_obj = tasks_by_id.get(tid)
+                if t_obj is not None and t_obj.structural_signals is not None:
+                    sig = t_obj.structural_signals
+                    touches_spine = max(touches_spine, int(sig.touches_spine))
+                    max_fan_in = max(max_fan_in, sig.max_fan_in)
+                    conflict_deg = max(conflict_deg, sig.conflict_degree)
+            return (-touches_spine, -max_fan_in, -conflict_deg, trk.track_id)
+
+        active_tracks = sorted(
+            [t for t in target_wave.tracks if t.task_ids],
+            key=_track_merge_priority,
+        )
         branch_names: list[str] = []
         for track in active_tracks:
             candidate = self.branch_name_for_track(wave_number, track.track_id)
@@ -2097,29 +2276,19 @@ class WorktreeManager:
             if not ok:
                 if not partial_merge:
                     self._rollback_merge_to_head(pre_merge_head)
-                    backup_branch = self._preserve_failed_track_branch(
-                        wave_number, track.track_id, branch_name
-                    )
-                    fb = BarrierFeedback(
-                        story_ids=tuple(track.task_ids),
+                    self._record_track_barrier_nack(
                         wave_number=wave_number,
-                        track_id=track.track_id,
+                        track=track,
+                        branch_name=branch_name,
                         failed_stage="git_merge",
                         failed_command=(
                             "git commit"
                             if err_kind == "commit"
                             else "git merge --no-ff --no-commit"
                         ),
-                        diagnostic_output=err_detail[-4000:],
+                        diagnostic_output=err_detail,
                         conflicting_files=conflicted,
-                        merged_sibling_commits=tuple(merged_commits),
-                        prior_branch_ref=backup_branch,
-                        timestamp=datetime.now(UTC).isoformat(),
-                    )
-                    _save_barrier_feedback(
-                        self.repo_root,
-                        self._resolve_existing_track_worktree(wave_number, track.track_id),
-                        fb,
+                        merged_sibling_commits=merged_commits,
                     )
                     rb_suffix = (
                         f" (transactional auto-rollback to {pre_merge_head[:7]} completed)"
@@ -2141,29 +2310,19 @@ class WorktreeManager:
                     )
 
                 self._rollback_merge_to_head(track_pre_head)
-                backup_branch = self._preserve_failed_track_branch(
-                    wave_number, track.track_id, branch_name
-                )
-                fb = BarrierFeedback(
-                    story_ids=tuple(track.task_ids),
+                fb, backup_branch = self._record_track_barrier_nack(
                     wave_number=wave_number,
-                    track_id=track.track_id,
+                    track=track,
+                    branch_name=branch_name,
                     failed_stage="git_merge",
                     failed_command=(
                         "git commit"
                         if err_kind == "commit"
                         else "git merge --no-ff --no-commit"
                     ),
-                    diagnostic_output=err_detail[-4000:],
+                    diagnostic_output=err_detail,
                     conflicting_files=conflicted,
-                    merged_sibling_commits=tuple(merged_commits),
-                    prior_branch_ref=backup_branch,
-                    timestamp=datetime.now(UTC).isoformat(),
-                )
-                _save_barrier_feedback(
-                    self.repo_root,
-                    self._resolve_existing_track_worktree(wave_number, track.track_id),
-                    fb,
+                    merged_sibling_commits=merged_commits,
                 )
                 rejected_tracks[track.track_id] = fb
                 backup_branches[track.track_id] = backup_branch
@@ -2194,26 +2353,25 @@ class WorktreeManager:
                 )
                 if not gates_ok:
                     self._rollback_merge_to_head(pre_merge_head)
+                    unisolated_prefix = (
+                        "[UNISOLATED ATOMIC ROLLBACK — run with --partial-merge "
+                        "to isolate culprit]\n"
+                    )
                     for trk, b_name in merged_pairs:
-                        backup_b = self._preserve_failed_track_branch(
-                            wave_number, trk.track_id, b_name
-                        )
-                        fb = BarrierFeedback(
-                            story_ids=tuple(trk.task_ids),
+                        if len(merged_pairs) == 1:
+                            diag_text = gate_out
+                        else:
+                            max_tail = max(0, 4000 - len(unisolated_prefix))
+                            diag_text = unisolated_prefix + gate_out.strip()[-max_tail:]
+                        self._record_track_barrier_nack(
                             wave_number=wave_number,
-                            track_id=trk.track_id,
+                            track=trk,
+                            branch_name=b_name,
                             failed_stage="checkpoint_gate",
                             failed_command=gate_cmd,
-                            diagnostic_output=gate_out.strip()[-4000:],
-                            conflicting_files=tuple(track_changed_map.get(trk.track_id, ())),
+                            diagnostic_output=diag_text,
+                            conflicting_files=track_changed_map.get(trk.track_id, ()),
                             merged_sibling_commits=(),
-                            prior_branch_ref=backup_b,
-                            timestamp=datetime.now(UTC).isoformat(),
-                        )
-                        _save_barrier_feedback(
-                            self.repo_root,
-                            self._resolve_existing_track_worktree(wave_number, trk.track_id),
-                            fb,
                         )
                     rb_msg = (
                         f"Checkpoint quality gate '{gate_cmd}' failed after merging Wave "
@@ -2244,6 +2402,9 @@ class WorktreeManager:
                     merged_branches = [b for _, b in merged_pairs]
 
             healthy_task_ids = [tid for trk, _ in merged_pairs for tid in trk.task_ids]
+            failed_story_ids = [
+                sid for fb in rejected_tracks.values() for sid in fb.story_ids if sid
+            ]
             if merged_branches:
                 _clear_barrier_feedback(self.repo_root, healthy_task_ids)
                 self._apply_adapter_state_on_merge(
@@ -2251,13 +2412,11 @@ class WorktreeManager:
                     wave_number=wave_number,
                     merged_task_ids=healthy_task_ids,
                     pre_merge_head=pre_merge_head,
+                    reset_task_ids=failed_story_ids,
                 )
 
             rescheduled_plan_path = None
             if rejected_tracks:
-                failed_story_ids = [
-                    sid for fb in rejected_tracks.values() for sid in fb.story_ids if sid
-                ]
                 for fb in rejected_tracks.values():
                     _save_barrier_feedback(
                         self.repo_root,
@@ -2265,7 +2424,6 @@ class WorktreeManager:
                         fb,
                     )
                 if failed_story_ids:
-                    adapter.reset_tasks_status(failed_story_ids, target_status="ready-for-dev")
                     status_file_set = {
                         st.replace("\\", "/") for st in adapter.get_status_files()
                     }
@@ -2453,13 +2611,14 @@ class WorktreeRollbackManager:
             capture_output=True,
             check=False,
         )
-        # 2b. Remove stale escalation-modified wave plan if present
+        # 2b. Remove stale escalation-modified wave plan and barrier feedbacks if present
         stale_plan = self.repo_root / ".parallel" / "wave-plan.json"
         if stale_plan.is_file():
             try:
                 stale_plan.unlink()
             except OSError:
                 pass
+        clear_all_barrier_feedback(self.repo_root)
         # 3. Report reset fixed-slot branches and delete any parallel/wave-{wave_id}-* branches
         reported_branches: list[str] = []
         if self.fixed_slots:
@@ -2556,7 +2715,8 @@ class WorktreeRollbackManager:
             adapter.reset_tasks_status(resolved_task_ids, target_status="ready-for-dev")
             adapter.cleanup_wave_artifacts(wave_id, resolved_task_ids)
 
-        # Clean leftover worktrees and parallel branches
+        # Clean leftover worktrees, barrier feedbacks, and parallel branches
+        clear_all_barrier_feedback(self.repo_root)
         self.abort_wave(wave_id)
 
         # Update state.json
