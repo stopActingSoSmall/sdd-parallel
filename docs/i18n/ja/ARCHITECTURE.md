@@ -208,6 +208,7 @@ class SDDAdapterProtocol(Protocol):
 2. **`SPINE_ORDER`（背骨順序依存 $A \to B$）：** `SPINE` ファイルに対する順次変更。
 3. **`DIRECT_COLLISION`（直接書き込み競合 $A \leftrightarrow B$）：** $W(A) \cap W(B) \setminus \text{AdditiveRegistries} \neq \emptyset$。
 4. **`SEMANTIC_COLLISION`（第2種意味的競合 $A \leftrightarrow B$）：** $(W(A) \cap I(B)) \cup (W(B) \cap I(A)) \neq \emptyset$。
+5. **`NAMESPACE_COLLISION`（クラス D）：** 別ファイル間での `namespace_tokens`（CLI フラグ、ENV 変数、HTTP ルート）の競合；`extract_spine_bucket()`（クラス C）は同一ディレクトリ内のマイグレーションを直列化します。
 
 ---
 
@@ -314,6 +315,7 @@ class SDDAdapterProtocol(Protocol):
 - **`rollback-wave --wave K [--save-backup]`：** 厳格な LIFO 順で最新ウェーブを巻き戻し、安全ブランチ `backup/wave-<K>-before-rollback-*` を自動作成してタスク状態を復元。
 
 ### 4.8. 言語非依存のチェックポイントゲートとトランザクション自動破棄
+- **マージ前 AST Diff ゲート (`ast_diff_gate.py`) と部分マージ (`--partial-merge`)：** `verify-wave` は仮想インポート循環（Tarjan、クラス G）、デフォルト値ドリフト（クラス A/B）、AST シングル重複ヘルパー（クラス F）、ロックファイル競合（クラス H）を検出します。`merge --partial-merge` は健全トラックを段階的に確定し、二分探索で原因トラックを隔離して `.parallel/barrier-feedback-<story_id>.json` を保存後 `reschedule_remaining_waves()` を実行します。
 
 - **汎用ゲート解決：** `.parallel-config.json` または `pyproject.toml` からテストコマンドを自動検出し、Python、Node、Rust、Go に対応。
 - **トランザクション自動ロールバック：** `sdd-parallel merge --wave K` の実行中に任意のトラックブランチでマージ競合、`update_state_on_merge()` の失敗、またはチェックポイント品質ゲートの失敗が発生した場合、オーケストレーターはスロットクリーンアップ前に `git merge --abort` と `git reset --hard pre_merge_head` を自動実行して `master` をアトミックに復元し、デバッグ用に各トラックスロットをそのまま保持します。
@@ -331,7 +333,7 @@ class SDDAdapterProtocol(Protocol):
 | `claim-track` | 既存の外部ワークツリーに境界ロックをアタッチ | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
 | `run-guide` | ウェーブ K のフォーマット済みオペレーター向け実行ガイドを表示 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
 | `verify-wave` | merge-base に対するワークツリー差分およびロック遵守状況を監査し、スコープエスカレーション処理とバリアマニフェスト記録を実施 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | 3-way 状態マージ、品質ゲート、アトミックロールバック、およびマニフェスト記録を伴うバリアチェックポイント統合 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `merge` | 3-way 状態マージ、品質ゲート、アトミックロールバック、およびマニフェスト記録を伴うバリアチェックポイント統合 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | sprint-status.yaml 専用の独立した決定論的 3-way マージツール | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | アクティブなフックロジックによるファイル変更権限の検査 | `--file <path>`, `--tool <name>`（`indent=2` の整形済み JSON を出力） |
 | `install-plugin` | ポータブルな Antigravity プラグインのパッケージ化とインストール | `--target-dir <path>`（デフォルトは `~/.gemini/config/plugins/sdd-parallel`） |

@@ -275,8 +275,8 @@ flowchart TD
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — Слоты, блокировки, границы. |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — Привязка к внешнему worktree. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — Команда запуска для слота. |
-| `sdd-parallel verify-wave --wave K` | Аудит слотов по `.parallel-lock.json`, `merge-base` и scope-эскалациям. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — Gates, 3-way merge, атомарный откат при конфликте/ошибке. |
+| `sdd-parallel verify-wave --wave K` | Аудит слотов по `.parallel-lock.json`, `merge-base`, пре-мердж `ast_diff_gate` и scope-эскалациям. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge] [--cleanup]` — Gates, 3-way merge, частичный коммит с бисекцией виновника (`--partial-merge`) или атомарный откат. |
 | `sdd-parallel abort-wave --wave K` | Сброс fixed slots к `HEAD` (или удаление веток в `--dynamic-worktrees`). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO-откат + backup + статусы. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — 3-way merge `sprint-status.yaml`. |
@@ -291,23 +291,25 @@ flowchart TD
 
 ---
 
-## 🚢 Матрица релиза: Готово (v0.2.1) vs Роадмап (v0.3+)
+## 🚢 Матрица релиза: Готово (v0.2.2) vs Роадмап (v0.3+)
 
-### ✅ Реализовано в `v0.1.0 – v0.2.1`
-- [x] Планировщик BSP (Kahn) + AST-сканер + сайдкар `code-review-graph v2.3.9`.
+### ✅ Реализовано в `v0.1.0 – v0.2.2`
+- [x] Планировщик BSP (Kahn) + AST-сканер + сайдкар `code-review-graph v2.3.9` + Spine Bucket Locks (Класс C) и `NAMESPACE_COLLISION` (Класс D).
+- [x] Добарьерный `ast_diff_gate.py`: виртуальные циклы импортов Тарьяна (Класс G), дрейф сигнатур/дефолтов (Классы A/B), дубликаты хелперов по AST-шинглам (Класс F), коллизии lock-файлов (Класс H).
+- [x] Частичный барьерный мердж (`merge --partial-merge`), детерминированная бисекция виновника, `.parallel/barrier-feedback-<story_id>.json` NACK-инжекция и перепланирование хвоста волн (`reschedule_remaining_waves`).
 - [x] Слоты (`track-a/b/c`), in-place сброс, `info/exclude`, `.venv`/`node_modules` через NTFS Junctions (Windows, no admin) / POSIX symlinks.
 - [x] 3-уровневый Scope Guard (`PreToolUse` + Terminal Guard + `chmod a-w`), symbol linker, `.tmp/scope-escalation.json`.
 - [x] Монотонный 3-way мерджер статусов (YAML, Markdown, `STATE.md`, JSONL) + LIFO-откат.
 - [x] 5 SDD-адаптеров (Spec Kit + `extension.yml`, BMAD + `mattpocock/skills` + `bmad-loop`, GSD, OpenSpec, Beads).
-- [x] Офлайн `demo --kit all`, `bench`, HTML Wave Inspector (`inspect --open`), `--scaffold-only`.
+- [x] Офлайн `demo --kit all`, `bench` 8-классовый бэктест (A–H, 0 FN), HTML Wave Inspector (`inspect --open`), `--scaffold-only`.
 - [x] Автопилот (`agy`, Claude Code, Codex) с `--routing-file`, `TaskStructuralSignals`, `--policy cyclic` (`ADR-0009`).
 - [x] Clean-clone CI (Ubuntu/macOS/Windows, Python 3.11–3.13) и PyPI Trusted Publishing.
 
 ### 🚧 Запланировано в `v0.3+`
 - [ ] Строгое автоопределение кита (без молчаливого отката, TTY)
-- [ ] Граф-безопасная эскалация и бисекция виновника (частичное слияние + починка)
+- [ ] System-1 Intent Extractor (`TaskIntentVector`) и Decision-1 Pairwise Collision Classifier
 - [ ] Tree-sitter AST и автоиндексация CRG (TS/JS, Go, Rust)
-- [ ] Пре-экстрактор System-1 (`--extractor none|gliner|clairic`) и `--max-tracks auto`
+- [ ] Адаптивный `--max-tracks auto` и экспортер брифов Antigravity `/swarm` (`--format swarm-brief`)
 
 ---
 

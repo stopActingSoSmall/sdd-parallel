@@ -75,16 +75,17 @@ Operator opens each worktree in an independent Antigravity window and triggers t
 
 ## Step 4: Verification & Barrier Checkpoint Merge
 
-1. **Verify Lock Invariants & Scope Guard:**
-   Verify that generated specs and code in worktrees did not touch forbidden blast-radius files (PreToolUse lock check, Terminal Guard validation, and clean git diff):
+1. **Verify Lock Invariants, Pre-Merge AST Gate & Scope Guard:**
+   Verify that generated specs and code in worktrees did not touch forbidden blast-radius files (PreToolUse lock check, Terminal Guard validation, pre-merge `ast_diff_gate` for import cycles/default drift/duplicate helpers/lockfiles, and clean git diff):
    ```powershell
    uv run sdd-parallel verify-wave --repo <target-repo-path> --wave <K> [--kit <kit>]
    ```
-2. **Barrier Checkpoint Merge:**
+2. **Barrier Checkpoint Merge (Full or Partial with Culprit Bisection):**
    Merge all track branches into the base branch with polymorphic 3-way status resolution (`sprint-status.yaml`, `tasks.md`, `issues.jsonl`) and run mandatory quality gates:
    ```powershell
-   uv run sdd-parallel merge --repo <target-repo-path> --wave <K> --cleanup [--kit <kit>]
+   uv run sdd-parallel merge --repo <target-repo-path> --wave <K> [--partial-merge] --cleanup [--kit <kit>]
    ```
+   With `--partial-merge`, healthy tracks commit incrementally while failing tracks are isolated via culprit bisection, preserved on `backup/wave-<K>-<track>-failed-<ts>`, and recorded in `.parallel/barrier-feedback-<story_id>.json` (injected as `PREVIOUS WAVE BARRIER NACK` on re-scheduled re-runs).
    Quality gates executed automatically:
    - `uv run pytest`
    - `uv run ruff check src/ tests/`
@@ -122,8 +123,8 @@ All subcommands exposed by `sdd-parallel`:
 - `run-guide`: Display operator execution instructions and native worker launch commands (supports `--routing-file`).
 - `autopilot`: Generate and execute multi-conversation worker launch commands (supports `--routing-file`, `--execute`, `--auto-merge`, `--policy`, `--timeout`).
 - `check-lock`: Validate if modifying a file is permitted by `.parallel-lock.json`.
-- `verify-wave`: Validate that track commits strictly adhere to lock boundaries.
-- `merge`: Checkpoint merge of parallel track branches with quality gates.
+- `verify-wave`: Validate that track commits strictly adhere to lock boundaries and pass pre-merge `ast_diff_gate`.
+- `merge`: Checkpoint merge of parallel track branches with quality gates (supports `--partial-merge` for culprit bisection & `.parallel/barrier-feedback-<story_id>.json`).
 - `merge-status`: Monotonic 3-way deterministic merge for sprint and task status files.
 - `abort-wave`: Transactionally discard in-flight wave worktrees and parallel branches.
 - `rollback-wave`: Revert merged wave in strict LIFO order with safety backup branch.

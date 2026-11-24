@@ -210,6 +210,7 @@ class SDDAdapterProtocol(Protocol):
 2. **`SPINE_ORDER`（骨干链有向依赖 $A \to B$）：** 修改同一 `SPINE` 文件的顺序链路。
 3. **`DIRECT_COLLISION`（无向文件写冲突 $A \leftrightarrow B$）：** $W(A) \cap W(B) \setminus \text{AdditiveRegistries} \neq \emptyset$。禁止同波次执行。
 4. **`SEMANTIC_COLLISION`（二类语义冲突 $A \leftrightarrow B$）：** $(W(A) \cap I(B)) \cup (W(B) \cap I(A)) \neq \emptyset$。任务 A 改变了任务 B 直接调用的外部接口。
+5. **`NAMESPACE_COLLISION`（类 D）：** 跨文件共享 CLI 标志、环境变量或 HTTP 路由的 `namespace_tokens` 冲突；`extract_spine_bucket()`（类 C）序列化同目录迁移文件。
 
 ---
 
@@ -317,6 +318,7 @@ class SDDAdapterProtocol(Protocol):
 - **`rollback-wave --wave K [--save-backup]`：** 严格遵循 LIFO 后进先出顺序回滚最近合并的波次，自动保留备份分支 `backup/wave-<K>-before-rollback-*`，并多态恢复任务状态。
 
 ### 4.8. 技术栈无关的检查点门禁与事务自动撤销
+- **预合并 AST Diff 门禁 (`ast_diff_gate.py`) 与部分合并 (`--partial-merge`)：** `verify-wave` 检测虚拟导入循环（Tarjan，类 G）、默认值漂移（类 A/B）、AST 重复辅助函数（类 F）与锁文件冲突（类 H）；`merge --partial-merge` 增量提交健康轨道、二分定位故障轨道并写入 `.parallel/barrier-feedback-<story_id>.json` 与 `reschedule_remaining_waves()`。
 
 - **通用门禁解析：** 优先读取 `.parallel-config.json` 或 `pyproject.toml` 中的 `checkpoint_gates`，支持跨语言自动识别（Python `pytest`, Node `npm test`, Rust `cargo test`, Go `go test`）。
 - **事务自动撤销：** 若在 `sdd-parallel merge --wave K` 期间于任意轨道分支发生合并冲突、`update_state_on_merge()` 失败或检查点质量门禁失败，编排器会在槽位清理前自动执行 `git merge --abort` 与 `git reset --hard pre_merge_head`，原子恢复 `master` 分支，同时完整保留各轨道槽位现场以供调试。
@@ -334,7 +336,7 @@ class SDDAdapterProtocol(Protocol):
 | `claim-track` | 将范围锁附加到现有外部工作树槽位 | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
 | `run-guide` | 显示第 K 波次的操作员指引矩阵与启动命令 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
 | `verify-wave` | 审计工作树差异与锁合规性、处理范围提权并记录屏障清单 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | 栅障检查点合并（3 路状态合并、门禁校验、原子回滚与清单记录） | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `merge` | 栅障检查点合并（3 路状态合并、门禁校验、原子回滚与清单记录） | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | 独立的 3 路确定性 sprint-status.yaml 合并工具 | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | 校验指定文件在当前工作树是否允许修改 | `--file <path>`, `--tool <name>`（输出带缩进的格式化 JSON，`indent=2`） |
 | `install-plugin` | 打包并安装 Antigravity 便携插件 | `--target-dir <path>`（默认为 `~/.gemini/config/plugins/sdd-parallel`） |

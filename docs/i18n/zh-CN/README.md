@@ -276,7 +276,7 @@ flowchart TD
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — 锁定外部已有工作树。 |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — 打印各槽位原生启动命令。 |
 | `sdd-parallel verify-wave --wave K` | 对照 `.parallel-lock.json`、`merge-base` diff 及范围提权（scope escalations）审计槽位。 |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — 门禁校验、三方合并、冲突或门禁出错时原子回滚。 |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge] [--cleanup]` — 门禁校验、三方合并、冲突或门禁出错时原子回滚。 |
 | `sdd-parallel abort-wave --wave K` | 将固定槽位就地重置为 `HEAD`（或在 `--dynamic-worktrees` 下删除动态分支）。 |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO 回滚 + 备份分支 + 状态重置。 |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — `sprint-status.yaml` 三方合并。 |
@@ -291,9 +291,10 @@ flowchart TD
 
 ---
 
-## 🚢 发布矩阵：已实现 (v0.2.1) vs 规划路线图 (v0.3+)
+## 🚢 发布矩阵：已实现 (v0.2.2) vs 规划路线图 (v0.3+)
 
-### ✅ 已在 `v0.1.0 – v0.2.1` 中发布
+### ✅ 已在 `v0.1.0 – v0.2.2` 中发布
+- [x] **8 类碰撞防御 (A–H)**：`extract_spine_bucket()` (C)、`NAMESPACE_COLLISION` (D)、`ast_diff_gate.py` (A/B/F/G/H) 与 `--partial-merge` 故障二分定位及 `.parallel/barrier-feedback-<story_id>.json`。
 - [x] BSP 波次调度器（Kahn 无环检查）+ AST 热点扫描器 + `code-review-graph v2.3.9` 伴生进程。
 - [x] 固定槽位（`track-a/b/c`）原地重置、`info/exclude` 掩码与 `.venv`/`node_modules` 的 NTFS Junctions (Windows, no admin) / POSIX symlinks。
 - [x] 三层 Scope Guard（`PreToolUse` + 终端守卫 + `chmod a-w`）、符号链接器、`.tmp/scope-escalation.json`。
@@ -305,7 +306,6 @@ flowchart TD
 
 ### 🚧 规划路线图 (`v0.3+`)
 - [ ] 严格套件自动检测（零静默回退，TTY 消歧）
-- [ ] 图安全提权与故障二分定位（波次部分着陆 + 修复循环）
 - [ ] 原生多语言 Tree-sitter AST 与自动 CRG 索引（TS/JS、Go、Rust）
 - [ ] 可选 System-1 预提取器（`--extractor none|gliner|clairic`）与自适应 `--max-tracks auto`
 

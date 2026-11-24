@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import subprocess
+import time
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -12,11 +13,15 @@ import pytest
 
 from sdd_parallel.benchmark import (
     HistoricalBenchmarkResult,
+    evaluate_task_pairs,
     render_benchmark_report,
     run_demo_benchmark,
+    run_eight_class_collision_suite,
     run_git_benchmark,
 )
 from sdd_parallel.cli import main
+from sdd_parallel.models import TaskNode
+from sdd_parallel.scheduler import BSPWaveScheduler
 
 
 def test_demo_benchmark_bmad_executes_under_reasonable_time() -> None:
@@ -129,3 +134,44 @@ def test_cli_bench_git_range_on_current_repo() -> None:
     assert "SDD-PARALLEL HISTORICAL BENCHMARK" in output
     assert "Target Repository" in output
     assert "CONFUSION MATRIX" in output
+
+
+def test_evaluate_task_pairs_detects_spine_bucket_and_namespace_collisions() -> None:
+    """Verify evaluate_task_pairs detects Class C (SPINE_BUCKET) and Class D (NAMESPACE)."""
+    tasks = [
+        TaskNode(
+            id="T1",
+            title="Migration 1",
+            write_files=["db/migrations/001_a.sql"],
+            namespace_tokens=["env:APP_MODE"],
+        ),
+        TaskNode(
+            id="T2",
+            title="Migration 2",
+            write_files=["db/migrations/001_b.sql"],
+        ),
+        TaskNode(
+            id="T3",
+            title="Config consumer",
+            write_files=["src/cfg.py"],
+            namespace_tokens=["env:APP_MODE"],
+        ),
+    ]
+    scheduler = BSPWaveScheduler(max_tracks=3)
+    plan = scheduler.schedule(tasks, sdd_kit="bmad")
+    metrics, _ = evaluate_task_pairs(tasks, plan, scheduler)
+
+    assert metrics.false_negatives == 0
+    assert metrics.true_positives == 2
+    assert metrics.recall == 1.0
+
+
+def test_eight_class_collision_suite_zero_fn() -> None:
+    """Verify 8-class deterministic collision suite catches all A-H traps under 2.0s."""
+    t0 = time.perf_counter()
+    results = run_eight_class_collision_suite()
+    elapsed = time.perf_counter() - t0
+
+    assert elapsed < 2.0
+    assert set(results.keys()) == {"A", "B", "C", "D", "E", "F", "G", "H"}
+    assert all(results.values()), f"Missed collision classes: {results}"

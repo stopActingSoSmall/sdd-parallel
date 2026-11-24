@@ -275,8 +275,8 @@ Shared flags: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-file FILE
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — Provision slots, OS locks, boundaries. |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — Lock an existing worktree. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — Print native launch command per slot. |
-| `sdd-parallel verify-wave --wave K` | Audit slots vs `.parallel-lock.json`, `merge-base` diff, and scope escalations. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--cleanup]` — Gates, 3-way merge, atomic rollback on conflict/gate error. |
+| `sdd-parallel verify-wave --wave K` | Audit slots vs `.parallel-lock.json`, `merge-base` diff, pre-merge `ast_diff_gate`, and scope escalations. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge] [--cleanup]` — Gates, 3-way merge, partial commit with culprit bisection (`--partial-merge`), or atomic rollback. |
 | `sdd-parallel abort-wave --wave K` | Reset fixed slots in place to `HEAD` (or delete branches in `--dynamic-worktrees`). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO revert + safety branch + status reset. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — 3-way merge for `sprint-status.yaml`. |
@@ -291,23 +291,25 @@ Shared flags: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-file FILE
 
 ---
 
-## 🚢 Release Matrix: Shipped (v0.2.1) vs Roadmap (v0.3+)
+## 🚢 Release Matrix: Shipped (v0.2.2) vs Roadmap (v0.3+)
 
-### ✅ Shipped in `v0.1.0 – v0.2.1`
-- [x] BSP wave scheduler (Kahn acyclicity) + AST hotspot scanner + `code-review-graph v2.3.9` sidecar.
+### ✅ Shipped in `v0.1.0 – v0.2.2`
+- [x] BSP wave scheduler (Kahn acyclicity) + AST hotspot scanner + `code-review-graph v2.3.9` sidecar + Spine Bucket Locks (Class C) & `NAMESPACE_COLLISION` (Class D).
+- [x] Pre-merge `ast_diff_gate.py`: virtual Tarjan import cycles (Class G), signature/default drift (Classes A/B), AST-shingle duplicate helpers (Class F), lockfile collisions (Class H).
+- [x] Partial Barrier Merge (`merge --partial-merge`), deterministic culprit bisection, `.parallel/barrier-feedback-<story_id>.json` NACK injection, and DAG tail re-scheduling (`reschedule_remaining_waves`).
 - [x] Fixed slots (`track-a/b/c`) with in-place reset, `info/exclude` masking, `.venv`/`node_modules` NTFS Junctions (Windows, no admin) / POSIX symlinks.
 - [x] 3-tier Scope Guard (`PreToolUse` + Terminal Guard + `chmod a-w`), symbol linker, `.tmp/scope-escalation.json`.
 - [x] Monotonic 3-way status merger (YAML, Markdown, `STATE.md`, JSONL) + LIFO transactional rollback.
 - [x] 5 SDD adapters (Spec Kit + `extension.yml`, BMAD + `mattpocock/skills` + `bmad-loop`, GSD, OpenSpec, Beads).
-- [x] Offline `demo --kit all`, `bench` backtest, HTML Wave Inspector (`inspect --open`), `--scaffold-only`.
+- [x] Offline `demo --kit all`, `bench` 8-class backtest (A–H, 0 FN), HTML Wave Inspector (`inspect --open`), `--scaffold-only`.
 - [x] Multi-window & Depth-0 autopilot (`agy`, Claude Code, Codex) with `--routing-file`, `TaskStructuralSignals`, `--policy cyclic` (`ADR-0009`).
 - [x] Clean-clone CI (Ubuntu/macOS/Windows, Python 3.11–3.13) & PyPI Trusted Publishing.
 
 ### 🚧 Planned for `v0.3+`
 - [ ] Strict Kit Auto-Detection (zero silent fallback, TTY disambiguation)
-- [ ] Graph-Safe Escalation & Culprit Bisection (partial wave landing + repair loop)
+- [ ] System-1 Intent Extractor (`TaskIntentVector`) & Decision-1 Pairwise Collision Classifier
 - [ ] Native Polyglot Tree-sitter AST & Auto-CRG indexing (TS/JS, Go, Rust)
-- [ ] Optional System-1 Pre-Extractor (`--extractor none|gliner|clairic`) & Adaptive `--max-tracks auto`
+- [ ] Adaptive `--max-tracks auto` & Antigravity `/swarm` brief exporter (`--format swarm-brief`)
 
 ---
 

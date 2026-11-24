@@ -20,12 +20,20 @@ from pathlib import Path
 from typing import Any
 
 from sdd_parallel.adapters import get_adapter
+from sdd_parallel.ast_diff_gate import run_pre_merge_ast_diff_gate
 from sdd_parallel.ast_scanner import ASTHotspotScanner
 from sdd_parallel.crg_sidecar import CRGSidecarAdapter
 from sdd_parallel.demo import create_demo_repository
-from sdd_parallel.models import FileRole, TaskNode, WavePlan
+from sdd_parallel.models import (
+    EffortTier,
+    FileRole,
+    TaskNode,
+    WavePlan,
+    WaveTrack,
+    extract_spine_bucket,
+)
 from sdd_parallel.scheduler import BSPWaveScheduler
-from sdd_parallel.worktree import _restore_os_writable
+from sdd_parallel.worktree import _restore_os_writable, compute_track_port
 
 
 @dataclass(frozen=True)
@@ -133,6 +141,22 @@ def evaluate_task_pairs(
             if spine_shared:
                 actual_reasons.append(f"Spine-Lock shared contract: {', '.join(spine_shared)}")
 
+            buckets_a = {
+                b
+                for f in write_a
+                if (b := extract_spine_bucket(f, scheduler.spine_bucket_globs)) is not None
+            }
+            buckets_b = {
+                b
+                for f in write_b
+                if (b := extract_spine_bucket(f, scheduler.spine_bucket_globs)) is not None
+            }
+            shared_buckets = sorted(buckets_a & buckets_b)
+            if shared_buckets:
+                actual_reasons.append(
+                    f"Spine Bucket Collision (Class C): {', '.join(shared_buckets)}"
+                )
+
             standard_shared = [
                 f
                 for f in shared_writes
@@ -158,6 +182,12 @@ def evaluate_task_pairs(
             if sem_shared:
                 actual_reasons.append(
                     f"Type-2 Semantic Collision (W \u2229 I \u2260 \u2205): {', '.join(sem_shared)}"
+                )
+
+            ns_shared = sorted(set(t_a.namespace_tokens) & set(t_b.namespace_tokens))
+            if ns_shared:
+                actual_reasons.append(
+                    f"Namespace Collision (Class D): {', '.join(ns_shared)}"
                 )
 
             actual_conflict = len(actual_reasons) > 0
@@ -436,3 +466,195 @@ def render_benchmark_report(
 
     lines.append("=" * 80)
     return "\n".join(lines)
+
+
+def _write_fixture_files(root: Path, files: dict[str, str]) -> None:
+    for rel, content in files.items():
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+
+
+def run_eight_class_collision_suite(repo_root: Path | None = None) -> dict[str, bool]:
+    """Run deterministic offline traps covering all 8 Type-2 collision classes (A-H)."""
+    results: dict[str, bool] = {}
+
+    # Class A: Signature & Type Break (W_A & I_B != empty)
+    tasks_a = [
+        TaskNode(id="A1", title="Core signature", write_files=["src/core.py"]),
+        TaskNode(
+            id="A2",
+            title="API caller",
+            write_files=["src/api.py"],
+            impact_files=["src/core.py"],
+        ),
+    ]
+    sched_a = BSPWaveScheduler(max_tracks=3)
+    plan_a = sched_a.schedule(tasks_a, sdd_kit="bmad")
+    metrics_a, _ = evaluate_task_pairs(tasks_a, plan_a, sched_a)
+    results["A"] = (
+        metrics_a.false_negatives == 0
+        and metrics_a.true_positives == 1
+        and len(plan_a.waves) >= 2
+    )
+
+    # Class C: Sequential Schema & Spine Bucket Collision
+    tasks_c = [
+        TaskNode(id="C1", title="Users migration", write_files=["db/migrations/005_users.sql"]),
+        TaskNode(id="C2", title="Orders migration", write_files=["db/migrations/005_orders.sql"]),
+    ]
+    sched_c = BSPWaveScheduler(max_tracks=3)
+    plan_c = sched_c.schedule(tasks_c, sdd_kit="bmad")
+    metrics_c, _ = evaluate_task_pairs(tasks_c, plan_c, sched_c)
+    results["C"] = (
+        metrics_c.false_negatives == 0
+        and metrics_c.true_positives == 1
+        and len(plan_c.waves) >= 2
+    )
+
+    # Class D: Namespace & Registry Collision
+    tasks_d = [
+        TaskNode(
+            id="D1",
+            title="CLI flag A",
+            write_files=["src/cmd_a.py"],
+            namespace_tokens=["cli:--dry-run"],
+        ),
+        TaskNode(
+            id="D2",
+            title="CLI flag B",
+            write_files=["src/cmd_b.py"],
+            namespace_tokens=["cli:--dry-run"],
+        ),
+    ]
+    sched_d = BSPWaveScheduler(max_tracks=3)
+    plan_d = sched_d.schedule(tasks_d, sdd_kit="bmad")
+    metrics_d, _ = evaluate_task_pairs(tasks_d, plan_d, sched_d)
+    results["D"] = (
+        metrics_d.false_negatives == 0
+        and metrics_d.true_positives == 1
+        and len(plan_d.waves) >= 2
+    )
+
+    # Class E: Shared State & Lifecycle (PORT isolation)
+    port_a = compute_track_port("track-a", track_index=1)
+    port_b = compute_track_port("track-b", track_index=2)
+    results["E"] = port_a != port_b and 1024 <= port_a <= 65535 and 1024 <= port_b <= 65535
+
+    # Classes B, F, G, H: Pre-Merge AST Diff Gate
+    tmp_ctx: tempfile.TemporaryDirectory[str] | None = None
+    if repo_root is not None:
+        suite_root = repo_root / ".tmp_eight_class_suite"
+        if suite_root.exists():
+            shutil.rmtree(suite_root, ignore_errors=True)
+        suite_root.mkdir(parents=True, exist_ok=True)
+    else:
+        tmp_ctx = tempfile.TemporaryDirectory(prefix="sdd_bench_8class_")
+        suite_root = Path(tmp_ctx.name)
+
+    try:
+        base_dir = suite_root / "base"
+        wt_a = suite_root / "wt_a"
+        wt_b = suite_root / "wt_b"
+
+        base_files = {
+            "src/shared_cfg.py": "def build_cfg(retries: int = 3) -> int:\n    return retries\n",
+            "src/consumer.py": (
+                "from shared_cfg import build_cfg\n\n"
+                "def run() -> int:\n    return build_cfg()\n"
+            ),
+            "src/mod_a.py": "def fn_a() -> int:\n    return 1\n",
+            "src/mod_b.py": "def fn_b() -> int:\n    return 2\n",
+            "pyproject.toml": '[project]\nname = "demo"\nversion = "0.1.0"\n',
+        }
+        _write_fixture_files(base_dir, base_files)
+        _write_fixture_files(
+            wt_a,
+            {
+                **base_files,
+                "src/shared_cfg.py": (
+                    "def build_cfg(retries: int = 5) -> int:\n    return retries\n"
+                ),
+                "src/mod_a.py": (
+                    "from mod_b import fn_b\n\n"
+                    "def fn_a() -> int:\n    return fn_b()\n"
+                ),
+                "src/uri_a.py": (
+                    "def _uri_to_path(raw_uri: str) -> str:\n"
+                    "    cleaned = raw_uri.strip()\n"
+                    '    if cleaned.startswith("file://"):\n'
+                    "        cleaned = cleaned[7:]\n"
+                    '    return cleaned.replace("\\\\", "/")\n'
+                ),
+                "pyproject.toml": (
+                    '[project]\nname = "demo"\nversion = "0.1.0"\n'
+                    'dependencies = ["httpx>=0.27"]\n'
+                ),
+            },
+        )
+        _write_fixture_files(
+            wt_b,
+            {
+                **base_files,
+                "src/consumer.py": (
+                    "from shared_cfg import build_cfg\n\n"
+                    "def run() -> int:\n    return build_cfg() + 1\n"
+                ),
+                "src/mod_b.py": (
+                    "from mod_a import fn_a\n\n"
+                    "def fn_b() -> int:\n    return fn_a()\n"
+                ),
+                "src/uri_b.py": (
+                    "def _uri_to_workspace_path(uri_text: str) -> str:\n"
+                    "    normalized = uri_text.strip()\n"
+                    '    if normalized.startswith("file://"):\n'
+                    "        normalized = normalized[7:]\n"
+                    '    return normalized.replace("\\\\", "/")\n'
+                ),
+                "pyproject.toml": (
+                    '[project]\nname = "demo"\nversion = "0.1.0"\n'
+                    'dependencies = ["pydantic>=2.0"]\n'
+                ),
+            },
+        )
+
+        tracks = [
+            WaveTrack(track_id="track-a", effort=EffortTier.MEDIUM, task_ids=["T1"]),
+            WaveTrack(track_id="track-b", effort=EffortTier.MEDIUM, task_ids=["T2"]),
+        ]
+        tasks_by_id = {
+            "T1": TaskNode(
+                id="T1",
+                title="Track A changes",
+                write_files=["src/shared_cfg.py", "src/mod_a.py", "src/uri_a.py", "pyproject.toml"],
+            ),
+            "T2": TaskNode(
+                id="T2",
+                title="Track B changes",
+                write_files=["src/consumer.py", "src/mod_b.py", "src/uri_b.py", "pyproject.toml"],
+                read_files=["src/shared_cfg.py"],
+            ),
+        }
+        findings = run_pre_merge_ast_diff_gate(
+            repo_root=base_dir,
+            tracks=tracks,
+            track_worktrees={"track-a": wt_a, "track-b": wt_b},
+            track_changed_files={
+                "track-a": ["src/shared_cfg.py", "src/mod_a.py", "src/uri_a.py", "pyproject.toml"],
+                "track-b": ["src/consumer.py", "src/mod_b.py", "src/uri_b.py", "pyproject.toml"],
+            },
+            merge_base_map={"track-a": "HEAD", "track-b": "HEAD"},
+            tasks_by_id=tasks_by_id,
+        )
+        categories = {f.category for f in findings}
+        results["B"] = "SIGNATURE_DEFAULT_DRIFT" in categories
+        results["F"] = "DIVERGENT_HELPER" in categories
+        results["G"] = "IMPORT_CYCLE" in categories
+        results["H"] = "DEPENDENCY_DRIFT" in categories
+    finally:
+        if tmp_ctx is not None:
+            tmp_ctx.cleanup()
+        elif repo_root is not None:
+            shutil.rmtree(repo_root / ".tmp_eight_class_suite", ignore_errors=True)
+
+    return {k: results[k] for k in ("A", "B", "C", "D", "E", "F", "G", "H")}

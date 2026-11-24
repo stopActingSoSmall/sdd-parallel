@@ -186,10 +186,11 @@ In SDD environments, sprint state is persisted in repository files (`sprint-stat
   $$\text{Status}_{\text{merged}} = \max(\text{Status}_{\text{base}}, \text{Status}_{\text{ours}}, \text{Status}_{\text{theirs}})$$
 - Comments, YAML structure, and timestamp headers are preserved cleanly with zero conflict markers.
 
-### 7.2. LIFO Transactional Wave Rollback Engine
+### 7.2. LIFO Transactional Wave Rollback Engine & Partial Barrier Merge
 If a wave fails integration testing or requires rollback:
 - The command `abort-wave --wave K` resets fixed slots (`parallel/track-*`) in place to `HEAD` (or deletes `parallel/wave-*` branches with `--dynamic-worktrees`), clears `.parallel/wave-plan.json`, and unlocks slots.
-- During `merge --wave K`, any merge conflict, `update_state_on_merge` failure, or checkpoint gate failure triggers an atomic rollback to `pre_merge_head` (`git merge --abort` + `git reset --hard pre_merge_head`) strictly before slot cleanup.
+- Before `git merge`, `verify-wave` runs `ast_diff_gate.py` across parallel slots to intercept virtual import cycles (Tarjan SCC, Class G), signature/default drift (Classes A/B), AST-shingle duplicate helpers (Class F), and dependency lockfile collisions (Class H).
+- During `merge --wave K`, any merge conflict, `update_state_on_merge` failure, or checkpoint gate failure triggers an atomic rollback to `pre_merge_head` (`git merge --abort` + `git reset --hard pre_merge_head`) strictly before slot cleanup. With `--partial-merge`, healthy tracks land incrementally while failing tracks are isolated via culprit bisection, preserved on `backup/wave-<K>-<track>-failed-<ts>`, written to `.parallel/barrier-feedback-<story_id>.json`, and remaining waves are re-planned via `reschedule_remaining_waves()`.
 - The command `rollback-wave --wave K [--save-backup]` executes a safe, atomic rollback of the latest integrated wave:
   - Enforces strict LIFO ordering (only the most recently integrated wave can be reversed).
   - Automatically provisions an immutable backup branch `backup/wave-<K>-before-rollback-<timestamp>`.
