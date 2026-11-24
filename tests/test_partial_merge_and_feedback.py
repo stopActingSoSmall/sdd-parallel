@@ -11,9 +11,22 @@ import pytest
 
 from sdd_parallel.autopilot import AutopilotLauncher
 from sdd_parallel.cli import main as cli_main
-from sdd_parallel.models import EffortTier, TaskNode, Wave, WavePlan, WaveTrack
+from sdd_parallel.models import (
+    BarrierFeedback,
+    EffortTier,
+    TaskNode,
+    TaskStructuralSignals,
+    Wave,
+    WavePlan,
+    WaveTrack,
+)
 from sdd_parallel.runner import WaveRunner
-from sdd_parallel.worktree import WorktreeManager, _restore_os_writable, load_barrier_feedback
+from sdd_parallel.worktree import (
+    WorktreeManager,
+    _restore_os_writable,
+    _save_barrier_feedback,
+    load_barrier_feedback,
+)
 
 
 def _init_git_repo(root: Path) -> None:
@@ -748,4 +761,461 @@ def test_wave_runner_auto_merge_and_config_partial_merge(
     assert payload["partial_merge"] is True
     assert payload["merged_branches"] == ["parallel/track-a"]
     assert len(payload["rejected_tracks"]) == 1
+
+
+def test_partial_merge_leaves_clean_git_status_on_master(tmp_path: Path) -> None:
+    """After partial_merge=True, rejected status reset is committed and git status is empty."""
+    repo = tmp_path / "clean_master_repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    (repo / "src").mkdir()
+    (repo / "src" / "shared.py").write_text("x = 0\n", encoding="utf-8")
+    (repo / "src" / "a.py").write_text("a = 0\n", encoding="utf-8")
+    (repo / "src" / "b.py").write_text("b = 0\n", encoding="utf-8")
+
+    bmad_dir = repo / "_bmad-output" / "implementation-artifacts"
+    plan_dir = repo / "_bmad-output" / "planning-artifacts"
+    bmad_dir.mkdir(parents=True)
+    plan_dir.mkdir(parents=True)
+    status_file = bmad_dir / "sprint-status.yaml"
+    status_file.write_text(
+        'last_updated: "2026-11-24"\n'
+        "development_status:\n"
+        "  11-1-alpha: ready-for-dev\n"
+        "  11-2-beta: ready-for-dev\n",
+        encoding="utf-8",
+    )
+    (plan_dir / "epics.md").write_text(
+        "## Epic 11\n"
+        "### Story 11-1: Alpha\nFiles: `src/shared.py`, `src/a.py`\n"
+        "### Story 11-2: Beta\nFiles: `src/b.py`\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "seed"], cwd=repo, check=True, capture_output=True)
+
+    plan = WavePlan(
+        sdd_kit="bmad",
+        tasks=[
+            TaskNode(id="11-1", title="Alpha", write_files=["src/shared.py", "src/a.py"]),
+            TaskNode(id="11-2", title="Beta", write_files=["src/b.py"]),
+        ],
+        waves=[
+            Wave(
+                wave_number=1,
+                tracks=[
+                    WaveTrack(
+                        track_id="track-a",
+                        task_ids=["11-1"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["src/shared.py", "src/a.py"],
+                    ),
+                    WaveTrack(
+                        track_id="track-b",
+                        task_ids=["11-2"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["src/b.py"],
+                    ),
+                ],
+            )
+        ],
+        edges=[],
+    )
+
+    wm = WorktreeManager(repo, fixed_slots=True)
+    wt_a, wt_b = wm.prepare_wave(plan, wave_number=1, headless=True)
+
+    (wt_a / "src" / "shared.py").write_text("x = 1\n", encoding="utf-8")
+    (wt_a / "src" / "a.py").write_text("a = 1\n", encoding="utf-8")
+    wt_a_status = wt_a / "_bmad-output" / "implementation-artifacts" / "sprint-status.yaml"
+    wt_a_status.write_text(
+        wt_a_status.read_text(encoding="utf-8").replace(
+            "11-1-alpha: ready-for-dev", "11-1-alpha: done"
+        ),
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [
+            "git",
+            "add",
+            "src/shared.py",
+            "src/a.py",
+            "_bmad-output/implementation-artifacts/sprint-status.yaml",
+        ],
+        cwd=wt_a,
+        check=True,
+    )
+    subprocess.run(["git", "commit", "-m", "track-a done"], cwd=wt_a, check=True)
+
+    _restore_os_writable(wt_b, ["src/shared.py"])
+    (wt_b / "src" / "shared.py").write_text("x = 2\n", encoding="utf-8")
+    wt_b_status = wt_b / "_bmad-output" / "implementation-artifacts" / "sprint-status.yaml"
+    wt_b_status.write_text(
+        wt_b_status.read_text(encoding="utf-8").replace(
+            "11-2-beta: ready-for-dev", "11-2-beta: done"
+        ),
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [
+            "git",
+            "add",
+            "src/shared.py",
+            "_bmad-output/implementation-artifacts/sprint-status.yaml",
+        ],
+        cwd=wt_b,
+        check=True,
+    )
+    subprocess.run(["git", "commit", "-m", "track-b conflict"], cwd=wt_b, check=True)
+
+    merged = wm.merge_wave(
+        plan,
+        wave_number=1,
+        run_quality_gates=False,
+        cleanup_worktrees=True,
+        partial_merge=True,
+    )
+    assert merged == ["parallel/track-a"]
+
+    st_master = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert st_master == "", f"Expected clean master, got: {st_master}"
+
+    committed_status = subprocess.run(
+        ["git", "show", "HEAD:_bmad-output/implementation-artifacts/sprint-status.yaml"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "11-1-alpha: done" in committed_status
+    assert "11-2-beta: ready-for-dev" in committed_status
+
+
+def test_multi_story_track_barrier_feedback_json_preserves_all_entries(tmp_path: Path) -> None:
+    """Multi-story track writes all BarrierFeedback entries under 'all_feedbacks'."""
+    repo = tmp_path / "multi_story_fb_repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    (repo / "src").mkdir()
+    (repo / "src" / "a.py").write_text("a = 0\n", encoding="utf-8")
+    (repo / "src" / "b.py").write_text("b = 0\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "seed"], cwd=repo, check=True, capture_output=True)
+
+    fb1 = BarrierFeedback(
+        story_ids=("S-1",),
+        wave_number=1,
+        track_id="track-a",
+        failed_stage="git_merge",
+        failed_command="git merge --no-ff --no-commit",
+        diagnostic_output="CONFLICT in src/a.py",
+        conflicting_files=("src/a.py",),
+        prior_branch_ref="backup/wave-1-track-a-failed-1",
+    )
+    fb2 = BarrierFeedback(
+        story_ids=("S-2",),
+        wave_number=1,
+        track_id="track-b",
+        failed_stage="checkpoint_gate",
+        failed_command="pytest",
+        diagnostic_output="FAILED test_b",
+        conflicting_files=("src/b.py",),
+        prior_branch_ref="backup/wave-1-track-b-failed-2",
+    )
+    _save_barrier_feedback(repo, None, fb1)
+    _save_barrier_feedback(repo, None, fb2)
+
+    plan = WavePlan(
+        sdd_kit="spec-kit",
+        tasks=[
+            TaskNode(id="S-1", title="First", write_files=["src/a.py"]),
+            TaskNode(id="S-2", title="Second", write_files=["src/b.py"]),
+        ],
+        waves=[
+            Wave(
+                wave_number=2,
+                tracks=[
+                    WaveTrack(
+                        track_id="track-a",
+                        task_ids=["S-1", "S-2"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["src/a.py", "src/b.py"],
+                    )
+                ],
+            )
+        ],
+        edges=[],
+    )
+
+    wm = WorktreeManager(repo, fixed_slots=True)
+    (wt_a,) = wm.prepare_wave(plan, wave_number=2, headless=True)
+
+    wt_fb_file = wt_a / ".tmp" / "barrier-feedback.json"
+    assert wt_fb_file.is_file()
+    raw = json.loads(wt_fb_file.read_text(encoding="utf-8"))
+    assert raw["failed_stage"] == "git_merge"
+    assert "all_feedbacks" in raw
+    assert len(raw["all_feedbacks"]) == 2
+    assert {entry["story_ids"][0] for entry in raw["all_feedbacks"]} == {"S-1", "S-2"}
+    assert BarrierFeedback.from_dict(raw).story_ids == ("S-1",)
+
+    ctx_md = (wt_a / ".tmp" / "track-context.md").read_text(encoding="utf-8")
+    assert "CONFLICT in src/a.py" in ctx_md
+    assert "FAILED test_b" in ctx_md
+
+
+def test_verify_wave_ast_diff_gate_creates_backup_branch_and_defer_flag(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ast_diff_gate records backup/* branch and --defer-ast-violations moves track to Wave 2."""
+    repo = tmp_path / "ast_defer_cli_repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    (repo / "src").mkdir()
+    (repo / "src" / "core.py").write_text(
+        "def fn(limit: int = 1) -> int:\n    return limit\n", encoding="utf-8"
+    )
+    (repo / "src" / "consumer.py").write_text(
+        "from src.core import fn\n\ndef call_fn() -> int:\n    return fn()\n",
+        encoding="utf-8",
+    )
+    (repo / "specs" / "001-feat").mkdir(parents=True)
+    (repo / "specs" / "001-feat" / "tasks.md").write_text(
+        "- [ ] T001 [P] Update core in `src/core.py`\n"
+        "- [ ] T002 [P] Update consumer in `src/consumer.py`\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "seed"], cwd=repo, check=True, capture_output=True)
+    master_head = _git_head(repo)
+
+    assert cli_main(["plan", "--repo", str(repo), "--kit", "spec-kit"]) == 0
+    assert (
+        cli_main(["prepare", "--repo", str(repo), "--wave", "1", "--kit", "spec-kit", "--headless"])
+        == 0
+    )
+    capsys.readouterr()
+
+    wt_a = repo / ".worktrees" / "track-a"
+    wt_b = repo / ".worktrees" / "track-b"
+
+    (wt_a / "src" / "core.py").write_text(
+        "def fn(limit: int = 99) -> int:\n    return limit\n", encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "src/core.py"], cwd=wt_a, check=True)
+    subprocess.run(["git", "commit", "-m", "drift core"], cwd=wt_a, check=True)
+
+    (wt_b / "src" / "consumer.py").write_text(
+        "from src.core import fn\n\ndef call_fn() -> int:\n    return fn() + 1\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "src/consumer.py"], cwd=wt_b, check=True)
+    subprocess.run(["git", "commit", "-m", "update consumer"], cwd=wt_b, check=True)
+
+    # Without --defer-ast-violations: blocks with exit code 2, saves NACK with backup/* ref
+    rc_block = cli_main(["verify-wave", "--repo", str(repo), "--wave", "1", "--kit", "spec-kit"])
+    assert rc_block == 2
+    block_out = json.loads(capsys.readouterr().out)
+    assert block_out["compliant"] is False
+    assert any("[SIGNATURE_DEFAULT_DRIFT]" in v for v in block_out["violations"])
+
+    ast_fb = load_barrier_feedback(repo, ["T002"])
+    assert len(ast_fb) == 1
+    assert ast_fb[0].failed_stage == "ast_diff_gate"
+    assert ast_fb[0].prior_branch_ref.startswith("backup/wave-1-track-b-failed-")
+    branches = subprocess.run(
+        ["git", "branch", "--list", "backup/wave-1-track-b-failed-*"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "backup/wave-1-track-b-failed-" in branches
+
+    # With --defer-ast-violations: defers track-b to Wave 2, resets slot, returns 0
+    rc_defer = cli_main(
+        [
+            "verify-wave",
+            "--repo",
+            str(repo),
+            "--wave",
+            "1",
+            "--kit",
+            "spec-kit",
+            "--defer-ast-violations",
+        ]
+    )
+    assert rc_defer == 0
+    defer_out = json.loads(capsys.readouterr().out)
+    assert defer_out["compliant"] is True
+    assert defer_out["violations"] == []
+    assert any(
+        esc["story_id"] == "T002" and esc["status"] == "ast_deferred"
+        for esc in defer_out["escalations"]
+    )
+    assert _git_head(wt_b) == master_head
+
+    saved_plan = WavePlan.from_dict(
+        json.loads((repo / ".parallel" / "wave-plan.json").read_text(encoding="utf-8"))
+    )
+    w2_ids = [tid for w in saved_plan.waves if w.wave_number >= 2 for tid in w.all_task_ids]
+    assert "T002" in w2_ids
+
+
+def test_occ_merge_priority_merges_higher_centrality_track_first(tmp_path: Path) -> None:
+    """Track with touches_spine=True / higher max_fan_in merges before lower centrality tracks."""
+    repo = tmp_path / "occ_priority_repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    (repo / "src").mkdir()
+    (repo / "src" / "shared.py").write_text("VAL = 'init'\n", encoding="utf-8")
+    (repo / "specs" / "001-feat").mkdir(parents=True)
+    (repo / "specs" / "001-feat" / "tasks.md").write_text(
+        "- [ ] T1 Peripheral\n- [ ] T2 Spine Core\n", encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "seed"], cwd=repo, check=True, capture_output=True)
+
+    plan = WavePlan(
+        sdd_kit="spec-kit",
+        tasks=[
+            TaskNode(
+                id="T1",
+                title="Peripheral",
+                write_files=["src/shared.py"],
+                structural_signals=TaskStructuralSignals(
+                    files_count=1,
+                    max_fan_in=1,
+                    touches_spine=False,
+                    ast_loc=10,
+                    conflict_degree=0,
+                ),
+            ),
+            TaskNode(
+                id="T2",
+                title="Spine Core",
+                write_files=["src/shared.py"],
+                structural_signals=TaskStructuralSignals(
+                    files_count=1,
+                    max_fan_in=8,
+                    touches_spine=True,
+                    ast_loc=50,
+                    conflict_degree=2,
+                ),
+            ),
+        ],
+        waves=[
+            Wave(
+                wave_number=1,
+                tracks=[
+                    WaveTrack(
+                        track_id="track-a",
+                        task_ids=["T1"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["src/shared.py"],
+                    ),
+                    WaveTrack(
+                        track_id="track-b",
+                        task_ids=["T2"],
+                        effort=EffortTier.HIGH,
+                        exclusive_write_files=["src/shared.py"],
+                    ),
+                ],
+            )
+        ],
+        edges=[],
+    )
+
+    wm = WorktreeManager(repo, fixed_slots=True)
+    wt_a, wt_b = wm.prepare_wave(plan, wave_number=1, headless=True)
+
+    (wt_a / "src" / "shared.py").write_text("VAL = 'peripheral'\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/shared.py"], cwd=wt_a, check=True)
+    subprocess.run(["git", "commit", "-m", "peripheral edit"], cwd=wt_a, check=True)
+
+    _restore_os_writable(wt_b, ["src/shared.py"])
+    (wt_b / "src" / "shared.py").write_text("VAL = 'spine'\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/shared.py"], cwd=wt_b, check=True)
+    subprocess.run(["git", "commit", "-m", "spine edit"], cwd=wt_b, check=True)
+
+    merged = wm.merge_wave(plan, wave_number=1, run_quality_gates=False, partial_merge=True)
+    assert merged == ["parallel/track-b"]
+    assert (repo / "src" / "shared.py").read_text(encoding="utf-8") == "VAL = 'spine'\n"
+    assert wm.last_merge_outcome is not None
+    assert "track-a" in wm.last_merge_outcome.rejected_tracks
+    assert wm.last_merge_outcome.rejected_tracks["track-a"].failed_stage == "git_merge"
+
+
+def test_atomic_rollback_multi_track_checkpoint_gate_tags_unisolated_nack(tmp_path: Path) -> None:
+    """When partial_merge=False rolls back >=2 tracks on checkpoint_gate, NACK is marked."""
+    repo = tmp_path / "unisolated_atomic_repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    (repo / "src").mkdir()
+    (repo / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "tests").mkdir()
+    (repo / "tests" / "test_base.py").write_text("def test_ok() -> None:\n    assert True\n")
+    (repo / "specs" / "001-feat").mkdir(parents=True)
+    (repo / "specs" / "001-feat" / "tasks.md").write_text(
+        "- [ ] T001 One\n- [ ] T002 Two\n", encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "seed"], cwd=repo, check=True, capture_output=True)
+
+    py_exe = Path(sys.executable).as_posix()
+    plan = WavePlan(
+        sdd_kit="spec-kit",
+        tasks=[
+            TaskNode(id="T001", title="One", write_files=["src/one.py"]),
+            TaskNode(id="T002", title="Two", write_files=["tests/test_fail.py"]),
+        ],
+        waves=[
+            Wave(
+                wave_number=1,
+                checkpoint_gates=[f"{py_exe} -m pytest -q"],
+                tracks=[
+                    WaveTrack(
+                        track_id="track-a",
+                        task_ids=["T001"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["src/one.py"],
+                    ),
+                    WaveTrack(
+                        track_id="track-b",
+                        task_ids=["T002"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["tests/test_fail.py"],
+                    ),
+                ],
+            )
+        ],
+        edges=[],
+    )
+
+    wm = WorktreeManager(repo, fixed_slots=True)
+    wt_a, wt_b = wm.prepare_wave(plan, wave_number=1, headless=True)
+
+    (wt_a / "src" / "one.py").write_text("ONE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/one.py"], cwd=wt_a, check=True)
+    subprocess.run(["git", "commit", "-m", "one"], cwd=wt_a, check=True)
+
+    (wt_b / "tests" / "test_fail.py").write_text("def test_fail() -> None:\n    assert False\n")
+    subprocess.run(["git", "add", "tests/test_fail.py"], cwd=wt_b, check=True)
+    subprocess.run(["git", "commit", "-m", "fail"], cwd=wt_b, check=True)
+
+    with pytest.raises(RuntimeError, match="Checkpoint quality gate"):
+        wm.merge_wave(plan, wave_number=1, run_quality_gates=True, partial_merge=False)
+
+    fbs = load_barrier_feedback(repo, ["T001", "T002"])
+    assert len(fbs) == 2
+    for fb in fbs:
+        assert fb.diagnostic_output.startswith("[UNISOLATED ATOMIC ROLLBACK")
+
 

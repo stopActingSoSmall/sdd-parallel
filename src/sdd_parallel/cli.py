@@ -46,6 +46,7 @@ from sdd_parallel.worktree import (
     LIFORollbackViolationError,
     WorktreeManager,
     WorktreeRollbackManager,
+    clear_all_barrier_feedback,
     default_antigravity_worktrees_dir,
     load_parallel_config,
     read_parallel_state,
@@ -154,6 +155,14 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Use dynamic wave-specific worktrees (wave-{W}-track-{id}) instead of permanent slots",
     )
+    p_ver.add_argument(
+        "--defer-ast-violations",
+        action="store_true",
+        help=(
+            "Automatically defer tracks failing pre-merge AST diff gate to Wave K+1 "
+            "with preserved backup branches and BarrierFeedback"
+        ),
+    )
 
     # merge
     p_merge = sub.add_parser(
@@ -194,8 +203,13 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Commit healthy tracks and isolate/reschedule failing tracks "
-            "instead of rolling back the whole wave"
+            "instead of rolling back the whole wave (default)"
         ),
+    )
+    p_merge.add_argument(
+        "--no-partial-merge",
+        action="store_true",
+        help="Force atomic all-or-nothing rollback of the whole wave on conflict or gate failure",
     )
 
     # merge-status
@@ -614,8 +628,15 @@ def _load_or_compute_repo_plan(
                 norm_kit = kit.strip().lower()
                 if norm_kit == "speckit":
                     norm_kit = "spec-kit"
-                if loaded.waves and (norm_kit == "auto" or loaded.sdd_kit == norm_kit):
-                    return loaded
+                if (
+                    loaded.waves
+                    and (norm_kit == "auto" or loaded.sdd_kit == norm_kit)
+                    and all(len(w.tracks) <= max_tracks for w in loaded.waves)
+                ):
+                    _, adapter = get_adapter(repo_root, kit=loaded.sdd_kit)
+                    live_ids = {t.id for t in adapter.load_tasks(include_done=False)}
+                    if not (live_ids - set(loaded.scheduled_task_ids)):
+                        return loaded
         except Exception:
             pass
 
@@ -669,6 +690,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     esc_plan.unlink()
                 except OSError:
                     pass
+            clear_all_barrier_feedback(repo_root)
             # Monotonic history archive: .parallel/history/run-NNN-<timestamp>/wave-plan.json
             p_state = read_parallel_state(repo_root)
             run_id = int(p_state.get("run_counter", 0)) + 1
@@ -692,7 +714,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             prep_out = demo_prepare_step(repo_root, wave=args.wave)
             print(prep_out, end="")
             return 0
-        _scheduler, _tasks, plan = _compute_repo_plan(
+        plan = _load_or_compute_repo_plan(
             repo_root=repo_root,
             max_tracks=args.max_tracks,
             kit=args.kit,
@@ -748,7 +770,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "claim-track":
         repo_root = args.repo.resolve()
-        _scheduler, _tasks, plan = _compute_repo_plan(
+        plan = _load_or_compute_repo_plan(
             repo_root=repo_root,
             max_tracks=args.max_tracks,
             kit=args.kit,
@@ -778,7 +800,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             fixed_slots=not getattr(args, "dynamic_worktrees", False),
         )
         try:
-            violations = wm.verify_wave(plan=plan, wave_number=args.wave)
+            violations = wm.verify_wave(
+                plan=plan,
+                wave_number=args.wave,
+                defer_ast_violations=getattr(args, "defer_ast_violations", False),
+            )
             fixed_slots = not getattr(args, "dynamic_worktrees", False)
             manifest = harvest_wave_manifest(
                 repo_root=repo_root,
@@ -845,10 +871,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             manifest_path = save_wave_manifest(repo_root, manifest)
 
-            use_partial_merge = bool(
-                getattr(args, "partial_merge", False)
-                or load_parallel_config(repo_root).get("partial_merge", False)
-            )
+            cfg_val = load_parallel_config(repo_root).get("partial_merge", True)
+            if getattr(args, "no_partial_merge", False):
+                use_partial_merge = False
+            elif getattr(args, "partial_merge", False):
+                use_partial_merge = True
+            else:
+                use_partial_merge = bool(cfg_val)
             merged = wm.merge_wave(
                 plan=plan,
                 wave_number=args.wave,
@@ -921,7 +950,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "autopilot":
         repo_root = args.repo.resolve()
-        _scheduler, _tasks, plan = _compute_repo_plan(
+        plan = _load_or_compute_repo_plan(
             repo_root=repo_root,
             max_tracks=args.max_tracks,
             kit=args.kit,
@@ -1054,7 +1083,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "run-guide":
         repo_root = args.repo.resolve()
-        _scheduler, _tasks, plan = _compute_repo_plan(
+        plan = _load_or_compute_repo_plan(
             repo_root=repo_root,
             max_tracks=args.max_tracks,
             kit=args.kit,
