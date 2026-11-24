@@ -10,7 +10,7 @@ import stat
 import subprocess
 import sys
 import tomllib
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,6 +31,10 @@ from sdd_parallel.models import (
     WaveTrack,
 )
 from sdd_parallel.plugin_installer import configure_claude_settings
+from sdd_parallel.registry_merger import (
+    is_python_registry_candidate,
+    merge_python_additive_registry,
+)
 from sdd_parallel.scheduler import BSPWaveScheduler
 from sdd_parallel.status_merger import get_status_merger
 
@@ -1857,6 +1861,7 @@ class WorktreeManager:
         track: WaveTrack,
         branch_name: str,
         adapter: SDDAdapterProtocol,
+        additive_registry_files: Collection[str] = (),
     ) -> tuple[bool, str, str, tuple[str, ...], list[str]]:
         """Merge a single track branch into current repo HEAD with 3-way status merge."""
         mb_proc = subprocess.run(
@@ -1926,6 +1931,53 @@ class WorktreeManager:
                             base_text, ours_text, theirs_text
                         )
 
+        effective_additive = {
+            f.replace("\\", "/").strip("/")
+            for f in (*additive_registry_files, *track.additive_shared_files)
+            if f.strip()
+        }
+        resolved_registry_files: dict[str, str] = {}
+        if mb_sha:
+            for rel in sorted(set(branch_changed)):
+                if rel in resolved_status_files:
+                    continue
+                if not is_python_registry_candidate(rel, effective_additive or None):
+                    continue
+                main_file = self.repo_root / rel
+                if not main_file.is_file():
+                    continue
+                b_proc = subprocess.run(
+                    ["git", "show", f"{mb_sha}:{rel}"],
+                    cwd=self.repo_root,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                )
+                theirs_proc = subprocess.run(
+                    ["git", "show", f"{branch_name}:{rel}"],
+                    cwd=self.repo_root,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                )
+                if b_proc.returncode == 0 and theirs_proc.returncode == 0:
+                    base_text = b_proc.stdout
+                    try:
+                        ours_text = main_file.read_text(encoding="utf-8")
+                    except UnicodeDecodeError:
+                        continue
+                    theirs_text = theirs_proc.stdout
+                    if ours_text != base_text and theirs_text != base_text:
+                        merged_py = merge_python_additive_registry(
+                            base_text, ours_text, theirs_text
+                        )
+                        if merged_py is not None:
+                            resolved_registry_files[rel] = merged_py
+
         merge_proc = subprocess.run(
             ["git", "merge", "--no-ff", "--no-commit", branch_name],
             cwd=self.repo_root,
@@ -1934,6 +1986,16 @@ class WorktreeManager:
             check=False,
         )
         for rel, resolved_text in resolved_status_files.items():
+            p = self.repo_root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(resolved_text, encoding="utf-8")
+            subprocess.run(
+                ["git", "add", rel],
+                cwd=self.repo_root,
+                capture_output=True,
+                check=True,
+            )
+        for rel, resolved_text in resolved_registry_files.items():
             p = self.repo_root / rel
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(resolved_text, encoding="utf-8")
@@ -2030,6 +2092,7 @@ class WorktreeManager:
         track_changed_map: Mapping[str, list[str]],
         rejected_tracks: dict[str, BarrierFeedback],
         backup_branches: dict[str, str],
+        additive_registry_files: Collection[str] = (),
     ) -> tuple[list[tuple[WaveTrack, str]], list[str]]:
         """Re-apply merged tracks incrementally to isolate culprit tracks breaking gates."""
         self._rollback_merge_to_head(pre_merge_head)
@@ -2044,6 +2107,7 @@ class WorktreeManager:
                 track=track,
                 branch_name=branch_name,
                 adapter=adapter,
+                additive_registry_files=additive_registry_files,
             )
             if not ok:
                 self._rollback_merge_to_head(step_head)
@@ -2207,6 +2271,14 @@ class WorktreeManager:
             [t for t in target_wave.tracks if t.task_ids],
             key=_track_merge_priority,
         )
+        additive_registry_files = tuple(
+            dict.fromkeys(
+                [
+                    *getattr(plan, "additive_registries", ()),
+                    *(f for trk in target_wave.tracks for f in trk.additive_shared_files),
+                ]
+            )
+        )
         branch_names: list[str] = []
         for track in active_tracks:
             candidate = self.branch_name_for_track(wave_number, track.track_id)
@@ -2269,6 +2341,7 @@ class WorktreeManager:
                     track=track,
                     branch_name=branch_name,
                     adapter=adapter,
+                    additive_registry_files=additive_registry_files,
                 )
             )
             track_changed_map[track.track_id] = branch_changed
@@ -2398,6 +2471,7 @@ class WorktreeManager:
                         track_changed_map=track_changed_map,
                         rejected_tracks=rejected_tracks,
                         backup_branches=backup_branches,
+                        additive_registry_files=additive_registry_files,
                     )
                     merged_branches = [b for _, b in merged_pairs]
 
