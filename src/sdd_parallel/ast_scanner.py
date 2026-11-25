@@ -323,8 +323,8 @@ class ASTHotspotScanner:
 
         def _extract_local_class_types(
             body_node: ast.FunctionDef | ast.AsyncFunctionDef,
-        ) -> dict[str, str]:
-            local_types: dict[str, str] = {}
+        ) -> dict[str, set[str]]:
+            local_types: dict[str, set[str]] = {}
             all_args = (
                 list(body_node.args.posonlyargs)
                 + list(body_node.args.args)
@@ -332,7 +332,7 @@ class ASTHotspotScanner:
             )
             for arg in all_args:
                 if isinstance(arg.annotation, ast.Name) and arg.annotation.id in class_names:
-                    local_types[arg.arg] = arg.annotation.id
+                    local_types.setdefault(arg.arg, set()).add(arg.annotation.id)
             for sub in ast.walk(body_node):
                 if isinstance(sub, ast.Assign):
                     if (
@@ -342,16 +342,16 @@ class ASTHotspotScanner:
                     ):
                         for target in sub.targets:
                             if isinstance(target, ast.Name):
-                                local_types[target.id] = sub.value.func.id
+                                local_types.setdefault(target.id, set()).add(sub.value.func.id)
                 elif isinstance(sub, ast.AnnAssign) and isinstance(sub.target, ast.Name):
                     if (
                         isinstance(sub.value, ast.Call)
                         and isinstance(sub.value.func, ast.Name)
                         and sub.value.func.id in class_names
                     ):
-                        local_types[sub.target.id] = sub.value.func.id
-                    elif isinstance(sub.annotation, ast.Name) and sub.annotation.id in class_names:
-                        local_types[sub.target.id] = sub.annotation.id
+                        local_types.setdefault(sub.target.id, set()).add(sub.value.func.id)
+                    if isinstance(sub.annotation, ast.Name) and sub.annotation.id in class_names:
+                        local_types.setdefault(sub.target.id, set()).add(sub.annotation.id)
             return local_types
 
         def _collect_calls(
@@ -376,7 +376,8 @@ class ASTHotspotScanner:
                         if class_name and owner in {"self", "cls", class_name}:
                             found.add(f"{class_name}.{attr_name}")
                         elif owner in local_types:
-                            found.add(f"{local_types[owner]}.{attr_name}")
+                            for resolved_cls in local_types[owner]:
+                                found.add(f"{resolved_cls}.{attr_name}")
                         elif owner in class_names:
                             found.add(f"{owner}.{attr_name}")
                         else:

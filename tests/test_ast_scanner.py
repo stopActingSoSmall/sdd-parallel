@@ -210,3 +210,33 @@ def test_are_functions_isolated_ast_verification(tmp_path: Path) -> None:
     assert scanner.are_functions_isolated("src/service.py", "run_local_worker", "step_isolated")
     assert not scanner.are_functions_isolated("src/service.py", "independent_a", "missing_fn")
     assert not scanner.are_functions_isolated("src/unknown.py", "fn_a", "fn_b")
+
+
+def test_are_functions_isolated_retains_all_branch_receiver_classes(tmp_path: Path) -> None:
+    """Branch assignments retain every possible receiver class without losing isolation."""
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "dispatch.py").write_text(
+        "class First:\n"
+        "    def step(self) -> int:\n"
+        "        return 1\n\n"
+        "    def unrelated(self) -> int:\n"
+        "        return 10\n\n"
+        "class Second:\n"
+        "    def step(self) -> int:\n"
+        "        return 2\n\n"
+        "def dispatch(flag: bool) -> int:\n"
+        "    if flag:\n"
+        "        worker = First()\n"
+        "    else:\n"
+        "        worker = Second()\n"
+        "    return worker.step()\n",
+        encoding="utf-8",
+    )
+
+    scanner = ASTHotspotScanner(tmp_path)
+    scanner.scan()
+
+    assert not scanner.are_functions_isolated("src/dispatch.py", "dispatch", "First.step")
+    assert not scanner.are_functions_isolated("src/dispatch.py", "dispatch", "Second.step")
+    assert scanner.are_functions_isolated("src/dispatch.py", "dispatch", "First.unrelated")
