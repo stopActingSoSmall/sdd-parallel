@@ -4,7 +4,7 @@ version = "0.2.1"
 description = "SDD-agnostic multi-track parallel roadmap orchestrator, AST/CRG blast-radius solver, and Git worktree manager for AI coding agents"
 readme = "README.md"
 license = "MIT"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE.md"]
 authors = [
     { name = "stopActingSoSmall", email = "stopActingSoSmall@users.noreply.github.com" }
 ]
@@ -58,6 +58,7 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 source-include = [
     "LICENSE",
+    "NOTICE.md",
     "CHANGELOG.md",
     "tests/**",
 ]
