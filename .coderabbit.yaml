@@ -1,0 +1,69 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+early_access: false
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "master"
+  path_filters:
+    - "!docs/assets/**"
+    - "!docs/marketing/**"
+    - "!assets/inspector.html"
+    - "!**/*.gif"
+    - "!**/*.mp4"
+    - "!uv.lock"
+    - "!.tmp/**"
+    - "!.parallel/**"
+  path_instructions:
+    - path: "src/sdd_parallel/**/*.py"
+      instructions: |
+        Enforce strict architectural invariants from AGENTS.md and ADR-0009:
+        1. DETERMINISTIC CORE (ADR-0009): Reject any LLM API calls, USD pricing tables, or network telemetry clients inside the core package.
+        2. PATH SANITIZATION: Flag any hardcoded local workstation paths (e.g., C:/Users/..., /Users/...).
+        3. ANTI-OVERFITTING: Flag magic strings, hardcoded repo-specific filenames, or brittle heuristics tailored to a single demo repository.
+        4. DO NOT comment on formatting, imports, or static typing — ruff and mypy --strict already enforce these in CI.
+    - path: "src/sdd_parallel/{worktree.py,plugin_installer.py,hooks/**}"
+      instructions: |
+        Enforce Invariant 1 (Zero Worktree Pollution) and Blast-Radius Isolation:
+        - Verify LIFO rollback guarantees on partial failures in WorktreeRollbackManager.
+        - Ensure Git 2.48+ compatibility (useRelativePaths=false) is preserved.
+        - Audit PreToolUse hooks and .parallel-lock.json enforcement for path traversal or silent fail-open behavior.
+    - path: "src/sdd_parallel/adapters/**"
+      instructions: |
+        Enforce Read-Only ACL boundary: adapters must not mutate upstream SDD kit state outside the explicit monotonic 3-way status merger contract.
+    - path: "src/sdd_parallel/{runner.py,autopilot.py}"
+      instructions: |
+        Enforce Depth-0 CLI Runner contract: reject Parent-Worker LLM polling loops, verify Freeze Invariant on verdict.is_qualified, and check subprocess cleanup.
+  tools:
+    ruff:
+      enabled: false
+    flake8:
+      enabled: false
+    pylint:
+      enabled: false
+    markdownlint:
+      enabled: false
+    yamllint:
+      enabled: false
+    gitleaks:
+      enabled: true
+    semgrep:
+      enabled: true
+    actionlint:
+      enabled: true
+
+knowledge_base:
+  opt_out: false
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "AGENTS.md"
