@@ -203,7 +203,7 @@ Legend: 🔒 read-only (`chmod a-w` + `PreToolUse` deny) · 👻 hidden (`info/e
 | OpenSpec | `/openspec-apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
-> 📦 **Spec Kit Extension (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip` (or `specify extension add sdd-parallel`) adds `/specify plan-waves`, `/specify prepare-wave --wave 1`, `/specify merge-wave --wave 1`.
+> 📦 **Spec Kit Extension (`extension.yml`):** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.2.zip` (or `specify extension add sdd-parallel`) adds `/specify plan-waves`, `/specify prepare-wave --wave 1`, `/specify merge-wave --wave 1`.
 
 | Harness | How it plugs in |
 | :--- | :--- |

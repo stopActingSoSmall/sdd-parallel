@@ -203,7 +203,7 @@ my-project/
 | OpenSpec | `/openspec-apply normalize-telemetry` |
 | Beads | `bd update bd-102 --status in-progress` |
 
-> 📦 **Spec Kit 扩展 (`extension.yml`)：** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip`（或 `specify extension add sdd-parallel`）添加 `/specify plan-waves`、`/specify prepare-wave --wave 1`、`/specify merge-wave --wave 1`。
+> 📦 **Spec Kit 扩展 (`extension.yml`)：** `specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.2.zip`（或 `specify extension add sdd-parallel`）添加 `/specify plan-waves`、`/specify prepare-wave --wave 1`、`/specify merge-wave --wave 1`。
 
 | 智能体运行时 (Harness) | 接入方式 |
 | :--- | :--- |

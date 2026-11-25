@@ -7,27 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-25
+
 ### Added
-- **BMAD v7 Native Initiative Ticket-Tree Support (`Task 38`):**
-  - Resolves initiative output directories and active initiatives via `_bmad/custom/config.toml` and `_bmad/custom/config.user.toml`.
-  - Supports two-tier ticket hierarchy (`tickets.toml` at initiative and epic levels) without mandatory story Markdown files.
-  - Natural sorting (`natural_sort_key`) for alphanumeric ticket IDs (e.g. `"1.2a"`, `"6a"`) with `after` dependency linking.
-  - Normalization of `status: built` in companion `story-*-plan.md` to `TaskStatus.REVIEW` (rank 3) and `dropped` to `TaskStatus.DONE` (rank 4).
-  - Scope Guard protection of `tickets.toml` under `get_forbidden_files()`, while allowing companion `*-plan.md` mutations.
-- **OpenSpec v1.16.1 Heading Parity (`Task 38`):**
-  - Supports CommonMark-compliant section headings with optional trailing hashes (`## Title ##`, OpenSpec `#2205`).
-- **Pluggable Custom SDD Adapter (`CustomManifestAdapter`, `Task 34a`):**
-  - Declarative roadmap manifests in `.parallel/custom-kit.yaml`.
-  - Interactive onboarding wizard via `sdd-parallel init-custom`.
-  - Defense-in-depth Terminal Guard enhancements for `/bin/cp` and `/bin/mv` commands.
-  - Integration of Claude Code v2.1.317–2.1.322 non-blocking rejection (`denyInsteadOfPrompting`).
-- **GitHub Spec Kit Official Extension Package (`Task 36`):**
-  - Packaged canonical extension schema `1.0` in `extension.yml`.
-  - Slash commands `/specify plan-waves`, `/specify prepare-wave`, and `/specify merge-wave`.
-- **Gate 8 Adversarial Invariants Hardening (`Task 37`):**
-  - Auto-synchronization of Dolt embedded databases via `bd import --allow-stale` upon wave merge.
-  - Dual-matching of scoped and local task IDs in Spec Kit status reset.
-  - Context-read symbol separation from write impact files to prevent false spine locks.
+- **Python AST-Aware 3-Way `ADDITIVE_REGISTRY` Merger (`registry_merger.py`):** Deterministic stdlib `ast` 3-way merge for concurrent header imports, `__all__`, and orthogonal top-level commands/functions (e.g., `cli.py`, `__init__.py`, `*/mcp/server.py`) with fail-closed fallback (`None` -> `Partial Barrier Merge`) when existing function bodies or colliding symbols are mutated.
+- **Pre-Merge AST Diff Gate (`ast_diff_gate.py`):** Intercepts virtual cross-track import cycles (Tarjan SCC, Class G), signature/default/constant drift vs `merge-base` (Classes A/B), structurally duplicate new helper functions via normalized AST shingles (Jaccard >= 0.75, Class F), and concurrent dependency manifest/lockfile edits (Class H) inside `verify-wave` (with `--defer-ast-violations`).
+- **Partial Barrier Merge & NACK Feedback Loop:** CLI `merge` defaults to `partial_merge=True` (use `--no-partial-merge` for strict all-or-nothing rollback): OCC-ordered track integration, sequential greedy prefix culprit bisection, `backup/wave-<K>-<track>-failed-<ts>` safety branches, `.parallel/barrier-feedback-<story_id>.json`, and remaining-wave re-planning via `BSPWaveScheduler.reschedule_remaining_waves()`.
+- **Spine Buckets (Class C) & Namespace Collision Extractor (Class D):** `extract_spine_bucket()` serializes parallel file creations inside ordered directories (`**/migrations/**`, `**/versions/**`, `docs/adr/**`); `extract_namespace_tokens()` detects cross-file CLI flag, ENV var, and HTTP route collisions.
+- **8-Class Collision Benchmark Suite (`sdd-parallel bench`):** Offline evaluation corpus covering collision classes A–H (`Recall == 1.0`, `0 FN`).
+- **Honest Live Demo (`sdd-parallel demo`):** Concurrent `cli.py` edits merged via `registry_merger.py` and verified with live deterministic smoke `checkpoint_gate` (`run_quality_gates=True`) across all 5 SDD kits.
+
+### Changed & Hardened
+- **Static Precision & Intra-File AST Isolation:** Token-bounded `_ROUTER_RECEIVER_HINTS` in `_is_registry_decorator()` prevent non-router `@get`/`@register` false positives; `_NEGATED_CONSTRAINT_RE` filters read-only/negated clauses in `extract_namespace_tokens()`; `ASTHotspotScanner.are_functions_isolated()` verifies intra-file call reachability in `_has_isolated_function_scope()`.
+- **Unified Wave Plan Cache & Atomic Barrier State:** `_load_or_compute_repo_plan()` preserves escalated/rescheduled `.parallel/wave-plan.json` across `prepare`, `claim-track`, `verify-wave`, `merge`, `autopilot`, and `run-guide`; `partial_merge` leaves `master` clean (`git status --porcelain == ""`) with atomic adapter state commits; `run_stdin_hook()` records scope escalations (`record_escalation=True`).
+- **Harness Compatibility:** Added `.claude/settings.local.json` sandbox `autoAllowBashIfSandboxed`, `codex exec --trust`, and OpenSpec `/openspec-apply <id>`.
+- **BMAD v7, OpenSpec v1.16.1, Custom SDD & Gate 8 Invariants:** Native `tickets.toml` + `story-*-plan.md` (`built` -> `REVIEW`), CommonMark `## Title ##` headings, `CustomManifestAdapter` (`init-custom`), and Dolt DB sync via `bd import --allow-stale`.
+- **7-Language Documentation Parity:** Synchronized `README.md`, `ARCHITECTURE.md`, `docs/USER_GUIDE.md`, `docs/dossier/02_SYSTEM_CAPABILITIES_WHITE_PAPER.md`, and all 6 translations (`es`, `ja`, `ko`, `pt-BR`, `ru`, `zh-CN`).
+
+## [0.2.1] - 2026-11-10
+
+### Added
+- **GitHub Spec Kit Official Extension Package (`Task 36`):** Packaged canonical extension schema `1.0` in `extension.yml` with `/specify plan-waves`, `/specify prepare-wave`, and `/specify merge-wave`.
 
 ## [0.1.1] - 2026-10-30
 
@@ -54,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Standalone Merge-Bomb Demo (`sdd-parallel demo`):** Self-contained, zero-API-key demonstration of Type 2 conflict detection and 3-way resolution running in <5 seconds.
 - **CI / CD Automation:** GitHub Actions workflow testing on Ubuntu, Windows, and macOS across Python 3.11, 3.12, and 3.13 with automated packaging and PyPI Trusted Publishing.
 
-[Unreleased]: https://github.com/stopActingSoSmall/sdd-parallel/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/stopActingSoSmall/sdd-parallel/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/stopActingSoSmall/sdd-parallel/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/stopActingSoSmall/sdd-parallel/compare/v0.1.1...v0.2.1
 [0.1.1]: https://github.com/stopActingSoSmall/sdd-parallel/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/stopActingSoSmall/sdd-parallel/releases/tag/v0.1.0

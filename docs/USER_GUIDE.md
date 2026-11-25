@@ -101,8 +101,8 @@ Any worktree-capable CLI or IDE (**Cursor**, **Windsurf**, **OpenCode**, **Kimi 
 Install `sdd-parallel` directly as a first-class Spec Kit extension:
 
 ```bash
-# Direct Zero-Wait installation (v0.2.1):
-specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.1.zip
+# Direct Zero-Wait installation (v0.2.2):
+specify extension add --from https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/v0.2.2.zip
 
 # Or via Community Catalog:
 specify extension add sdd-parallel

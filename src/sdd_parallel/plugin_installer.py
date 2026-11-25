@@ -232,7 +232,7 @@ def install_spec_kit_extension(
             'schema_version: "1.0"\n'
             'id: "sdd-parallel"\n'
             'name: "SDD-Parallel Waves & Worktrees"\n'
-            'version: "0.2.1"\n'
+            'version: "0.2.2"\n'
             f'description: "{desc_text}"\n'
             'requires:\n'
             '  speckit_version: ">=0.1.0"\n'
@@ -243,7 +243,7 @@ def install_spec_kit_extension(
             'extension:\n'
             '  id: "sdd-parallel"\n'
             '  name: "SDD-Parallel Waves & Worktrees"\n'
-            '  version: "0.2.1"\n'
+            '  version: "0.2.2"\n'
             f'  description: "{desc_text}"\n',
             encoding="utf-8",
         )
