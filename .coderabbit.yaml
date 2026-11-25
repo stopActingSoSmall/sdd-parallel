@@ -1,9 +1,10 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 language: "en-US"
+tone_instructions: "Report ONLY Critical/High functional, security, or invariant bugs. Suppress Medium/Low nitpicks and theoretical edge cases when fail-closed guards exist."
 early_access: false
 
 reviews:
-  profile: "assertive"
+  profile: "chill"
   request_changes_workflow: false
   high_level_summary: true
   poem: false
@@ -11,12 +12,15 @@ reviews:
   collapse_walkthrough: true
   auto_review:
     enabled: true
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 3
     drafts: false
     base_branches:
       - "master"
   path_filters:
     - "!docs/assets/**"
     - "!docs/marketing/**"
+    - "!docs/i18n/**"
     - "!assets/inspector.html"
     - "!**/*.gif"
     - "!**/*.mp4"
@@ -31,6 +35,8 @@ reviews:
         2. PATH SANITIZATION: Flag any hardcoded local workstation paths (e.g., C:/Users/..., /Users/...).
         3. ANTI-OVERFITTING: Flag magic strings, hardcoded repo-specific filenames, or brittle heuristics tailored to a single demo repository.
         4. DO NOT comment on formatting, imports, or static typing — ruff and mypy --strict already enforce these in CI.
+        5. DEFENSE-IN-DEPTH & FAIL-CLOSED BOUNDARY: When a static analysis or heuristic module (AST, regex, import graph, manifest parser) already implements a conservative fail-closed fallback or is backed by a downstream barrier gate (verify-wave, ast_diff_gate, checkpoint_gates, Partial Barrier Merge), DO NOT request support for rare dynamic language constructs (complex multiple-inheritance mixin MRO, dynamic getattr/globals dispatch, metaprogramming).
+        6. ACTIONABILITY GATE: Flag only defects that cause false fail-open behavior on standard inputs, corrupt Git/worktree state, violate ADR-0009/ADR-0013 invariants, or break deterministic tests.
     - path: "src/sdd_parallel/{worktree.py,plugin_installer.py,hooks/**}"
       instructions: |
         Enforce Invariant 1 (Zero Worktree Pollution) and Blast-Radius Isolation:
@@ -63,7 +69,9 @@ reviews:
 
 knowledge_base:
   opt_out: false
+  learnings:
+    scope: "auto"
   code_guidelines:
     enabled: true
     filePatterns:
-      - "AGENTS.md"
+      - "ARCHITECTURE.md"
