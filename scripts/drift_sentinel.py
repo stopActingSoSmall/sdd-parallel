@@ -707,6 +707,63 @@ def check_knowledge_graph_integrity(repo_root: Path) -> list[DriftFinding]:
     return findings
 
 
+def check_roadmap_release_gates(repo_root: Path) -> list[DriftFinding]:
+    """Ensure active MASTER_INDEX.md queue inserts a RELEASE GATE every 2-4 tasks."""
+    findings: list[DriftFinding] = []
+    master_index = repo_root / "MASTER_INDEX.md"
+    if not master_index.is_file():
+        return findings
+
+    master_text = master_index.read_text(encoding="utf-8")
+    sec3_match = re.search(
+        r"##\s+🔭\s+3\..*?(?=\n###\s+Технический долг|\n##\s+|\Z)",
+        master_text,
+        re.DOTALL,
+    )
+    if not sec3_match:
+        return findings
+
+    consecutive_active = 0
+    max_consecutive = 0
+    for line in sec3_match.group(0).splitlines():
+        stripped = line.lstrip()
+        if not stripped.startswith("|"):
+            continue
+        if "RELEASE GATE" in line or "MILESTONE" in line:
+            consecutive_active = 0
+            continue
+        if (
+            re.search(r"\*\*`Task\s+[^`]+`\*\*", line)
+            and ("QUEUED" in line or "PLANNED" in line)
+            and "FROZEN" not in line
+            and "DONE" not in line
+        ):
+            consecutive_active += 1
+            if consecutive_active > max_consecutive:
+                max_consecutive = consecutive_active
+
+    if max_consecutive > 4:
+        findings.append(
+            DriftFinding(
+                category="[ROADMAP]",
+                summary=(
+                    f"Active roadmap queue in MASTER_INDEX.md has {max_consecutive} "
+                    "consecutive tasks (>4) without a RELEASE GATE milestone"
+                ),
+                details=[
+                    "Group queued/planned tasks into shippable increments of 2-4 tasks."
+                ],
+                remediation=(
+                    "Insert a '🏷️ RELEASE GATE' milestone row every 2-4 active tasks "
+                    "in MASTER_INDEX.md §3"
+                ),
+                is_critical=True,
+            )
+        )
+
+    return findings
+
+
 def run_drift_inspection(
     repo_root: Path,
     staged_only: bool = False,
@@ -734,7 +791,10 @@ def run_drift_inspection(
     # 6. Knowledge graph reachability & INS-* bridge integrity
     findings.extend(check_knowledge_graph_integrity(repo_root))
 
-    # 7. Delta blast-radius projection
+    # 7. Roadmap release-gate cadence (2-4 active tasks per milestone)
+    findings.extend(check_roadmap_release_gates(repo_root))
+
+    # 8. Delta blast-radius projection
     if delta_files:
         findings.extend(check_delta_blast_radius(repo_root, delta_files))
 

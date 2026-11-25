@@ -1,0 +1,31 @@
+changelog:
+  exclude:
+    labels:
+      - ci
+      - chore
+      - internal
+      - dependencies
+    authors:
+      - dependabot
+      - dependabot[bot]
+  categories:
+    - title: "🚀 Core Engine & CLI"
+      labels:
+        - core
+        - enhancement
+        - feature
+    - title: "🔌 SDD Adapters & Harnesses"
+      labels:
+        - adapter
+        - ecosystem
+    - title: "🐛 Bug Fixes"
+      labels:
+        - bug
+        - fix
+    - title: "📚 Documentation"
+      labels:
+        - documentation
+        - docs
+    - title: "Other Changes"
+      labels:
+        - "*"

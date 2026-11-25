@@ -72,9 +72,44 @@ jobs:
           name: python-package-distributions
           path: dist/
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+      - name: Extract release notes from CHANGELOG.md
+        id: extract_notes
         if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python3 - <<'EOF'
+          import os, re
+          from pathlib import Path
+
+          tag = os.environ["TAG_NAME"].lstrip("v")
+          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          pattern = re.compile(
+              rf"^## \[{re.escape(tag)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
+              re.MULTILINE | re.DOTALL,
+          )
+          match = pattern.search(changelog)
+          body = match.group(1).strip() if match else ""
+          if body:
+              Path("dist_release_notes.md").write_text(body + "\n", encoding="utf-8")
+              has_notes = "true"
+          else:
+              has_notes = "false"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"has_notes={has_notes}\n")
+          EOF
+
+      - name: Create GitHub Release (Curated CHANGELOG)
+        uses: softprops/action-gh-release@v3
+        if: startsWith(github.ref, 'refs/tags/') && steps.extract_notes.outputs.has_notes == 'true'
+        with:
+          files: dist/*
+          body_path: dist_release_notes.md
+          generate_release_notes: false
+
+      - name: Create GitHub Release (Filtered PR Fallback)
+        uses: softprops/action-gh-release@v3
+        if: startsWith(github.ref, 'refs/tags/') && steps.extract_notes.outputs.has_notes != 'true'
         with:
           files: dist/*
           generate_release_notes: true
