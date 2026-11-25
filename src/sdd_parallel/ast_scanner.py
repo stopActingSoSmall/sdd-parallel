@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
+from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +28,27 @@ _ADDITIVE_DECORATORS = (
     "include_router",
     "register",
     "route",
+)
+_ROUTER_RECEIVER_HINTS: tuple[str, ...] = (
+    "app",
+    "router",
+    "api",
+    "cli",
+    "bp",
+    "blueprint",
+    "mcp",
+    "server",
+    "subparsers",
+    "registry",
+)
+_UNAMBIGUOUS_ROUTE_ATTRS: tuple[str, ...] = ("include_router", "route")
+_NEGATED_CONSTRAINT_RE = re.compile(
+    r"(?i)\b(?:do\s+not|don't|must\s+not|never|avoid|without\s+(?:changing|modifying|touching)|"
+    r"keep\s+existing|preserve|unchanged|read[- ]only|"
+    r"не\s+менять|не\s+трогать|без\s+изменения|не\s+изменять|сохранить)\b"
+)
+_READONLY_SECTION_HEADER_RE = re.compile(
+    r"(?i)^#{1,6}\s+.*(?:forbidden|read[- ]only|out\s+of\s+scope|unchanged|не\s+трогать)"
 )
 _IGNORED_SCAN_DIRS = {
     ".git",
@@ -96,6 +118,8 @@ class FileMetadata:
     imported_by: set[str] = field(default_factory=set)
     has_schema_version: bool = False
     has_registry_decorators: bool = False
+    defined_functions: set[str] = field(default_factory=set)
+    intra_file_calls: dict[str, set[str]] = field(default_factory=dict)
 
 
 class ASTHotspotScanner:
@@ -177,6 +201,7 @@ class ASTHotspotScanner:
         for rel_path, tree in raw_trees.items():
             meta = self._files[rel_path]
             is_test = self._is_test_path(rel_path)
+            meta.defined_functions, meta.intra_file_calls = self._index_intra_file_calls(tree)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     for alias in node.names:
@@ -256,13 +281,120 @@ class ASTHotspotScanner:
         return None
 
     @staticmethod
+    def _extract_decorator_receiver_name(value: ast.expr) -> str:
+        if isinstance(value, ast.Name):
+            return value.id.lower()
+        if isinstance(value, ast.Attribute):
+            return value.attr.lower()
+        if isinstance(value, ast.Call):
+            return ASTHotspotScanner._extract_decorator_receiver_name(value.func)
+        return ""
+
+    @staticmethod
     def _is_registry_decorator(node: ast.expr) -> bool:
         target = node.func if isinstance(node, ast.Call) else node
-        if isinstance(target, ast.Attribute):
-            return target.attr in _ADDITIVE_DECORATORS
-        if isinstance(target, ast.Name):
-            return target.id in _ADDITIVE_DECORATORS
+        if isinstance(target, ast.Attribute) and target.attr in _ADDITIVE_DECORATORS:
+            if target.attr in _UNAMBIGUOUS_ROUTE_ATTRS:
+                return True
+            receiver = ASTHotspotScanner._extract_decorator_receiver_name(target.value)
+            receiver_parts = {part for part in re.split(r"[_\d]+", receiver) if part}
+            return bool(receiver_parts & set(_ROUTER_RECEIVER_HINTS))
         return False
+
+    @staticmethod
+    def _index_intra_file_calls(tree: ast.Module) -> tuple[set[str], dict[str, set[str]]]:
+        """Extract top-level functions/methods and intra-file call edges."""
+        defined_functions: set[str] = set()
+        raw_calls: dict[str, set[str]] = {}
+
+        def _collect_calls(
+            body_node: ast.FunctionDef | ast.AsyncFunctionDef,
+            class_name: str | None = None,
+        ) -> set[str]:
+            found: set[str] = set()
+            for sub in ast.walk(body_node):
+                if not isinstance(sub, ast.Call):
+                    continue
+                if isinstance(sub.func, ast.Name):
+                    found.add(sub.func.id)
+                elif isinstance(sub.func, ast.Attribute):
+                    if isinstance(sub.func.value, ast.Name):
+                        owner = sub.func.value.id
+                        if class_name and owner in {"self", "cls", class_name}:
+                            found.add(f"{class_name}.{sub.func.attr}")
+                        else:
+                            found.add(f"{owner}.{sub.func.attr}")
+                    elif (
+                        isinstance(sub.func.value, ast.Call)
+                        and isinstance(sub.func.value.func, ast.Name)
+                    ):
+                        found.add(f"{sub.func.value.func.id}.{sub.func.attr}")
+            return found
+
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                fn_key = node.name
+                defined_functions.add(fn_key)
+                raw_calls[fn_key] = _collect_calls(node)
+            elif isinstance(node, ast.ClassDef):
+                for item in node.body:
+                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        fn_key = f"{node.name}.{item.name}"
+                        defined_functions.add(fn_key)
+                        raw_calls[fn_key] = _collect_calls(item, class_name=node.name)
+
+        intra_file_calls = {
+            fn_key: targets & (defined_functions - {fn_key})
+            for fn_key, targets in raw_calls.items()
+        }
+        return defined_functions, intra_file_calls
+
+    @staticmethod
+    def _reachable_intra_calls(
+        start_set: set[str],
+        intra_file_calls: dict[str, set[str]],
+    ) -> set[str]:
+        """Compute transitive intra-file call reachability from start_set via BFS."""
+        visited: set[str] = set()
+        queue: deque[str] = deque(start_set)
+        while queue:
+            curr = queue.popleft()
+            for callee in intra_file_calls.get(curr, ()):
+                if callee not in visited:
+                    visited.add(callee)
+                    queue.append(callee)
+        return visited
+
+    def are_functions_isolated(self, rel_path: str, scope_a: str, scope_b: str) -> bool:
+        """Verify via AST that scope_a and scope_b refer to existing, non-calling functions."""
+        norm_path = rel_path.replace("\\", "/").lstrip("./")
+        if not self._files:
+            self.scan()
+        tokens_a = set(re.findall(r"[A-Za-z_][A-Za-z0-9_.]*", scope_a))
+        tokens_b = set(re.findall(r"[A-Za-z_][A-Za-z0-9_.]*", scope_b))
+        if not tokens_a or not tokens_b or not tokens_a.isdisjoint(tokens_b):
+            return False
+
+        meta = self._files.get(norm_path)
+        if meta is None:
+            return False
+
+        def _resolve_scope(tokens: set[str]) -> set[str]:
+            resolved: set[str] = set()
+            for tok in tokens:
+                for fn in meta.defined_functions:
+                    if fn == tok or fn.endswith(f".{tok}"):
+                        resolved.add(fn)
+            return resolved
+
+        resolved_a = _resolve_scope(tokens_a)
+        resolved_b = _resolve_scope(tokens_b)
+        if not resolved_a or not resolved_b or not resolved_a.isdisjoint(resolved_b):
+            return False
+
+        reach_a = self._reachable_intra_calls(resolved_a, meta.intra_file_calls)
+        reach_b = self._reachable_intra_calls(resolved_b, meta.intra_file_calls)
+        return not (bool(reach_a & resolved_b) or bool(reach_b & resolved_a))
 
     def classify_file(self, rel_path: str) -> FileRole:
         """Return architectural role of a relative file path."""
@@ -300,31 +432,49 @@ class ASTHotspotScanner:
         if not text:
             return set()
         tokens: set[str] = set()
-        env_matches = re.findall(
-            r"\b([A-Z][A-Z0-9_]{2,}_(?:MODE|KEY|PORT|DIR|URL|ENV|HOST|TOKEN|TIMEOUT|PATH|FLAG))\b",
-            text,
-        )
-        for m in env_matches:
-            tokens.add(f"ns:ENV:{m}")
-
         cli_stop = {"--help", "--version"}
-        cli_matches = re.findall(r"(?:^|[\s`'\"(])(--[a-z][a-z0-9-]{2,})\b", text)
-        for m in cli_matches:
-            if m not in cli_stop:
-                tokens.add(f"ns:CLI:{m}")
-
-        route_matches = re.findall(
-            r"\b(GET|POST|PUT|DELETE|PATCH)\s+(/[A-Za-z0-9_./{}:-]+)",
-            text,
+        clause_split_re = re.compile(
+            r"[;.]\s+|\.\s*$|,\s+(?=(?:but\s+)?(?:do\s+not|don't|must\s+not|never|avoid|"
+            r"without\b|keep\b|preserve\b|не\s+))"
         )
-        for method, route_path in route_matches:
-            cleaned_path = route_path.rstrip(".,;:)")
-            norm_path = re.sub(
-                r"\{[^}]+\}|:[A-Za-z_][A-Za-z0-9_]*|(?<=/)\d+(?=/|$)",
-                "{param}",
-                cleaned_path,
-            )
-            tokens.add(f"ns:ROUTE:{method.upper()} {norm_path}")
+        env_re = re.compile(
+            r"\b([A-Z][A-Z0-9_]{2,}_(?:MODE|KEY|PORT|DIR|URL|ENV|HOST|TOKEN|TIMEOUT|PATH|FLAG))\b"
+        )
+        cli_re = re.compile(r"(?:^|[\s`'\"(])(--[a-z][a-z0-9-]{2,})\b")
+        route_re = re.compile(r"\b(GET|POST|PUT|DELETE|PATCH)\s+(/[A-Za-z0-9_./{}:-]+)")
+
+        in_readonly_section = False
+        for line in text.splitlines():
+            stripped = line.strip()
+            if re.match(r"^#{1,6}\s+", stripped):
+                in_readonly_section = bool(_READONLY_SECTION_HEADER_RE.match(stripped))
+                continue
+            if in_readonly_section:
+                continue
+
+            for clause in clause_split_re.split(line):
+                if not clause.strip():
+                    continue
+                if _NEGATED_CONSTRAINT_RE.search(clause):
+                    continue
+
+                for m in env_re.finditer(clause):
+                    tokens.add(f"ns:ENV:{m.group(1)}")
+
+                for m in cli_re.finditer(clause):
+                    cli_flag = m.group(1)
+                    if cli_flag not in cli_stop:
+                        tokens.add(f"ns:CLI:{cli_flag}")
+
+                for m in route_re.finditer(clause):
+                    method, route_path = m.group(1), m.group(2)
+                    cleaned_path = route_path.rstrip(".,;:)")
+                    norm_path = re.sub(
+                        r"\{[^}]+\}|:[A-Za-z_][A-Za-z0-9_]*|(?<=/)\d+(?=/|$)",
+                        "{param}",
+                        cleaned_path,
+                    )
+                    tokens.add(f"ns:ROUTE:{method.upper()} {norm_path}")
 
         return tokens
 

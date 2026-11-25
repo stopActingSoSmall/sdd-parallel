@@ -235,12 +235,20 @@ class BSPWaveScheduler:
 
         return edges
 
-    @staticmethod
-    def _has_isolated_function_scope(task_a: TaskNode, task_b: TaskNode, file_path: str) -> bool:
-        """Return True if both tasks declare distinct isolated function scopes for file_path."""
-        scope_a = task_a.shared_function_notes.get(file_path)
-        scope_b = task_b.shared_function_notes.get(file_path)
-        return bool(scope_a and scope_b and scope_a != scope_b)
+    def _has_isolated_function_scope(
+        self,
+        task_a: TaskNode,
+        task_b: TaskNode,
+        file_path: str,
+    ) -> bool:
+        """Return True if tasks touch distinct, AST-verified non-interacting functions."""
+        scope_a = task_a.shared_function_notes.get(file_path, "").strip()
+        scope_b = task_b.shared_function_notes.get(file_path, "").strip()
+        if not scope_a or not scope_b or scope_a == scope_b:
+            return False
+        if self.ast_scanner is not None:
+            return bool(self.ast_scanner.are_functions_isolated(file_path, scope_a, scope_b))
+        return True
 
     def compute_structural_signals(
         self,

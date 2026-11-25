@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from sdd_parallel.ast_scanner import ASTHotspotScanner
+from sdd_parallel.benchmark import run_eight_class_collision_suite
 from sdd_parallel.manifest import extract_prevented_conflicts
 from sdd_parallel.models import BarrierFeedback, ConflictType, TaskNode
 from sdd_parallel.scheduler import BSPWaveScheduler
@@ -128,3 +129,89 @@ def test_barrier_feedback_roundtrip() -> None:
     assert restored == feedback
     assert isinstance(payload["story_ids"], list)
     assert isinstance(restored.story_ids, tuple)
+
+
+def test_isolated_function_scope_blocks_mutually_calling_or_missing_functions(
+    tmp_path: Path,
+) -> None:
+    """ASTHotspotScanner blocks intra-file calling or missing scopes and allows isolated ones."""
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "module.py").write_text(
+        "def isolated_x() -> int:\n"
+        "    return 1\n\n"
+        "def isolated_y() -> int:\n"
+        "    return 2\n\n"
+        "def leaf() -> int:\n"
+        "    return 3\n\n"
+        "def bridge() -> int:\n"
+        "    return leaf()\n\n"
+        "def entry() -> int:\n"
+        "    return bridge()\n",
+        encoding="utf-8",
+    )
+
+    scanner = ASTHotspotScanner(tmp_path)
+    scanner.scan()
+    scheduler = BSPWaveScheduler(max_tracks=3, ast_scanner=scanner)
+
+    # 1. Transitive call entry -> bridge -> leaf must produce DIRECT_COLLISION
+    t_call_a = TaskNode(
+        id="T1",
+        title="Update entry",
+        write_files=["src/module.py"],
+        shared_function_notes={"src/module.py": "entry"},
+    )
+    t_call_b = TaskNode(
+        id="T2",
+        title="Update leaf",
+        write_files=["src/module.py"],
+        shared_function_notes={"src/module.py": "leaf"},
+    )
+    plan_calling = scheduler.schedule([t_call_a, t_call_b])
+    assert len(plan_calling.waves) == 2
+    assert any(e.conflict_type == ConflictType.DIRECT_COLLISION for e in plan_calling.edges)
+
+    # 2. Non-existent function must produce DIRECT_COLLISION
+    t_miss_a = TaskNode(
+        id="T3",
+        title="Update isolated_x",
+        write_files=["src/module.py"],
+        shared_function_notes={"src/module.py": "isolated_x"},
+    )
+    t_miss_b = TaskNode(
+        id="T4",
+        title="Add new_missing_fn",
+        write_files=["src/module.py"],
+        shared_function_notes={"src/module.py": "new_missing_fn"},
+    )
+    plan_missing = scheduler.schedule([t_miss_a, t_miss_b])
+    assert len(plan_missing.waves) == 2
+    assert any(e.conflict_type == ConflictType.DIRECT_COLLISION for e in plan_missing.edges)
+
+    # 3. Existing non-calling functions share Wave 1
+    t_iso_a = TaskNode(
+        id="T5",
+        title="Update isolated_x",
+        write_files=["src/module.py"],
+        shared_function_notes={"src/module.py": "isolated_x"},
+    )
+    t_iso_b = TaskNode(
+        id="T6",
+        title="Update isolated_y",
+        write_files=["src/module.py"],
+        shared_function_notes={"src/module.py": "isolated_y"},
+    )
+    plan_isolated = scheduler.schedule([t_iso_a, t_iso_b])
+    assert len(plan_isolated.waves) == 1
+    assert set(plan_isolated.waves[0].all_task_ids) == {"T5", "T6"}
+    assert not any(
+        e.conflict_type == ConflictType.DIRECT_COLLISION for e in plan_isolated.edges
+    )
+
+
+def test_eight_class_collision_suite_remains_clean() -> None:
+    """Verify 8-class A-H benchmark suite remains 100% green after Task 51 hardening."""
+    results = run_eight_class_collision_suite()
+    assert set(results.keys()) == {"A", "B", "C", "D", "E", "F", "G", "H"}
+    assert all(results.values()), f"Failed classes: {results}"
