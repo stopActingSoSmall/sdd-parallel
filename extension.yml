@@ -1,7 +1,7 @@
 schema_version: "1.0"
 id: "sdd-parallel"
 name: "SDD-Parallel Waves & Worktrees"
-version: "0.2.1"
+version: "0.2.2"
 description: "Deterministic BSP wave scheduler and isolated git worktrees for Spec Kit"
 homepage: "https://github.com/stopActingSoSmall/sdd-parallel"
 repository: "https://github.com/stopActingSoSmall/sdd-parallel"
@@ -23,5 +23,5 @@ commands:
 extension:
   id: "sdd-parallel"
   name: "SDD-Parallel Waves & Worktrees"
-  version: "0.2.1"
+  version: "0.2.2"
   description: "Deterministic BSP wave scheduler and isolated git worktrees for Spec Kit"

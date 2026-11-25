@@ -27,7 +27,7 @@ def test_spec_kit_extension_manifest_contract() -> None:
     assert data.get("schema_version") == "1.0"
     assert data.get("id") == "sdd-parallel"
     assert data.get("name") == "SDD-Parallel Waves & Worktrees"
-    assert data.get("version") == "0.2.1"
+    assert data.get("version") == "0.2.2"
 
     desc = data.get("description", "")
     assert isinstance(desc, str) and 0 < len(desc) < 100, (
@@ -159,10 +159,10 @@ def test_install_spec_kit_extension_roundtrip(tmp_path: Path) -> None:
 
 
 def test_spec_kit_distribution_artifacts() -> None:
-    tag = "v0.2.1"
+    tag = "v0.2.2"
     archive_url = f"https://github.com/stopActingSoSmall/sdd-parallel/archive/refs/tags/{tag}.zip"
     expected_direct_cmd = f"specify extension add --from {archive_url}"
-    assert "v0.2.1.zip" in expected_direct_cmd
+    assert "v0.2.2.zip" in expected_direct_cmd
     assert expected_direct_cmd.startswith("specify extension add --from https://github.com/")
 
     # Catalog submission structure
@@ -171,7 +171,7 @@ def test_spec_kit_distribution_artifacts() -> None:
         "name": "SDD-Parallel Waves & Worktrees",
         "description": "Deterministic BSP wave scheduler and isolated git worktrees for Spec Kit",
         "repository": "https://github.com/stopActingSoSmall/sdd-parallel",
-        "version": "0.2.1",
+        "version": "0.2.2",
         "tags": ["waves", "parallel", "git-worktree", "merge-conflicts"],
     }
     assert len(catalog_entry["description"]) < 100
