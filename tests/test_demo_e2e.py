@@ -208,3 +208,39 @@ def test_demo_sandbox_cli_lifecycle_commands(tmp_path: Path, capsys, monkeypatch
     assert "[Step 4/4 ●●●●] Complete! Try: uvx sdd-parallel demo" in cap_merge.out
     assert "- [x] T002" in cap_merge.out
 
+
+def test_demo_all_kits_merges_concurrent_cli_edits_with_live_gate() -> None:
+    """Verify concurrent cli.py edits merge via AST 3-way merger with live gate."""
+    for kit in ("bmad", "spec-kit", "gsd", "openspec", "beads"):
+        buf = io.StringIO()
+        res = run_demo(keep_temp=True, output=buf, kit=kit)
+        try:
+            cli_text = (res.demo_repo / "src" / "demo_app" / "cli.py").read_text(encoding="utf-8")
+            assert "from demo_app.normalizer import normalize_key" in cli_text
+            assert "from demo_app.exporter import format_export_summary" in cli_text
+            assert "def normalize_cmd(" in cli_text
+            assert "def export_cmd(" in cli_text
+            assert "<<<<<<<" not in cli_text
+            assert res.merged_branches == ["parallel/track-a", "parallel/track-b"]
+            # Full demo lifecycle (git init + worktrees + AST merge + gate); gate is <0.5s
+            assert res.elapsed_seconds < 15.0
+        finally:
+            _restore_os_writable(res.demo_repo)
+            shutil.rmtree(res.demo_repo, ignore_errors=True)
+
+
+def test_demo_stage4_merges_cli_with_live_gate() -> None:
+    """Verify demo_merge_step (used by demo.tape) merges cli.py and passes live gate."""
+    buf = io.StringIO()
+    res = run_demo(keep_temp=True, output=buf, kit="spec-kit", stage=4)
+    try:
+        cli_text = (res.demo_repo / "src" / "demo_app" / "cli.py").read_text(encoding="utf-8")
+        assert "from demo_app.normalizer import normalize_key" in cli_text
+        assert "from demo_app.exporter import format_export_summary" in cli_text
+        assert "def normalize_cmd(" in cli_text
+        assert "def export_cmd(" in cli_text
+        assert res.merged_branches == ["parallel/track-a", "parallel/track-b"]
+        assert "✨ Wave 1 merged" in buf.getvalue()
+    finally:
+        _restore_os_writable(res.demo_repo)
+        shutil.rmtree(res.demo_repo, ignore_errors=True)

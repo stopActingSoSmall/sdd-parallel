@@ -65,7 +65,7 @@ Con 10–15 especificaciones o historias, los equipos enfrentan dos malas opcion
 | :--- | :--- | :--- | :--- |
 | **Sprint de 12 historias** | ~6–8 h | ~2 h código + **~2 h arreglando merges** | **~2.5 h en total (2x–3x más rápido)** |
 | **Colisiones ocultas de API** | Por ir lento | **Rompe `main`** ($W_A \cap I_B \neq \emptyset$) | **Prevenidas de antemano** (Ola 1 → 2) |
-| **CLI / enrutadores compartidos** | Serializado | Conflicto Git por merge | **Concurrente vía Git 3-way merge** (`ADDITIVE_REGISTRY`, inserciones disjuntas) |
+| **CLI / enrutadores compartidos** | Serializado | Conflicto Git por merge | **Concurrente vía fusión AST de 3 vías** (`registry_merger.py` + `Partial Barrier Merge` fail-closed) |
 | **Archivos de estado** | En serie | Constantes marcas `<<<<<<<` | **Fusión 3-way monótona** (0 marcas) |
 | **Ediciones fuera de alcance** | Aviso en prompt | Eludido vía `bash`/`sed` | **Bloqueado** (`PreToolUse` + Terminal Guard + `chmod a-w`) |
 | **Desorden de worktrees** | Ninguno | 15 carpetas `task-*` sobrantes | **Ranuras fijas reutilizables** (`track-a/b/c`) |
@@ -82,7 +82,7 @@ Sin clave API, sin suscripción a LLM, sin clonar. Ejecuta vía [`uv`](https://d
 uvx sdd-parallel demo --kit all   # o un solo kit: uvx sdd-parallel demo --kit spec-kit
 ```
 
-Crea repositorios Git temporales reales (5 tareas, 6 módulos Python), ejecuta análisis AST, prueba bloqueos `DENY` del Scope Guard y realiza una fusión 3-way con 0 conflictos (`~6–9s` por kit con `--kit all`, `run_quality_gates=False` en sandbox):
+Crea repositorios Git temporales reales (5 tareas, 6 módulos Python), ejecuta análisis AST, prueba bloqueos `DENY` del Scope Guard, fusiona ediciones concurrentes en `cli.py` mediante fusión AST de 3 vías y ejecuta una fusión de estados 3-way con 0 conflictos + compuerta de checkpoint smoke en vivo (`run_quality_gates=True`, `< 5s` por kit):
 
 ```text
 ================================================================
@@ -228,7 +228,7 @@ Leyenda: 🔒 solo lectura (`chmod a-w` + `PreToolUse` deny) · 👻 oculto (`in
 1. **¿Cómo conoce el planificador `write_files` antes de que se escriba el código?**
    Tres capas de protección: **(a)** rutas explícitas declaradas en las specs (`Code Map`, `Files:`, GSD XML `<files>`, comillas invertidas) → **(b)** el Enlazador de Símbolos AST Pre-Ola que resuelve nombres de funciones/clases mencionados hacia archivos en $O(1)$ → **(c)** Escalado Dinámico de Alcance (`.tmp/scope-escalation.json`), donde `PreToolUse` registra las ediciones denegadas fuera de alcance, `verify-wave` difiere la tarea a la Ola $K+1$ (reiniciando la ranura vaciada y actualizando `.parallel/wave-plan.json`), y `merge` se ejecuta según el plan actualizado.
 2. **¿Qué pasa con TypeScript, Go, Rust o repositorios que no son de Python?**
-   Límite honesto: el escáner AST integrado sin dependencias analiza Python de forma nativa. Para repositorios políglotas (TS/JS, Go, Rust), `sdd-parallel` combina listas explícitas de archivos en specs con el sidecar opcional Tree-sitter **`code-review-graph`** (`CRGSidecarAdapter`) para calcular aristas de importación e impacto entre archivos.
+   Límite honesto: el escáner AST integrado sin dependencias (`ast_scanner.py`) y el fusionador de registros 3-way (`registry_merger.py`) analizan Python de forma nativa. Para repositorios políglotas (TS/JS, Go, Rust, Java), `sdd-parallel` se apoya en listas explícitas de archivos en las specs, el sidecar opcional Tree-sitter **`code-review-graph`** (`CRGSidecarAdapter`), `contract_globs`, comprobaciones de lockfiles `DEPENDENCY_DRIFT` y **`Partial Barrier Merge`** (por defecto en `merge`) para aislar de forma segura los tracks en conflicto.
 3. **¿Puede un agente eludir los hooks `PreToolUse` mediante shell (`sed -i`, `python -c`, `cp`)?**
    El control nunca depende de un único hook — es **Defensa en Profundidad de 3 Niveles (3-Tier Defense-in-Depth)**: **Nivel 1** (`PreToolUse` + Terminal Guard inspeccionando redirecciones y escrituras en línea de `Bash`/`run_command`/`powershell`) → **Nivel 2** (`chmod a-w` a nivel de SO sobre archivos Spine y de tracks hermanos) → **Nivel 3** (`verify-wave` auditando el `git diff merge-base...HEAD` real y bloqueando la fusión ante cualquier violación).
 4. **¡El AST no puede ver contratos entre capas (Pydantic JSON → frontend TS, SQL FK, OpenAPI)!**
@@ -275,8 +275,8 @@ Opciones compartidas: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-f
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — Despliega ranuras, bloqueos de SO y límites. |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — Bloquea un worktree existente. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — Imprime comando de lanzamiento nativo por ranura. |
-| `sdd-parallel verify-wave --wave K` | Audita ranuras frente a `.parallel-lock.json`, diff respecto a `merge-base` y escalados de alcance. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge] [--cleanup]` — Quality gates, fusión 3-way, rollback atómico ante conflicto/error de compuerta. |
+| `sdd-parallel verify-wave --wave K` | `[--defer-ast-violations]` — Audita ranuras frente a `.parallel-lock.json`, diff respecto a `merge-base`, `ast_diff_gate` pre-merge y escalados de alcance. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge\|--no-partial-merge] [--cleanup]` — Quality gates, fusión 3-way AST/estados, commit parcial por defecto con bisección de culpables (o rollback atómico con `--no-partial-merge`). |
 | `sdd-parallel abort-wave --wave K` | Reinicia ranuras fijas in situ a `HEAD` (o elimina ramas en `--dynamic-worktrees`). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — Reversión LIFO + rama de respaldo + reinicio de estado. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — Fusión 3-way para `sprint-status.yaml`. |
@@ -294,21 +294,23 @@ Opciones compartidas: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-f
 ## 🚢 Matriz de versiones: Publicado (v0.2.2) vs Hoja de ruta (v0.3+)
 
 ### ✅ Publicado en `v0.1.0 – v0.2.2`
-- [x] Planificador de olas BSP (aciclicidad de Kahn) + escáner AST de puntos calientes + sidecar `code-review-graph v2.3.9`.
-- [x] **Defensa de 8 clases (A–H):** `extract_spine_bucket()` (C), `NAMESPACE_COLLISION` (D), `ast_diff_gate.py` (A/B/F/G/H) y `merge --partial-merge` con bisección de culpables y `.parallel/barrier-feedback-<story_id>.json`.
+- [x] Planificador de olas BSP (aciclicidad de Kahn) + escáner AST de puntos calientes + sidecar `code-review-graph v2.3.9` + bloqueos Spine Bucket (Clase C) y `NAMESPACE_COLLISION` (Clase D).
+- [x] `ast_diff_gate.py` pre-merge: ciclos de importación virtuales Tarjan (Clase G), deriva de firmas/valores por defecto (Clases A/B), helpers duplicados por AST-shingle (Clase F) y colisiones de lockfiles (Clase H).
+- [x] `Partial Barrier Merge` (por defecto en CLI `merge`, `--no-partial-merge` para rollback atómico), ordenamiento por centralidad OCC, bisección determinista de culpables, inyección NACK `.parallel/barrier-feedback-<story_id>.json` y replanificación de cola DAG (`reschedule_remaining_waves`).
+- [x] Fusionador 3-way `ADDITIVE_REGISTRY` consciente de AST para Python (`registry_merger.py`, respaldo fail-closed) + aislamiento de funciones AST intra-archivo (`are_functions_isolated`) y decoradores de enrutador con pistas de receptor.
 - [x] Ranuras fijas (`track-a/b/c`) con reinicio in-situ, enmascaramiento `info/exclude`, `.venv`/`node_modules` vía NTFS Junctions (Windows, no admin) / POSIX symlinks.
 - [x] Scope Guard de 3 niveles (`PreToolUse` + Terminal Guard + `chmod a-w`), enlazador de símbolos, `.tmp/scope-escalation.json`.
 - [x] Fusionador 3-way monótono de estados (YAML, Markdown, `STATE.md`, JSONL) + reversión transaccional LIFO.
 - [x] 5 adaptadores SDD (Spec Kit + `extension.yml`, BMAD + `mattpocock/skills` + `bmad-loop`, GSD, OpenSpec, Beads).
-- [x] Offline `demo --kit all`, backtest `bench`, Wave Inspector HTML (`inspect --open`), `--scaffold-only`.
+- [x] Offline `demo --kit all`, backtest `bench` de 8 clases (A–H, 0 FN), Wave Inspector HTML (`inspect --open`), `--scaffold-only`.
 - [x] Autopilot multiventana y Depth-0 (`agy`, Claude Code, Codex) con `--routing-file`, `TaskStructuralSignals`, `--policy cyclic` (`ADR-0009`).
 - [x] CI en clon limpio (Ubuntu/macOS/Windows, Python 3.11–3.13) y PyPI Trusted Publishing.
 
 ### 🚧 Planificado para `v0.3+`
 - [ ] Detección automática estricta de kit (cero fallback silencioso, desambiguación TTY)
-- [ ] Escalado seguro por grafo y bisección de culpables (integración parcial + bucle de reparación)
+- [ ] Extractor de intención System-1 (`TaskIntentVector`) y clasificador de colisiones por pares Decision-1
 - [ ] AST políglota nativo con Tree-sitter e indexación automática CRG (TS/JS, Go, Rust)
-- [ ] Pre-extractor opcional System-1 (`--extractor none|gliner|clairic`) y `--max-tracks auto` adaptativo
+- [ ] `--max-tracks auto` adaptativo y exportador de briefs `/swarm` de Antigravity (`--format swarm-brief`)
 
 ---
 

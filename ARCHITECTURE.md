@@ -11,7 +11,7 @@
   <a href="docs/i18n/ru/ARCHITECTURE.md">Русский</a>
 </p>
 
-**Version:** 0.1.0  
+**Version:** 0.2.2  
 **Status:** Approved Architecture Spine (SSOT)
 
 ---
@@ -190,23 +190,24 @@ For each uncompleted task $T_i$, the engine evaluates:
 2. **Shared Additive Registries (`FileRole.ADDITIVE_REGISTRY`):**
    - High-level entrypoints where features register independent commands or endpoints (`cli.py` with `@app.command`, `mcp/server.py` with `@mcp.tool`, `__init__.py` with `__all__`).
    - *Architectural Invariant (ADR-0002):* Shared formatting utilities (`console.py`, `markdown.py`, `egress/`) are strictly excluded from additive registries and classified as `FileRole.STANDARD`.
-   - **Rule:** Tasks intersecting *only* on genuine `ADDITIVE_REGISTRY` files **may execute concurrently** in separate `git worktree` slots with append-only guidance injected into `.tmp/track-context.md`. Zero-conflict semantic merging is guaranteed for SDD status trackers (`status_merger.py`); code registries use standard Git 3-way merge (disjoint inserts pass cleanly, while adjacent import/EOF edits trigger a conflict and transactional wave rollback).
+   - **Rule:** Tasks intersecting *only* on genuine `ADDITIVE_REGISTRY` files **may execute concurrently** in separate `git worktree` slots with append-only guidance injected into `.tmp/track-context.md`. Zero-conflict semantic merging is guaranteed for SDD status trackers (`status_merger.py`). Python additive registries (`cli.py`, `__init__.py`, `*/mcp/server.py`) are merged via the deterministic stdlib AST 3-way merger (`registry_merger.py`: disjoint header imports, `__all__`, and orthogonal top-level functions/commands), with fail-closed fallback (`None` $\to$ `Partial Barrier Merge`) if existing function bodies or colliding symbols are mutated.
 3. **Standard Module Files (`FileRole.STANDARD`):**
    - Standard business logic modules, adapters, and egress presenters.
-   - **Rule:** Any intersection $W(A) \cap W(B) \neq \emptyset$ blocks concurrent execution within the same wave unless specifications declare distinct isolated function notes in `shared_function_notes` (checked declaratively via `_has_isolated_function_scope`). `STANDARD` files are never exempted from impact radius calculations.
+   - **Rule:** Any intersection $W(A) \cap W(B) \neq \emptyset$ blocks concurrent execution within the same wave unless specifications declare distinct isolated function notes in `shared_function_notes` and `ASTHotspotScanner.are_functions_isolated()` confirms both functions exist and have no direct or transitive intra-file call edge (`_has_isolated_function_scope`). `STANDARD` files are never exempted from impact radius calculations.
 
 ### 2.2. Three-Pass Static AST Analysis Pipeline (`ASTHotspotScanner`)
 
 In compliance with **Invariant 7 (Anti-Overfitting & Invariant-First Architecture)**, file roles are determined dynamically without hardcoded project names:
 1. **Pass 1 (Signature Parsing):** Scan for migration keywords (`_SPINE_KEYWORDS = ("SCHEMA_VERSION", "auto_migrate", "_migrate_v")`) $\to$ `has_schema_version`.
-2. **Pass 2 (Import Graph & Decorator Inspection):** Traverse `Import`/`ImportFrom` nodes to compute In-Degree (Fan-In `len(meta.imported_by)`) and inspect `decorator_list` for registration patterns (`_ADDITIVE_DECORATORS = ("command", "tool", "get", "post", "put", "delete", "patch", "include_router", "register", "route")`).
+2. **Pass 2 (Import Graph & Decorator Inspection):** Traverse `Import`/`ImportFrom` nodes to compute In-Degree (Fan-In `len(meta.imported_by)`) and inspect `decorator_list` for registration patterns using token-bounded receiver hints (`_ROUTER_RECEIVER_HINTS` on `@app.command`, `@router.get`, `@mcp.tool`, etc.; bare `@get`/`@register`/`@command` and non-router receivers like `@cache_client.get` remain `FileRole.STANDARD`).
 3. **Pass 3 (Deterministic Classification `SPINE > ADDITIVE_REGISTRY > STANDARD`):**
    - Tests (`tests/`, `test_*.py`) $\to$ always `STANDARD`.
    - `SPINE`: if `has_schema_version == True` $\lor$ filename in `{"models.py", "schema.py"}` $\lor$ **Topological Centrality $\text{In-Degree} \ge 5$**.
    - **Spine Buckets (Class C):** `DEFAULT_SPINE_BUCKET_GLOBS` (`**/migrations/**`, `**/versions/**`, `docs/adr/**`) mapped via `extract_spine_bucket()` serialize concurrent tasks creating different filenames inside the same ordered directory.
    - `ADDITIVE_REGISTRY`: if `has_registry_decorators == True` $\lor$ entrypoint in `{"cli.py", "__init__.py"}` $\lor$ `*/mcp/server.py`.
    - `STANDARD`: all remaining business logic modules.
-   - **Namespace Token Extraction (Class D):** `extract_namespace_tokens()` extracts normalized CLI flags (`cli:--flag`), environment variables (`env:VAR`), and HTTP routes (`route:METHOD /path`) from task descriptions to detect cross-file registry collisions.
+   - **Namespace Token Extraction (Class D):** `extract_namespace_tokens()` extracts normalized CLI flags (`cli:--flag`), environment variables (`env:VAR`), and HTTP routes (`route:METHOD /path`) from task descriptions (filtering read-only sections and negated clauses) to detect cross-file registry collisions.
+   - **Polyglot Boundary:** Built-in zero-dependency AST parsing (`ast_scanner.py`, `registry_merger.py`) targets Python natively; for JS/TS, Go, Rust, and Java repositories, planning and barrier safety rely on `code-review-graph` (Tree-sitter), `DEFAULT_CONTRACT_GLOBS`, `DEPENDENCY_DRIFT`, and `Partial Barrier Merge`.
 
 ### 2.3. Conflict Graph Edge Types (`ConflictEdge`)
 
@@ -343,12 +344,12 @@ Rather than recreating filesystem directories per wave, the orchestrator provisi
   2. *Priority 2:* `pyproject.toml` (`[tool.sdd-parallel].checkpoint_gates`).
   3. *Priority 3:* Automatic stack detection (Python `pytest/ruff/mypy`, Node/TS `npm test`, Rust `cargo test`, Go `go test ./...`).
 - **Empty Suite Resilience (`_is_no_tests_collected`):** Code 5 in pytest (`NO_TESTS_COLLECTED`) or `"no test files found"` does not fail the merge unless `--strict-gates` is enabled.
-- **Pre-Merge AST Diff Gate (`ast_diff_gate.py`):** Executed inside `WorktreeManager.verify_wave()` across `>= 2` isolated worktree slots before `git merge`. Detects virtual cross-track import cycles (Tarjan SCC, Class G), signature/default/constant drift vs `merge-base` (Classes A/B), structurally duplicate new helper functions via normalized AST shingles (Jaccard $\ge 0.75$, Class F), and concurrent dependency manifest/lockfile edits (Class H).
-- **Transactional Auto-Rollback & Partial Barrier Merge (`--partial-merge`):** By default, if any merge conflict, `update_state_on_merge` failure, or checkpoint gate failure occurs during `sdd-parallel merge --wave K`, the orchestrator aborts any active merge and executes `git reset --hard pre_merge_head`. With `--partial-merge` (or `partial_merge: true` in `.parallel-config.json`), healthy tracks are committed incrementally while failing tracks are isolated via deterministic culprit bisection (`_isolate_culprit_tracks_by_bisection`), preserved on `backup/wave-<K>-<track>-failed-<ts>`, recorded in `.parallel/barrier-feedback-<story_id>.json`, and remaining waves are re-planned via `BSPWaveScheduler.reschedule_remaining_waves()`.
+- **Pre-Merge AST Diff Gate (`ast_diff_gate.py`):** Executed inside `WorktreeManager.verify_wave()` across `>= 2` isolated worktree slots before `git merge`. Detects virtual cross-track import cycles (Tarjan SCC, Class G), signature/default/constant drift vs `merge-base` (Classes A/B), structurally duplicate new helper functions via normalized AST shingles (Jaccard $\ge 0.75$, Class F), and concurrent dependency manifest/lockfile edits (Class H). Passing `--defer-ast-violations` records NACK feedback (`_record_track_barrier_nack()`), preserves a safety `backup/` branch, and defers offending tracks without manual reset.
+- **Partial Barrier Merge (Default) & Strict Atomic Rollback (`--no-partial-merge`):** CLI `sdd-parallel merge --wave K` defaults to `partial_merge=True` (ordered by OCC structural centrality signals): healthy tracks land incrementally on a clean `master`, while conflicting or gate-failing tracks are isolated via deterministic culprit bisection (`_isolate_culprit_tracks_by_bisection`), preserved on `backup/wave-<K>-<track>-failed-<ts>`, recorded in `.parallel/barrier-feedback-<story_id>.json`, and re-planned via `BSPWaveScheduler.reschedule_remaining_waves()`. Passing `--no-partial-merge` enforces strict all-or-nothing transactional rollback (`git merge --abort` + `git reset --hard pre_merge_head`).
 
 ### 4.9. Standalone Offline Merge-Bomb Demonstration (`sdd-parallel demo`)
 
-The autonomous command `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp]` generates an ephemeral repository and verifies core planning, isolation, and status-merge invariants offline without LLM keys or network access (`~6–9s` per kit with `run_quality_gates=False` in the synthetic sandbox):
+The autonomous command `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp]` generates an ephemeral repository and verifies core planning, isolation, AST 3-way registry merging, and live checkpoint gates offline without LLM keys or network access (`< 5s` per kit with live `run_quality_gates=True` smoke gate):
 1. AST file role classification (`SPINE`, `ADDITIVE_REGISTRY`, `STANDARD`).
 2. Type-2 semantic collision detection ($W_{1-2} \cap I_{2-1} \neq \emptyset$) preventing merge bombs.
 3. Fixed slot provisioning, Scope Guard enforcement, and clean worktree status verification.
@@ -363,8 +364,8 @@ The autonomous command `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,bea
 | `prepare` | Provision fixed track slots and boundary locks for Wave K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run`, `--routing-file <path>` |
 | `claim-track` | Attach boundary locks to an existing external worktree | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
 | `run-guide` | Display formatted operator run-guide matrix for Wave K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
-| `verify-wave` | Audit worktree diffs, lock compliance, handle scope escalations, and record barrier manifest | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | Barrier checkpoint merge with 3-way status merge, gates, atomic rollback, and manifest | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `verify-wave` | Audit worktree diffs, lock compliance, handle scope escalations, and record barrier manifest | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--defer-ast-violations`, `--dynamic-worktrees` |
+| `merge` | Barrier checkpoint merge with AST/status 3-way merge, gates, partial merge / rollback, and manifest | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge` / `--no-partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | Standalone 3-way deterministic merge for sprint-status.yaml | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | Inspect file modification permission via active hook logic | `--file <path>`, `--tool <name>` (outputs formatted JSON with `indent=2`) |
 | `install-plugin` | Package and install portable Antigravity plugin | `--target-dir <path>` (defaults to `~/.gemini/config/plugins/sdd-parallel`) |

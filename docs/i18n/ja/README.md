@@ -65,7 +65,7 @@ https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-p
 | :--- | :--- | :--- | :--- |
 | **12 ストーリー** | 約 6〜8 時間 | 実装 2h ＋ **修正 2h** | **合計約 2.5h（2〜3 倍高速）** |
 | **潜在 API 衝突** | 低速で回避 | **`main` 破損** ($W_A \cap I_B \neq \emptyset$) | **事前防止** (Wave 1 → 2) |
-| **共有 CLI/ルーター** | 直列実行 | マージ毎に衝突 | **Git 3-Way マージによる並行実行**（`ADDITIVE_REGISTRY`、非重複挿入） |
+| **共有 CLI/ルーター** | 直列実行 | マージ毎に衝突 | **AST 3-Way マージによる並行実行**（`registry_merger.py` + フェイルクローズ `Partial Barrier Merge`） |
 | **ステータスファイル** | 直列更新 | `<<<<<<<` 頻発 | **単調 3-Way マージ** (衝突 0) |
 | **スコープ外編集** | プロンプト警告 | `bash`/`sed` で迂回 | **遮断** (`PreToolUse` + Terminal Guard + `chmod a-w`) |
 | **Worktree 散乱** | なし | `task-*` が 15 個残留 | **固定再利用スロット** (`track-a/b/c`) |
@@ -82,7 +82,7 @@ API キー・LLM 契約・クローン不要。[`uv`](https://docs.astral.sh/uv/
 uvx sdd-parallel demo --kit all   # 単一キット: uvx sdd-parallel demo --kit spec-kit
 ```
 
-使い捨て Git リポ（5 タスク・6 モジュール）を生成し、AST 解析・Scope Guard `DENY`・衝突 0 の 3-Way ステータスマージを実行します（`--kit all` 指定時は 1 キットあたり約 `~6–9s`、サンドボックス内は `run_quality_gates=False`）：
+使い捨てのリアルな Git リポ（5 タスク・6 Python モジュール）を生成し、AST 解析、Scope Guard `DENY` ロック検証、3-Way AST マージによる `cli.py` の同時編集統合、および衝突 0 の 3-Way ステータスマージ＋ライブスモークチェックポイントゲート（`run_quality_gates=True`、1 キットあたり `< 5s`）を実行します：
 
 ```text
 ================================================================
@@ -228,7 +228,7 @@ my-project/
 1. **コードを書く前に、プランナーはどうやって `write_files` を知るのですか？**
    3 段階の保護レイヤーがあります：**(a)** 仕様内で明示されたパス（`Code Map`、`Files:`、GSD XML `<files>`、バッククォート表記） → **(b)** 言及された関数名・クラス名を $O(1)$ でファイルへ解決する Pre-Wave AST シンボルリンカー → **(c)** 動的スコープエスカレーション（`.tmp/scope-escalation.json`）：`PreToolUse` が拒否された範囲外編集を記録し、`verify-wave` が該当タスクを Wave $K+1$ へ繰り越し（空になったスロットをリセットして `.parallel/wave-plan.json` を更新）、`merge` が更新済みプランに基づいて統合を実行します。
 2. **TypeScript、Go、Rust など非 Python リポジトリはどうなりますか？**
-   誠実な限界：依存ゼロの組み込み AST スキャナがネイティブ解析するのは Python です。多言語リポジトリ（TS/JS、Go、Rust）では、仕様内の明示ファイルリストとオプションの Tree-sitter サイドカー **`code-review-graph`**（`CRGSidecarAdapter`）を組み合わせ、ファイル間の import および影響エッジを計算します。
+   誠実な限界：依存ゼロの組み込み AST スキャナ（`ast_scanner.py`）および 3-Way レジストリマージャー（`registry_merger.py`）がネイティブ解析するのは Python です。多言語リポジトリ（TS/JS、Go、Rust、Java）では、仕様内の明示ファイルリスト、オプションの Tree-sitter サイドカー **`code-review-graph`**（`CRGSidecarAdapter`）、`contract_globs`、`DEPENDENCY_DRIFT` ロックファイル検査、および **`Partial Barrier Merge`**（`merge` のデフォルト）により、競合トラックを安全に隔離します。
 3. **エージェントはシェル（`sed -i`、`python -c`、`cp`）経由で `PreToolUse` フックを迂回できませんか？**
    強制力は単一フックに依存しません — **3 層縦深防御（3-Tier Defense-in-Depth）**です：**Tier 1**（`PreToolUse` + `Bash`/`run_command`/`powershell` のリダイレクトやインライン書き込みを検査する Terminal Guard） → **Tier 2**（Spine および兄弟トラック所有ファイルへの OS レベル `chmod a-w`） → **Tier 3**（実際の `git diff merge-base...HEAD` を監査し、違反があればマージを遮断する `verify-wave`）。
 4. **AST はレイヤー横断コントラクト（Pydantic JSON → TS フロントエンド、SQL FK、OpenAPI）を見抜けないはずです！**
@@ -275,8 +275,8 @@ flowchart TD
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — スロット確保、OS ロック、境界ファイル注入。 |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — 既存 worktree へロックを適用。 |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — スロット別の起動コマンドを表示。 |
-| `sdd-parallel verify-wave --wave K` | `.parallel-lock.json`、`merge-base` diff、およびスコープエスカレーションに対してスロットを監査。 |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge] [--cleanup]` — ゲート検証、3-Way マージ、競合またはゲートエラー時のアトミックロールバック。 |
+| `sdd-parallel verify-wave --wave K` | `[--defer-ast-violations]` — `.parallel-lock.json`、`merge-base` diff、マージ前 `ast_diff_gate`、およびスコープエスカレーションに対してスロットを監査。 |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge\|--no-partial-merge] [--cleanup]` — ゲート検証、AST/状態 3-Way マージ、原因二分探索を伴うデフォルトの部分コミット（または `--no-partial-merge` によるアトミックロールバック）。 |
 | `sdd-parallel abort-wave --wave K` | 固定スロットをその場で `HEAD` にリセット（または `--dynamic-worktrees` でブランチ削除）。 |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO リバート＋退避ブランチ＋状態復元。 |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — `sprint-status.yaml` 用 3-Way マージ。 |
@@ -294,8 +294,10 @@ flowchart TD
 ## 🚢 リリースマトリクス：実装済み (v0.2.2) vs ロードマップ (v0.3+)
 
 ### ✅ `v0.1.0 – v0.2.2` で実装済み
-- [x] BSP スケジューラ（Kahn 非巡回性）+ AST スキャナ + `code-review-graph v2.3.9` サイドカー。
-- [x] **8クラス衝突防御 (A–H):** `extract_spine_bucket()` (C), `NAMESPACE_COLLISION` (D), `ast_diff_gate.py` (A/B/F/G/H), および `merge --partial-merge` 原因二分探索と `.parallel/barrier-feedback-<story_id>.json`。
+- [x] BSP スケジューラ（Kahn 非巡回性）+ AST ホットスポットスキャナ + `code-review-graph v2.3.9` サイドカー + Spine バケットロック（クラス C）& `NAMESPACE_COLLISION`（クラス D）。
+- [x] マージ前 `ast_diff_gate.py`：仮想 Tarjan インポート循環（クラス G）、シグネチャ／デフォルト値ドリフト（クラス A/B）、AST シングル重複ヘルパー（クラス F）、ロックファイル競合（クラス H）。
+- [x] Partial Barrier Merge（CLI `merge` のデフォルト、`--no-partial-merge` でアトミックロールバック）、OCC 中心性順序付け、決定論的原因二分探索、`.parallel/barrier-feedback-<story_id>.json` NACK 注入、および DAG テール再スケジュール（`reschedule_remaining_waves`）。
+- [x] Python AST 対応 3-Way `ADDITIVE_REGISTRY` マージャー（`registry_merger.py`、フェイルクローズフォールバック）+ ファイル内 AST 関数独立性検査（`are_functions_isolated`）およびレシーバーヒント付きルーターデコレーター。
 - [x] 固定スロット（`track-a/b/c`）、その場リセット、`info/exclude` 不可視化、`.venv`/`node_modules` の NTFS Junctions (Windows, no admin) / POSIX symlinks。
 - [x] 三層 Scope Guard（`PreToolUse` + Terminal Guard + `chmod a-w`）、シンボルリンカー、`.tmp/scope-escalation.json`。
 - [x] 単調 3-Way ステータスマージャー（YAML, Markdown, `STATE.md`, JSONL）+ LIFO ロールバック。

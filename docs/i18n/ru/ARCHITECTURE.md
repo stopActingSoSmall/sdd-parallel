@@ -11,7 +11,7 @@
   <b>Русский</b>
 </p>
 
-**Версия:** 0.1.0  
+**Версия:** 0.2.2  
 **Статус:** Утверждённый архитектурный хребет (SSOT)
 
 ---
@@ -23,11 +23,12 @@
 ```mermaid
 flowchart LR
     subgraph Adapters["Модуль 1: Полиморфные SDD-адаптеры (SDDAdapterProtocol & Read-Only ACL)"]
-        A1["BMAD Adapter\n(sprint-status.yaml + epics.md + specs)"]
-        A2["Spec Kit Adapter\n(.specify/specs/*/tasks.md + constitution)"]
+        A1["BMAD Adapter\n(v6 sprint-status.yaml & v7 initiative tickets.toml)"]
+        A2["Spec Kit Adapter\n(.specify/specs/*/tasks.md + официальное расширение)"]
         A3["GSD Adapter\n(.planning/phases/*-PLAN.md + STATE.md)"]
-        A4["OpenSpec Adapter\n(openspec/changes/*/tasks.md + proposal)"]
-        A5["Beads Adapter\n(.beads/issues.jsonl + dependencies)"]
+        A4["OpenSpec Adapter\n(openspec/changes/*/tasks.md + заголовки v1.16+)"]
+        A5["Beads Adapter\n(.beads/issues.jsonl + синхронизация dolt DB)"]
+        A6["Custom Manifest Adapter\n(.parallel/custom-kit.yaml)"]
     end
 
     subgraph Engine["Модуль 2: Гексагональный DAG-движок & Conflict Solver"]
@@ -161,6 +162,7 @@ class SDDAdapterProtocol(Protocol):
 | **Инструкции запуска воркеров** | `SDDAdapter` | Формирует нативную команду для инструмента (`/speckit.implement`, `/gsd-execute-phase`, `/opsx:apply`, `bd update`, `/bmad-build`). |
 | **Многоуровневый Scope Guard** | `Core Engine` | Перехватывает вызовы `PreToolUse`, терминальные команды (`Bash`, `run_command`) и предотвращает побег агента из ворк-три. |
 | **3-Way слияние статусов задач** | `SDDAdapter` + `Core` | Ядро оркеструет слияние; специализированный монотонный резолвер (`status_merger.py`) объединяет статусы без Git-конфликтов. |
+| **Пост-мердж согласованность состояния и БД** | `SDDAdapter` + `Core` | Полиморфный хук `update_state_on_merge()` обеспечивает синхронизацию встроенных движков (например, Beads Dolt DB через `bd import --allow-stale`) и монолитных журналов состояния (`.planning/STATE.md`) сразу после 3-way merge. |
 | **Транзакционный откат волн (LIFO)** | `Core Engine` + `Adapter` | Ядро создаёт страховочную ветку `backup/wave-<K>-before-rollback-*` и возвращает `HEAD`; адаптер полиморфно сбрасывает статусы задач. |
 
 ### 1.3. Интеллектуальный автовыбор и изоляция неактивных китов (Multi-Kit Coexistence)
@@ -188,23 +190,24 @@ class SDDAdapterProtocol(Protocol):
 2. **Shared Additive Registries (`FileRole.ADDITIVE_REGISTRY`):**
    - Крупные файлы-точки входа, куда разные фичи добавляют независимые блоки регистрации (исключительно `cli.py` с декораторами `@app.command`, `mcp/server.py` с `@mcp.tool`, `__init__.py` с `__all__`).
    - *Важное разграничение (ADR-0002):* Модули форматирования вывода (`console.py`, `markdown.py`, каталог `egress/`) категорически **запрещено** относить к аддитивным реестрам, так как они содержат общие функции рендеринга и монолитные хелперы. Они относятся к `FileRole.STANDARD`.
-   - **Правило:** Задачи, пересекающиеся *только* по истинным `ADDITIVE_REGISTRY`, **могут исполняться параллельно** в разных `git worktree` при инъекции правила аддитивной вставки в `.tmp/track-context.md`. Бесконфликтный семантический мердж гарантирован для трекеров статусов (`status_merger.py`); код реестров сливается обычным Git 3-way merge (разнесённые вставки проходят, а правки соседних импортов или одного конца файла вызывают конфликт и транзакционный откат волны).
+   - **Правило:** Задачи, пересекающиеся *только* по истинным `ADDITIVE_REGISTRY`, **могут исполняться параллельно** в разных `git worktree` при инъекции правила аддитивной вставки в `.tmp/track-context.md`. Бесконфликтный семантический мердж гарантирован для трекеров статусов (`status_merger.py`). Аддитивные реестры Python (`cli.py`, `__init__.py`, `*/mcp/server.py`) объединяются детерминированным stdlib AST 3-way мерджером (`registry_merger.py`: непересекающиеся заголовки импортов, `__all__` и ортогональные функции/команды верхнего уровня) с fail-closed откатом (`None` $\to$ `Partial Barrier Merge`) при изменении тел существующих функций или коллизии символов.
 3. **Standard Module Files (`FileRole.STANDARD`):**
    - Обычные модули бизнес-логики, адаптеров и модули вывода/презентации.
-   - **Правило:** Пересечение $W(A) \cap W(B) \neq \emptyset$ блокирует параллельный запуск в одной волне, кроме случаев, когда в спецификациях задекларированы различные изолированные заметки о функциях в `shared_function_notes` (декларативная проверка `_has_isolated_function_scope`). Файлы `STANDARD` никогда не вычитаются из семантического радиуса поражения (Impact Radius).
+   - **Правило:** Пересечение $W(A) \cap W(B) \neq \emptyset$ блокирует параллельный запуск в одной волне, кроме случаев, когда в спецификациях задекларированы различные изолированные заметки о функциях в `shared_function_notes`, а `ASTHotspotScanner.are_functions_isolated()` подтверждает существование обеих функций и отсутствие прямого или транзитивного внутрифайлового ребра вызовов (`_has_isolated_function_scope`). Файлы `STANDARD` никогда не вычитаются из семантического радиуса поражения (Impact Radius).
 
 ### 2.2. Алгоритмический конвейер детекции ролей (`ASTHotspotScanner` — 3 прохода без хардкода)
 
 В соответствии с **Инвариантом 7 (Anti-Overfitting & Invariant-First Architecture)** ядро движка не привязано к конкретным именам файлов. Роль каждого модуля вычисляется 3-проходным статическим AST-анализатором (`src/sdd_parallel/ast_scanner.py`):
 1. **Проход 1 (Сигнатурный разбор):** Поиск маркеров версионирования схем данных и миграций (`_SPINE_KEYWORDS = ("SCHEMA_VERSION", "auto_migrate", "_migrate_v")`) $\to$ флаг `has_schema_version`.
-2. **Проход 2 (Граф импортов и декораторы):** Обход узлов `Import`/`ImportFrom` (вычисление Fan-In `len(meta.imported_by)`) и проверка `decorator_list` на паттерны регистрации (`_ADDITIVE_DECORATORS = ("command", "tool", "get", "post", "put", "delete", "patch", "include_router", "register", "route")`).
+2. **Проход 2 (Граф импортов и декораторы):** Обход узлов `Import`/`ImportFrom` (вычисление Fan-In `len(meta.imported_by)`) и проверка `decorator_list` на паттерны регистрации по токен-ограниченным подсказкам получателя (`_ROUTER_RECEIVER_HINTS` для `@app.command`, `@router.get`, `@mcp.tool` и т.д.; голые `@get`/`@register`/`@command` и не-роутерные получатели вроде `@cache_client.get` остаются в `FileRole.STANDARD`).
 3. **Проход 3 (Детерминированная классификация `SPINE > ADDITIVE_REGISTRY > STANDARD`):**
    - Тесты (`tests/`, `test_*.py`) $\to$ всегда `STANDARD`.
    - `SPINE`: если `has_schema_version == True` $\lor$ имя файла `{"models.py", "schema.py"}` $\lor$ **топологическая центральность $\text{In-Degree} \ge 5$**.
    - **Spine-бакеты (Класс C):** `DEFAULT_SPINE_BUCKET_GLOBS` (`**/migrations/**`, `**/versions/**`, `docs/adr/**`) через `extract_spine_bucket()` сериализуют параллельные задачи с разными именами файлов в одной упорядоченной директории.
    - `ADDITIVE_REGISTRY`: если `has_registry_decorators == True` $\lor$ точка входа `{"cli.py", "__init__.py"}` $\lor$ `*/mcp/server.py`.
    - `STANDARD`: все остальные модули бизнес-логики.
-   - **Экстрактор пространств имён (Класс D):** `extract_namespace_tokens()` извлекает нормализованные CLI-флаги (`cli:--flag`), переменные окружения (`env:VAR`) и HTTP-роуты (`route:METHOD /path`) для перехвата коллизий в разных файлах.
+   - **Экстрактор пространств имён (Класс D):** `extract_namespace_tokens()` извлекает нормализованные CLI-флаги (`cli:--flag`), переменные окружения (`env:VAR`) и HTTP-роуты (`route:METHOD /path`) из описаний задач (отфильтровывая read-only секции и отрицательные оговорки) для перехвата коллизий в разных файлах.
+   - **Полиглотная граница:** Встроенный zero-dependency AST-парсинг (`ast_scanner.py`, `registry_merger.py`) нативно ориентирован на Python; для репозиториев на JS/TS, Go, Rust и Java планирование и барьерная безопасность опираются на `code-review-graph` (Tree-sitter), `DEFAULT_CONTRACT_GLOBS`, `DEPENDENCY_DRIFT` и `Partial Barrier Merge`.
 
 ### 2.3. Типы рёбер в графе планирования (`ConflictEdge`)
 
@@ -282,11 +285,12 @@ class SDDAdapterProtocol(Protocol):
 ### 4.2. Pre-Flight валидация контрактов и защита неизменяемых спецификаций (`FORBIDDEN_STATE_FILES`)
 
 Перед стартом планирования или исполнения волны `sdd-parallel` выполняет аудит готовности репозитория и блокирует от изменений канонические файлы фреймворков:
-- **GitHub Spec Kit:** Валидирует `.specify/specs/**/tasks.md`. Защищает от изменений `.specify/memory/constitution.md`, `.specify/feature.json`, `spec.md` и `plan.md`.
+- **GitHub Spec Kit:** Валидирует `.specify/specs/**/tasks.md` и предоставляет официальное расширение (`extension.yml` и `commands/`). Защищает от изменений `.specify/memory/constitution.md`, `.specify/feature.json`, `spec.md` и `plan.md`.
 - **GSD (Get Shit Done):** Читает фазовые планы `.planning/phases/*-PLAN.md` в режиме **Artifact Hijack**, защищая `.planning/STATE.md`, `ROADMAP.md` и `PROJECT.md` от одновременной перезаписи.
-- **OpenSpec:** Читает пропозалы `openspec/changes/*/tasks.md`, защищая `openspec/project.md`, `openspec/specs/**` и `openspec/config.yaml`.
-- **Beads:** Читает `.beads/issues.jsonl`, защищая `.beads/config.yaml` и `.beads/metadata.json`.
-- **BMAD Method:** Pre-Flight Context Gate проверяет наличие скомпилированных `epic-<N>-context.md` в `implementation-artifacts` или `planning-artifacts` (**Zero Cache Invalidation**).
+- **OpenSpec:** Читает пропозалы `openspec/changes/*/tasks.md` с поддержкой закрывающих хэшей CommonMark (`## Title ##`, v1.16.1 `#2205`), защищая `openspec/project.md`, `openspec/specs/**` и `openspec/config.yaml`.
+- **Beads:** Читает `.beads/issues.jsonl`, защищая `.beads/config.yaml` и `.beads/metadata.json`, с автоматической синхронизацией Dolt DB при слиянии через `bd import --allow-stale`.
+- **BMAD Method:** Поддерживает артефакты v6 и нативные деревья инициатив v7 (`tickets.toml`, `story-*-plan.md`, маппинг статуса `built` в `REVIEW`); pre-flight гейты проверяют скомпилированные `epic-<N>-context.md` в v6 или неизменность `tickets.toml` в v7 (**Zero Cache Invalidation**).
+- **Custom SDD Manifest:** Читает декларативные манифесты `.parallel/custom-kit.yaml`, инициализированные через `sdd-parallel init-custom`.
 
 ### 4.3. Вычисление семантического радиуса поражения через `CRGSidecarAdapter`
 
@@ -298,13 +302,14 @@ class SDDAdapterProtocol(Protocol):
 ### 4.4. Полиморфный детерминированный 3-Way Merger статусов
 
 При барьерном слиянии волны (`sdd-parallel merge --wave K`) статус задач вычисляется специализированным монотонным мерджером в зависимости от используемого SDD-фреймворка:
-1. **BMAD Method (`sprint-status.yaml`):** Монотонная полурешётка рангов:
-   $$\text{Rank}: \quad \texttt{backlog} (0) < \texttt{ready-for-dev} (1) < \texttt{in-progress} (2) < \texttt{review} (3) < \texttt{done} (4)$$
+1. **BMAD (`sprint-status.yaml`, `stories.yaml`, `story-*-plan.md`):** Монотонная полурешётка рангов:
+   $$\text{Rank}: \quad \texttt{backlog} (0) < \texttt{ready-for-dev} (1) < \texttt{in-progress} (2) < \texttt{review / built} (3) < \texttt{done / dropped} (4)$$
    Для каждого ключа выбирается $\max(\text{rank}(base), \text{rank}(ours), \text{rank}(theirs))$ с сохранением структуры и комментариев YAML.
 2. **GitHub Spec Kit & OpenSpec (`tasks.md` чек-листы Markdown):** Функция `merge_markdown_task_checklists(base, ours, theirs)` сопоставляет элементы формата `- [ ] <id>: <desc>` или `- [ ] <desc>`. Задача помечается выполненной, если закрыта хотя бы в одной ветке ($\max(\text{todo}, \text{done}) = \text{done}$).
 3. **Beads (`.beads/issues.jsonl`):** Функция `merge_beads_issues_jsonl(base, ours, theirs)` сопоставляет записи по `id` и монотонно продвигает статус (`open < in-progress < closed`).
 4. **GSD Post-Merge Commit:** Агрегирует выполненные задачи фазы и фиксирует коммитом обновлённый статус в `.planning/STATE.md`.
-5. **Защита от UTF-8 BOM (`utf-8-sig`):** Чтение и запись всех статусных файлов выполняется через кодек `utf-8-sig`, нейтрализуя невидимый маркер `\ufeff` Windows PowerShell.
+5. **Custom Manifest:** Монотонно объединяет кастомные роадмапы согласно заданным пользователем `status_ranks` в `.parallel/custom-kit.yaml`.
+6. **Защита от UTF-8 BOM (`utf-8-sig`):** Чтение и запись всех статусных файлов выполняется через кодек `utf-8-sig`, нейтрализуя невидимый маркер `\ufeff` Windows PowerShell.
 
 ### 4.5. Fixed Track Slots (`track-<id>`) & In-Place Reset ($O(1)$ Footprint, ADR-0003)
 
@@ -339,12 +344,12 @@ class SDDAdapterProtocol(Protocol):
   2. *Приоритет 2:* `pyproject.toml` (`[tool.sdd-parallel].checkpoint_gates`).
   3. *Приоритет 3:* Автоопределение стека (Python `pytest/ruff/mypy`, Node/TS `npm test`, Rust `cargo test`, Go `go test ./...`).
 - **Устойчивость к пустым сьютам (`_is_no_tests_collected`):** Код выхода 5 в `pytest` (`NO_TESTS_COLLECTED`) или `"no test files found"` не ломает слияние при `strict_gates=False`.
-- **Добарьерный AST-анализатор диффов (`ast_diff_gate.py`):** Выполняется в `WorktreeManager.verify_wave()` при наличии `>= 2` слотов до `git merge`. Перехватывает виртуальные циклы импортов (Тарьян, Класс G), дрейф сигнатур/дефолтов/констант относительно `merge-base` (Классы A/B), структурное сходство новых хелперов по AST-шинглам (Jaccard $\ge 0.75$, Класс F) и одновременную правку манифестов зависимостей/lock-файлов (Класс H).
-- **Транзакционный авто-откат и Partial Barrier Merge (`--partial-merge`):** По умолчанию при merge-конфликте, ошибке `update_state_on_merge()` или падении checkpoint gate во время `sdd-parallel merge --wave K` оркестратор прерывает слияние и выполняет `git reset --hard pre_merge_head`. При флаге `--partial-merge` (или `partial_merge: true` в `.parallel-config.json`) здоровые треки коммитятся инкрементально, виновник изолируется детерминированной бисекцией (`_isolate_culprit_tracks_by_bisection`), сохраняется в `backup/wave-<K>-<track>-failed-<ts>`, записывается `.parallel/barrier-feedback-<story_id>.json`, а хвост волн перепланируется через `BSPWaveScheduler.reschedule_remaining_waves()`.
+- **Добарьерный AST-анализатор диффов (`ast_diff_gate.py`):** Выполняется в `WorktreeManager.verify_wave()` при наличии `>= 2` изолированных слотов до `git merge`. Перехватывает виртуальные циклы импортов (Tarjan SCC, Класс G), дрейф сигнатур/дефолтов/констант относительно `merge-base` (Классы A/B), структурное сходство новых хелперов по нормализованным AST-шинглам (Jaccard $\ge 0.75$, Класс F) и одновременную правку манифестов зависимостей/lock-файлов (Класс H). Передача `--defer-ast-violations` записывает NACK-отзыв (`_record_track_barrier_nack()`), сохраняет страховочную ветку `backup/` и откладывает нарушившие треки без ручного сброса.
+- **Partial Barrier Merge (по умолчанию) и строгий атомарный откат (`--no-partial-merge`):** CLI `sdd-parallel merge --wave K` по умолчанию использует `partial_merge=True` (с упорядочением по сигналам структурной центральности OCC): здоровые треки инкрементально ложатся на чистую ветку `master`, а конфликтующие или провалившие гейт треки изолируются детерминированной бисекцией виновника (`_isolate_culprit_tracks_by_bisection`), сохраняются в `backup/wave-<K>-<track>-failed-<ts>`, фиксируются в `.parallel/barrier-feedback-<story_id>.json` и перепланируются через `BSPWaveScheduler.reschedule_remaining_waves()`. Передача `--no-partial-merge` принудительно включает строгий транзакционный откат «всё или ничего» (`git merge --abort` + `git reset --hard pre_merge_head`).
 
 ### 4.9. Standalone Offline Merge-Bomb Demonstration (`sdd-parallel demo`)
 
-Автономная команда `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp]` разворачивает временный репозиторий и проверяет базовые инварианты планирования, изоляции и слияния статусов офлайн без API-ключей и сети (`~6–9 с` на кит при `run_quality_gates=False` в синтетической песочнице):
+Автономная команда `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp]` разворачивает временный репозиторий и проверяет базовые инварианты планирования, изоляции, AST 3-way слияния реестров и живых checkpoint gates офлайн без API-ключей и сети (`< 5s` на кит с живым smoke-гейтом `run_quality_gates=True`):
 1. AST-классификация файлов (`SPINE`, `ADDITIVE_REGISTRY`, `STANDARD`).
 2. Отлов семантического конфликта 2-го рода ($W_{1-2} \cap I_{2-1} \neq \emptyset$).
 3. Развёртывание слотов, проверка чистоты Git и работа Scope Guard.
@@ -359,8 +364,8 @@ class SDDAdapterProtocol(Protocol):
 | `prepare` | Подготовка слотов треков и локов для Wave K | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run`, `--routing-file <path>` |
 | `claim-track` | Присоединение локов к существующему ворк-три | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
 | `run-guide` | Вывод форматированной таблицы запуска для оператора | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
-| `verify-wave` | Аудит диффов, соблюдения локов, обработка scope-эскалаций и сбор манифеста | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | Барьерное слияние с 3-way мерджем статусов, гейтами, атомарным откатом и манифестом | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `verify-wave` | Аудит диффов, соблюдения локов, обработка scope-эскалаций и сбор манифеста | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--defer-ast-violations`, `--dynamic-worktrees` |
+| `merge` | Барьерное слияние с 3-way мерджем AST/статусов, гейтами, partial merge / откатом и манифестом | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge` / `--no-partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | Автономный 3-way детерминированный мердж sprint-status.yaml | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | Проверка разрешения на запись в файл через логику хука | `--file <path>`, `--tool <name>` (вывод форматированного JSON с `indent=2`) |
 | `install-plugin` | Сборка и установка портативного плагина Antigravity | `--target-dir <path>` (по умолчанию `~/.gemini/config/plugins/sdd-parallel`) |
