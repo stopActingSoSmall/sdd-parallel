@@ -240,3 +240,30 @@ def test_are_functions_isolated_retains_all_branch_receiver_classes(tmp_path: Pa
     assert not scanner.are_functions_isolated("src/dispatch.py", "dispatch", "First.step")
     assert not scanner.are_functions_isolated("src/dispatch.py", "dispatch", "Second.step")
     assert scanner.are_functions_isolated("src/dispatch.py", "dispatch", "First.unrelated")
+
+
+def test_are_functions_isolated_is_fail_closed_on_dynamic_calls(tmp_path: Path) -> None:
+    """Aliases and unknown-receiver branches never yield a false 'isolated' verdict."""
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "dyn.py").write_text(
+        "import os\n\n"
+        "class First:\n"
+        "    def step(self) -> int:\n        return 1\n\n"
+        "class Second:\n"
+        "    def step(self) -> int:\n        return 2\n\n"
+        "def helper() -> int:\n    return 1\n\n"
+        "def pure() -> int:\n    return len(os.sep)\n\n"
+        "def caller() -> int:\n    target = helper\n    return target()\n\n"
+        "def dispatch(flag: bool, factory) -> int:\n"
+        "    if flag:\n        worker = First()\n"
+        "    else:\n        worker = factory()\n"
+        "    return worker.step()\n",
+        encoding="utf-8",
+    )
+    scanner = ASTHotspotScanner(tmp_path)
+    scanner.scan()
+
+    assert not scanner.are_functions_isolated("src/dyn.py", "caller", "helper")
+    assert not scanner.are_functions_isolated("src/dyn.py", "dispatch", "Second.step")
+    assert scanner.are_functions_isolated("src/dyn.py", "pure", "helper")

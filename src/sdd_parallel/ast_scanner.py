@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import builtins
 import re
 from collections import deque
 from collections.abc import Sequence
@@ -29,6 +30,8 @@ _ADDITIVE_DECORATORS = (
     "register",
     "route",
 )
+UNRESOLVED_CALL = "<unresolved-call>"
+_UNKNOWN_RECEIVER = "<unknown-receiver>"
 _ROUTER_RECEIVER_HINTS: tuple[str, ...] = (
     "app",
     "router",
@@ -320,6 +323,17 @@ class ASTHotspotScanner:
                 class_methods[node.name] = methods
 
         class_names = set(class_methods)
+        resolvable_names: set[str] = set(dir(builtins)) | class_names
+        for top in tree.body:
+            if isinstance(top, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                resolvable_names.add(top.name)
+            elif isinstance(top, ast.Import):
+                resolvable_names.update((a.asname or a.name).split(".")[0] for a in top.names)
+            elif isinstance(top, ast.ImportFrom):
+                resolvable_names.update(a.asname or a.name for a in top.names)
+
+        def _method_name_fallback(attr_name: str) -> set[str]:
+            return {f"{c}.{attr_name}" for c, ms in class_methods.items() if attr_name in ms}
 
         def _extract_local_class_types(
             body_node: ast.FunctionDef | ast.AsyncFunctionDef,
@@ -335,14 +349,16 @@ class ASTHotspotScanner:
                     local_types.setdefault(arg.arg, set()).add(arg.annotation.id)
             for sub in ast.walk(body_node):
                 if isinstance(sub, ast.Assign):
-                    if (
-                        isinstance(sub.value, ast.Call)
+                    known = (
+                        sub.value.func.id
+                        if isinstance(sub.value, ast.Call)
                         and isinstance(sub.value.func, ast.Name)
                         and sub.value.func.id in class_names
-                    ):
-                        for target in sub.targets:
-                            if isinstance(target, ast.Name):
-                                local_types.setdefault(target.id, set()).add(sub.value.func.id)
+                        else _UNKNOWN_RECEIVER
+                    )
+                    for target in sub.targets:
+                        if isinstance(target, ast.Name):
+                            local_types.setdefault(target.id, set()).add(known)
                 elif isinstance(sub, ast.AnnAssign) and isinstance(sub.target, ast.Name):
                     if (
                         isinstance(sub.value, ast.Call)
@@ -360,6 +376,11 @@ class ASTHotspotScanner:
         ) -> set[str]:
             found: set[str] = set()
             local_types = _extract_local_class_types(body_node)
+            nested_defs = {
+                n.name
+                for n in ast.walk(body_node)
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n is not body_node
+            }
             for sub in ast.walk(body_node):
                 if not isinstance(sub, ast.Call):
                     continue
@@ -369,6 +390,9 @@ class ASTHotspotScanner:
                     if callee in class_names:
                         found.add(f"{callee}.__init__")
                         found.add(f"{callee}.__new__")
+                    elif callee not in resolvable_names and callee not in nested_defs:
+                        # Callable local/parameter/alias: target unknowable statically.
+                        found.add(UNRESOLVED_CALL)
                 elif isinstance(sub.func, ast.Attribute):
                     attr_name = sub.func.attr
                     if isinstance(sub.func.value, ast.Name):
@@ -377,7 +401,10 @@ class ASTHotspotScanner:
                             found.add(f"{class_name}.{attr_name}")
                         elif owner in local_types:
                             for resolved_cls in local_types[owner]:
-                                found.add(f"{resolved_cls}.{attr_name}")
+                                if resolved_cls == _UNKNOWN_RECEIVER:
+                                    found |= _method_name_fallback(attr_name)
+                                else:
+                                    found.add(f"{resolved_cls}.{attr_name}")
                         elif owner in class_names:
                             found.add(f"{owner}.{attr_name}")
                         else:
@@ -409,7 +436,7 @@ class ASTHotspotScanner:
                         raw_calls[fn_key] = _collect_calls(item, class_name=node.name)
 
         intra_file_calls = {
-            fn_key: targets & (defined_functions - {fn_key})
+            fn_key: targets & ((defined_functions - {fn_key}) | {UNRESOLVED_CALL})
             for fn_key, targets in raw_calls.items()
         }
         return defined_functions, intra_file_calls
@@ -459,6 +486,12 @@ class ASTHotspotScanner:
 
         reach_a = self._reachable_intra_calls(resolved_a, meta.intra_file_calls)
         reach_b = self._reachable_intra_calls(resolved_b, meta.intra_file_calls)
+        # Fail-closed: an unresolvable dynamic call may reach anything in the file.
+        if UNRESOLVED_CALL in reach_a or UNRESOLVED_CALL in reach_b:
+            return False
+        direct = resolved_a | resolved_b
+        if any(UNRESOLVED_CALL in meta.intra_file_calls.get(f, ()) for f in direct):
+            return False
         return not (bool(reach_a & resolved_b) or bool(reach_b & resolved_a))
 
     def classify_file(self, rel_path: str) -> FileRole:
