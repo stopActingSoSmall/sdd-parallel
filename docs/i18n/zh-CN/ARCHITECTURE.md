@@ -11,7 +11,7 @@
   <a href="../ru/ARCHITECTURE.md">Русский</a>
 </p>
 
-**版本:** 0.1.0  
+**版本:** 0.2.2  
 **状态:** 已批准架构核心基线 (SSOT)
 
 ---
@@ -23,11 +23,12 @@
 ```mermaid
 flowchart LR
     subgraph Adapters["子系统 1: 多态 SDD 套件适配器 (SDDAdapterProtocol & 只读 ACL)"]
-        A1["BMAD 适配器\n(sprint-status.yaml + epics.md + specs)"]
-        A2["Spec Kit 适配器\n(.specify/specs/*/tasks.md + constitution)"]
+        A1["BMAD 适配器\n(v6 sprint-status.yaml & v7 initiative tickets.toml)"]
+        A2["Spec Kit 适配器\n(.specify/specs/*/tasks.md + 官方扩展)"]
         A3["GSD 适配器\n(.planning/phases/*-PLAN.md + STATE.md)"]
-        A4["OpenSpec 适配器\n(openspec/changes/*/tasks.md + proposal)"]
-        A5["Beads 适配器\n(.beads/issues.jsonl + dependencies)"]
+        A4["OpenSpec 适配器\n(openspec/changes/*/tasks.md + v1.16+ 标题)"]
+        A5["Beads 适配器\n(.beads/issues.jsonl + dolt 数据库同步)"]
+        A6["自定义清单适配器\n(.parallel/custom-kit.yaml)"]
     end
 
     subgraph Engine["子系统 2: 六边形 DAG 引擎与冲突求解器"]
@@ -161,12 +162,13 @@ class SDDAdapterProtocol(Protocol):
 | **智能体启动指令生成** | `SDDAdapter` | 生成原生智能体命令（`/speckit.implement`、`/gsd-execute-phase`、`/opsx:apply`、`bd update`、`/bmad-build`）。 |
 | **多层范围守卫** | `Core Engine` | 拦截 `PreToolUse` 调用、终端命令拦截（`Bash`, `run_command`）并施加 OS 只读锁。 |
 | **3 路单调状态合并** | `SDDAdapter` + `Core` | 引擎编排屏障 Git 合并；专用半格合并器（`status_merger.py`）实现零冲突标记的状态合并。 |
+| **合并后状态与数据库协同一致性** | `SDDAdapter` + `Core` | 多态 `update_state_on_merge()` 钩子确保嵌入式引擎（如通过 `bd import --allow-stale` 同步的 Beads Dolt DB）和单体状态日志（`.planning/STATE.md`）在 3 路合并后立即同步。 |
 | **事务性 LIFO 回滚** | `Core Engine` + `Adapter` | 引擎创建安全备份分支（`backup/wave-<K>-before-rollback-*`）并重置 `HEAD`；适配器多态还原任务状态。 |
 
 ### 1.3. 多套件共存与非活动沙箱隔离协议
 
-实际企业级仓库常包含多个 SDD 框架的制品（例如历史 `_bmad-output/` 与现行 GitHub Spec Kit `.specify/` 并存）：
-1. **显式优先级：** `--kit <name>` CLI 参数或 `.parallel-config.json` 中的 `"default_kit"` 拥有最高优先级。
+实际企业级仓库常包含多个 SDD 框架的制品（例如历史 `_bmad-output/` 与现行 GitHub Spec Kit `.specify/` 并存，或 OpenSpec RFC 与 GSD 实现阶段并存）：
+1. **显式优先级：** `--kit <name>` CLI 参数或 `.parallel-config.json` / `pyproject.toml` 中的 `"default_kit"` 拥有最高优先级。
 2. **活动任务启发式检测 (`kit="auto"`)：** 自动解析器通过 `load_tasks(include_done=False)` 查询所有检测到的框架，激活首个包含未完成任务（`len(active_tasks) > 0`）的框架。
 3. **诊断遥测：** `diagnose_multi_kit_coexistence()` 在不阻断流程的前提下向操作员发出多套件共存提示。
 4. **跨框架沙箱锁定：** 构建 `.parallel-lock.json`（`build_lock_manifest`）时，所有**非活动** SDD 框架的目录会自动加入 `forbidden_files`，并标记原因 `"Locked by inactive SDD framework sandboxing"`。
@@ -178,7 +180,7 @@ class SDDAdapterProtocol(Protocol):
 对于每个未完成的任务 $T_i$，引擎评估：
 - $W(T_i)$ — 该任务**修改或创建**的文件集合（`write_files`）。
 - $R(T_i)$ — 该任务作为前置依赖**读取或导入**的文件集合（`read_files`）。
-- $I(T_i)$ — 围绕 $W(T_i)$ 的**加权影响半径**，由 `CRGSidecarAdapter` 计算（`code-review-graph v2.3.9`，直接解析模式，衰减系数 $\gamma = 0.7$）。
+- $I(T_i)$ — 围绕 $W(T_i)$ 的**加权影响半径**，由 `CRGSidecarAdapter` 计算（`code-review-graph v2.3.9`，方法 `get_impact_radius_sql`，配置 `resolution="direct"`、`min_impact_score=0.5`，沿边权重 `CALLS=1.0`、`INHERITS/IMPLEMENTS/OVERRIDES=0.9`、`TESTED_BY=0.8`、`IMPORTS_FROM=0.7` 以衰减系数 $\gamma = 0.7$ 计算）。
 
 ### 2.1. 代码库的三类文件角色
 
@@ -187,22 +189,25 @@ class SDDAdapterProtocol(Protocol):
    - **规则：** 修改同一个 `SPINE` 文件的任务**绝不排入同一波次**，强制串行化依赖。
 2. **共享追加注册表 (`FileRole.ADDITIVE_REGISTRY`):**
    - 供不同功能独立追加命令或端点的顶层入口（如带有 `@app.command` 的 `cli.py`，带有 `@mcp.tool` 的 `mcp/server.py`，定义 `__all__` 的 `__init__.py`）。
-   - *架构不变量 (ADR-0002)：* 共享格式化工具库（`console.py`, `markdown.py`）严格排除在追加注册表外，归类为 `FileRole.STANDARD`。
-   - **规则：** 仅在真实 `ADDITIVE_REGISTRY` 文件上产生交集的任务，**允许在独立的 `git worktree` 槽位中并行执行**，并在 `.tmp/track-context.md` 中注入仅追加指引。零冲突语义合并仅对 SDD 状态追踪文件（`status_merger.py`）有保证；代码注册表使用标准 Git 三方合并（互不重叠的插入可顺利通过，而相邻的 import 或文件末尾（EOF）编辑会触发合并冲突并执行事务性波次回滚）。
+   - *架构不变量 (ADR-0002)：* 共享格式化工具库（`console.py`, `markdown.py`, `egress/`）严格排除在追加注册表外，归类为 `FileRole.STANDARD`。
+   - **规则：** 仅在真实 `ADDITIVE_REGISTRY` 文件上产生交集的任务，**允许在独立的 `git worktree` 槽位中并行执行**，并在 `.tmp/track-context.md` 中注入仅追加指引。SDD 状态追踪文件（`status_merger.py`）保证零冲突语义合并。Python 追加注册表（`cli.py`、`__init__.py`、`*/mcp/server.py`）通过确定性标准库 AST 三方合并器（`registry_merger.py`：合并互不相交的顶部 import、`__all__` 与正交的顶层函数/命令）完成合并；若既有函数体被修改或存在符号碰撞，则触发故障关闭回退（`None` $\to$ `Partial Barrier Merge`）。
 3. **标准业务模块 (`FileRole.STANDARD`):**
    - 业务逻辑、普通适配器、展现层模块。
-   - **规则：** 任何交集 $W(A) \cap W(B) \neq \emptyset$ 均阻止同波次并发，除非规范在 `shared_function_notes` 中声明了互不重叠的独立函数作用域说明（通过 `_has_isolated_function_scope` 进行声明式检查）。`STANDARD` 文件从不豁免影响半径计算。
+   - **规则：** 任何交集 $W(A) \cap W(B) \neq \emptyset$ 均阻止同波次并发，除非规范在 `shared_function_notes` 中声明了互不重叠的独立函数作用域，且 `ASTHotspotScanner.are_functions_isolated()` 确认两个函数均存在且不存在直接或传递性的文件内调用边（`_has_isolated_function_scope`）。`STANDARD` 文件从不豁免影响半径计算。
 
 ### 2.2. 三遍静态 AST 分析流水线 (`ASTHotspotScanner`)
 
-根据 **Invariant 7（反过度拟合与通用抽象）**，文件角色纯动态计算：
-1. **第 1 遍（签名解析）：** 扫描迁移关键字（`SCHEMA_VERSION`, `auto_migrate`）识别 Schema 核心。
-2. **第 2 遍（导入图与装饰器遍历）：** 遍历 `Import`/`ImportFrom` 节点计算入度中心度（Fan-In），并检查装饰器（`command`, `tool`, `get`, `post`）。
-3. **第 3 遍（确定性分类）：**
-   - 测试文件（`tests/`）$\to$ 始终为 `STANDARD`。
-   - `SPINE`：若含有 Schema 关键字 $\lor$ 文件名为 `models.py`/`schema.py` $\lor$ **入度中心度 $\ge 5$**。
-   - `ADDITIVE_REGISTRY`：若包含注册装饰器 $\lor$ 文件名为 `cli.py`/`__init__.py`。
+根据 **Invariant 7（反过度拟合与通用抽象）**，文件角色无需硬编码项目名称即可动态计算：
+1. **第 1 遍（签名解析）：** 扫描迁移关键字（`_SPINE_KEYWORDS = ("SCHEMA_VERSION", "auto_migrate", "_migrate_v")`）$\to$ 设置 `has_schema_version`。
+2. **第 2 遍（导入图与装饰器遍历）：** 遍历 `Import`/`ImportFrom` 节点计算入度（Fan-In `len(meta.imported_by)`），并使用基于令牌边界的接收者提示检查 `decorator_list` 中的注册模式（`_ROUTER_RECEIVER_HINTS`，匹配 `@app.command`、`@router.get`、`@mcp.tool` 等；裸装饰器 `@get`/`@register`/`@command` 及非路由接收者如 `@cache_client.get` 仍归类为 `FileRole.STANDARD`）。
+3. **第 3 遍（确定性分类 `SPINE > ADDITIVE_REGISTRY > STANDARD`）：**
+   - 测试文件（`tests/`、`test_*.py`）$\to$ 始终为 `STANDARD`。
+   - `SPINE`：若 `has_schema_version == True` $\lor$ 文件名为 `{"models.py", "schema.py"}` $\lor$ **拓扑中心度 $\text{In-Degree} \ge 5$**。
+   - **骨干桶（Spine Buckets，类 C）：** 通过 `extract_spine_bucket()` 映射的 `DEFAULT_SPINE_BUCKET_GLOBS`（`**/migrations/**`、`**/versions/**`、`docs/adr/**`）对同一有序目录中创建不同文件名的并发任务进行串行化。
+   - `ADDITIVE_REGISTRY`：若 `has_registry_decorators == True` $\lor$ 入口文件为 `{"cli.py", "__init__.py"}` $\lor$ `*/mcp/server.py`。
    - `STANDARD`：其余所有业务模块。
+   - **命名空间令牌提取（类 D）：** `extract_namespace_tokens()` 从任务描述中提取归一化的 CLI 标志（`cli:--flag`）、环境变量（`env:VAR`）与 HTTP 路由（`route:METHOD /path`）（自动过滤只读段落与否定从句），以检测跨文件注册表碰撞。
+   - **多语言边界：** 内置零依赖 AST 解析（`ast_scanner.py`、`registry_merger.py`）原生针对 Python；对于 JS/TS、Go、Rust 与 Java 仓库，规划与屏障安全依赖 `code-review-graph`（Tree-sitter）、`DEFAULT_CONTRACT_GLOBS`、`DEPENDENCY_DRIFT` 与 `Partial Barrier Merge`。
 
 ### 2.3. 冲突图边类型 (`ConflictEdge`)
 
@@ -279,11 +284,12 @@ class SDDAdapterProtocol(Protocol):
 ### 4.2. 前置契约审计与不可变规范保护
 
 在波次规划前，审计就绪状态并对规范文件实施只读保护（`FORBIDDEN_STATE_FILES`）：
-- **GitHub Spec Kit：** 保护 `.specify/memory/constitution.md`、`.specify/feature.json`、`spec.md`、`plan.md`。
-- **GSD (Get Shit Done)：** 保护 `.planning/STATE.md`、`ROADMAP.md`、`PROJECT.md`。
-- **OpenSpec：** 保护 `openspec/project.md`、`openspec/specs/**`、`openspec/config.yaml`。
-- **Beads：** 保护 `.beads/config.yaml` 与 `.beads/metadata.json`。
-- **BMAD Method：** 校验并保护编译好的 `epic-<N>-context.md`。
+- **GitHub Spec Kit：** 校验 `.specify/specs/**/tasks.md` 并提供官方扩展包（`extension.yml` 与 `commands/`）。对 `.specify/memory/constitution.md`、`.specify/feature.json`、`spec.md`、`plan.md` 实施只读保护。
+- **GSD (Get Shit Done)：** 通过**制品劫持（Artifact Hijack）**读取阶段计划 `.planning/phases/*-PLAN.md`，保护 `.planning/STATE.md`、`ROADMAP.md`、`PROJECT.md` 免受并发破坏。
+- **OpenSpec：** 读取变更提案 `openspec/changes/*/tasks.md`（支持 CommonMark 尾部 `#` 号标题 `## Title ##`，v1.16.1 `#2205`），保护 `openspec/project.md`、`openspec/specs/**`、`openspec/config.yaml`。
+- **Beads：** 解析 `.beads/issues.jsonl`，保护 `.beads/config.yaml` 与 `.beads/metadata.json`，并在合并后通过 `bd import --allow-stale` 自动同步 Dolt DB。
+- **BMAD Method：** 支持 v6 遗留制品及 v7 原生主动脉树（`tickets.toml`、`story-*-plan.md`、`built` 状态映射至 `REVIEW`）；前置门禁校验 v6 已编译 `epic-<N>-context.md` 或 v7 `tickets.toml` 不可变性（**零缓存失效**）。
+- **自定义 SDD 清单：** 读取通过 `sdd-parallel init-custom` 初始化的声明式 `.parallel/custom-kit.yaml` 清单。
 
 ### 4.3. 基于 `CRGSidecarAdapter` 的语义爆炸半径分析
 
@@ -294,10 +300,12 @@ class SDDAdapterProtocol(Protocol):
 ### 4.4. 多态确定性 3 路状态合并器
 
 在波次屏障合并时（`sdd-parallel merge --wave K`），无缝整合不同框架的任务状态：
-1. **BMAD (`sprint-status.yaml`):** 按单调半格秩合并：$\texttt{backlog} (0) < \texttt{ready-for-dev} (1) < \texttt{in-progress} (2) < \texttt{review} (3) < \texttt{done} (4)$，保留 YAML 原始排版与注释。
-2. **GitHub Spec Kit 与 OpenSpec (`tasks.md` Markdown 清单):** 对齐 `- [ ]` 与 `- [x]` 任务行，任意分支完成即提升为 `[x]`，零冲突标记。
+1. **BMAD (`sprint-status.yaml`, `stories.yaml`, `story-*-plan.md`):** 按单调半格秩合并：$\texttt{backlog} (0) < \texttt{ready-for-dev} (1) < \texttt{in-progress} (2) < \texttt{review / built} (3) < \texttt{done / dropped} (4)$，保留 YAML 原始排版与注释。
+2. **GitHub Spec Kit 与 OpenSpec (`tasks.md` Markdown 清单):** 对齐 `- [ ] <id>: <desc>` 与 `- [ ] <desc>` 任务行，任意分支完成即提升为 `[x]`，零冲突标记。
 3. **Beads (`.beads/issues.jsonl`):** 流式解析 JSONL 记录，按任务 ID 单调推进状态（`open < in-progress < closed`）。
-4. **UTF-8 BOM 兼容保护 (`utf-8-sig`):** 所有 I/O 均处理 Windows PowerShell 的 BOM 标记（`\ufeff`）。
+4. **GSD 合并后提交：** 汇总已完成阶段任务，并将更新后的阶段状态提交至 `.planning/STATE.md`。
+5. **自定义清单：** 依据 `.parallel/custom-kit.yaml` 中用户定义的 `status_ranks` 单调合并自定义路线图。
+6. **UTF-8 BOM 兼容保护 (`utf-8-sig`):** 所有 I/O 均处理 Windows PowerShell 的 BOM 标记（`\ufeff`）。
 
 ### 4.5. 固定轨道槽位 (`track-<id>`) 与就地复位 ($O(1)$ 空间占用)
 
@@ -318,14 +326,23 @@ class SDDAdapterProtocol(Protocol):
 - **`rollback-wave --wave K [--save-backup]`：** 严格遵循 LIFO 后进先出顺序回滚最近合并的波次，自动保留备份分支 `backup/wave-<K>-before-rollback-*`，并多态恢复任务状态。
 
 ### 4.8. 技术栈无关的检查点门禁与事务自动撤销
-- **预合并 AST Diff 门禁 (`ast_diff_gate.py`) 与部分合并 (`--partial-merge`)：** `verify-wave` 检测虚拟导入循环（Tarjan，类 G）、默认值漂移（类 A/B）、AST 重复辅助函数（类 F）与锁文件冲突（类 H）；`merge --partial-merge` 增量提交健康轨道、二分定位故障轨道并写入 `.parallel/barrier-feedback-<story_id>.json` 与 `reschedule_remaining_waves()`。
 
-- **通用门禁解析：** 优先读取 `.parallel-config.json` 或 `pyproject.toml` 中的 `checkpoint_gates`，支持跨语言自动识别（Python `pytest`, Node `npm test`, Rust `cargo test`, Go `go test`）。
-- **事务自动撤销：** 若在 `sdd-parallel merge --wave K` 期间于任意轨道分支发生合并冲突、`update_state_on_merge()` 失败或检查点质量门禁失败，编排器会在槽位清理前自动执行 `git merge --abort` 与 `git reset --hard pre_merge_head`，原子恢复 `master` 分支，同时完整保留各轨道槽位现场以供调试。
+- **通用门禁解析 (`resolve_checkpoint_gates`):**
+  1. *优先级 1：* `.parallel-config.json`（`checkpoint_gates: [...]`）。
+  2. *优先级 2：* `pyproject.toml`（`[tool.sdd-parallel].checkpoint_gates`）。
+  3. *优先级 3：* 跨语言自动识别（Python `pytest/ruff/mypy`、Node/TS `npm test`、Rust `cargo test`、Go `go test ./...`）。
+- **空测试套件弹性 (`_is_no_tests_collected`):** pytest 退出码 5（`NO_TESTS_COLLECTED`）或 `"no test files found"` 不会导致合并失败，除非启用 `--strict-gates`。
+- **预合并 AST Diff 门禁 (`ast_diff_gate.py`):** 在 `git merge` 之前由 `WorktreeManager.verify_wave()` 在 `>= 2` 个隔离工作树槽位上执行。检测跨轨道虚拟导入循环（Tarjan SCC，类 G）、相对于 `merge-base` 的签名/默认值/常量漂移（类 A/B）、通过归一化 AST Shingle 识别结构重复的新增辅助函数（Jaccard $\ge 0.75$，类 F）以及并发依赖清单/锁文件修改（类 H）。传入 `--defer-ast-violations` 会记录 NACK 反馈（`_record_track_barrier_nack()`）、保留安全 `backup/` 分支并延后违规轨道，无需人工重置。
+- **部分屏障合并（默认）与严格原子回滚 (`--no-partial-merge`)：** CLI `sdd-parallel merge --wave K` 默认启用 `partial_merge=True`（按 OCC 结构中心度信号排序）：健康轨道增量合入纯净的 `master`，而冲突或门禁失败的轨道通过确定性故障二分定位（`_isolate_culprit_tracks_by_bisection`）隔离、保留在 `backup/wave-<K>-<track>-failed-<ts>` 分支、写入 `.parallel/barrier-feedback-<story_id>.json` 并通过 `BSPWaveScheduler.reschedule_remaining_waves()` 重新规划剩余波次。传入 `--no-partial-merge` 则强制执行全有或全无的严格事务回滚（`git merge --abort` + `git reset --hard pre_merge_head`）。
 
 ### 4.9. 独立离线 Merge-Bomb 演示命令 (`sdd-parallel demo`)
 
-通过 `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp]` 可以在无 API 密钥和无网络访问的情况下，离线生成临时仓库并完整验证核心规划、隔离与状态合并等不变量（使用 `--kit all` 时每个套件约 `~6–9s`，沙箱中 `run_quality_gates=False`）。
+独立命令 `sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp]` 在无 LLM 密钥和无网络访问的情况下生成临时仓库，离线验证核心规划、隔离、AST 三方注册表合并及实时检查点门禁（每个套件 `< 5s`，启用实时 `run_quality_gates=True` 冒烟门禁）：
+1. AST 文件角色分类（`SPINE`、`ADDITIVE_REGISTRY`、`STANDARD`）。
+2. 二类语义碰撞检测（$W_{1-2} \cap I_{2-1} \neq \emptyset$），阻止合并炸弹。
+3. 固定槽位分配、Scope Guard 强制执行与干净工作树状态校验。
+4. 屏障检查点合并与单调三方状态协调。
+5. `--kit all` 选项顺序执行全部 5 个框架的验证并输出摘要矩阵 `5/5 SDD KITS VERIFIED`。
 
 ### 4.10. 完整 CLI 命令与参数速查表
 
@@ -335,8 +352,8 @@ class SDDAdapterProtocol(Protocol):
 | `prepare` | 分配固定槽位并为第 K 波次生成范围锁 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run`, `--routing-file <path>` |
 | `claim-track` | 将范围锁附加到现有外部工作树槽位 | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
 | `run-guide` | 显示第 K 波次的操作员指引矩阵与启动命令 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
-| `verify-wave` | 审计工作树差异与锁合规性、处理范围提权并记录屏障清单 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | 栅障检查点合并（3 路状态合并、门禁校验、原子回滚与清单记录） | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `verify-wave` | 审计工作树差异与锁合规性、处理范围提权并记录屏障清单 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--defer-ast-violations`, `--dynamic-worktrees` |
+| `merge` | 栅障检查点合并（AST/状态 3 路合并、门禁校验、部分合并/回滚与清单记录） | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge` / `--no-partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | 独立的 3 路确定性 sprint-status.yaml 合并工具 | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | 校验指定文件在当前工作树是否允许修改 | `--file <path>`, `--tool <name>`（输出带缩进的格式化 JSON，`indent=2`） |
 | `install-plugin` | 打包并安装 Antigravity 便携插件 | `--target-dir <path>`（默认为 `~/.gemini/config/plugins/sdd-parallel`） |
@@ -347,6 +364,14 @@ class SDDAdapterProtocol(Protocol):
 | `demo` | 运行离线独立 Merge-Bomb 演示（每个套件约 `~6–9s`）或搭建沙箱 | `--kit <bmad\|spec-kit\|gsd\|openspec\|beads\|all>`, `--keep-temp`, `--scaffold-only`, `--output-dir <path>` |
 | `bench` | 基于 Git 历史或演示对比静态 `TaskNode` 冲突模型运行回溯测试 | `--repo <path>`, `--since <rev>`, `--until <rev>`, `--demo`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--format <text\|json>` |
 | `inspect` | 生成并查看独立离线 HTML Wave Inspector | `--repo <path>`, `--plan <path>`, `--output <path>`, `--open`, `--kit <auto\|kit>` |
+
+### 4.11. 模块化 Dark Software Factory 边界、执行清单与认知路由器 (ADR-0009)
+
+依据 `ADR-0009`，`sdd-parallel` 在 Dark Software Factory 生态系统中严格遵循窄腰（narrow-waist）LEGO 边界：
+1. **核心零 LLM 与零 FinOps 膨胀：** 引擎不包含任何模型费率表、USD Token 价格公式或 OpenTelemetry / Langfuse 网络客户端。实际的 Token 消耗和订阅配额桶由下游 `AgentLens` 直接从原生运行器转录（`transcript.jsonl`）中解析。
+2. **确定性结构信号 (`TaskStructuralSignals`)：** `wave-plan.json` 中的每个 `TaskNode` 均附加 AST 复杂度事实（`files_count`、`max_fan_in`、`touches_spine`、`ast_loc`、`conflict_degree`），供外部 System-1 认知路由器（`Cloudflare Clef`、`Jev`、`Clairic`、`GLiClass ONNX`）消费。
+3. **窄腰路由契约 (`--routing-file`)：** 外部路由器通过 `--routing-file <routing-overrides.json>` 覆盖 `(effort, model, execution_mode)`，无需将 ML 模型嵌入 `sdd-parallel`。
+4. **执行与关联清单：** 在波次验证和屏障合并检查点（严格在槽位重置之前），编排器记录 `.parallel/wave-<K>-manifest.json` 和 `.parallel/run-manifest.json`，捕获 Git 事实（`commit_sha`、变更文件）、运行器会话元数据（`session_id`）及已阻断冲突（`PreventedConflictEntry`），供下游分析使用。
 
 ---
 

@@ -479,14 +479,15 @@ Use this decision path when a wave fails verification or breaks tests at the bar
 
 | Situation | Command | What Happens on Disk |
 | :--- | :--- | :--- |
-| **Unmerged wave:** `verify-wave --wave K` flags a scope violation, `ast_diff_gate` finding (cycle, default drift, duplicate helper, lockfile collision), or uncommitted drift | Fix inside `.worktrees/track-<id>`, commit, and re-run `sdd-parallel verify-wave --wave K` | No changes to `main`; manifest `.parallel/wave-<K>-manifest.json` updates when compliant |
-| **Unmerged wave:** you want to throw away Wave $K$ slots and re-plan | `sdd-parallel abort-wave --wave K` | Resets fixed slots (`parallel/track-*`) in place to `main` `HEAD` (or deletes `parallel/wave-*` with `--dynamic-worktrees`), clears `.parallel/wave-plan.json`; `main` untouched |
-| **During `merge --wave K` (default):** merge conflict, state sync error, or quality gates fail | Automatic transactional rollback | Engine aborts active merge and resets `main` atomically back to `pre_merge_head` before slot cleanup |
-| **During `merge --wave K --partial-merge`:** one track conflicts or fails gates while sibling tracks are clean | Partial Wave Commit + Culprit Bisection | Healthy tracks commit to `main`; failing track is isolated on `backup/wave-<K>-<track>-failed-<ts>`, `.parallel/barrier-feedback-<story_id>.json` is saved, and remaining waves re-plan via `reschedule_remaining_waves()` |
+| **Unmerged wave:** `verify-wave --wave K` flags a scope violation, `ast_diff_gate` finding (cycle, default drift, duplicate helper, lockfile collision), or uncommitted drift | Fix inside `.worktrees/track-<id>`, commit, and re-run `sdd-parallel verify-wave --wave K` (or pass `--defer-ast-violations` to record NACK + backup and defer) | No changes to `main`; manifest `.parallel/wave-<K>-manifest.json` updates when compliant |
+| **Unmerged wave:** you want to throw away Wave $K$ slots and re-plan | `sdd-parallel abort-wave --wave K` | Resets fixed slots (`parallel/track-*`) in place to `main` `HEAD` (or deletes `parallel/wave-*` with `--dynamic-worktrees`), clears `.parallel/wave-plan.json` and stale NACKs; `main` untouched |
+| **During `merge --wave K` (default `partial_merge=True`):** one track conflicts or fails gates while sibling tracks are clean | Partial Wave Commit + Culprit Bisection (OCC-ordered) | Healthy tracks commit cleanly to `main` (with Python `ADDITIVE_REGISTRY` AST 3-way merge); failing track is isolated on `backup/wave-<K>-<track>-failed-<ts>`, `.parallel/barrier-feedback-<story_id>.json` is saved, and remaining waves re-plan via `reschedule_remaining_waves()` |
+| **During `merge --wave K --no-partial-merge`:** merge conflict, state sync error, or quality gates fail | Strict atomic transactional rollback | Engine aborts active merge and resets `main` atomically back to `pre_merge_head` before slot cleanup |
 | **Already merged wave:** tests fail later or you need to undo Wave $K$ | `sdd-parallel rollback-wave --wave K --save-backup` | Preserves `backup/wave-<K>-before-rollback-*` branch, reverts `HEAD` in strict **LIFO** order, and polymorphically resets SDD task statuses (`[x]` → `[ ]`, `done` → `ready-for-dev`, `closed` → `open`) |
 
 **Common `merge` flags:**
-- `sdd-parallel merge --wave K --partial-merge` — incrementally commit healthy tracks, isolate culprit tracks via bisection, record `.parallel/barrier-feedback-<story_id>.json` for next-wave NACK injection, and re-schedule the remaining wave DAG.
+- `sdd-parallel merge --wave K` — defaults to `partial_merge=True` (OCC-ordered incremental commit of healthy tracks, culprit bisection, `.parallel/barrier-feedback-<story_id>.json` NACK injection, and remaining-wave re-scheduling).
+- `sdd-parallel merge --wave K --no-partial-merge` — disable partial commit and enforce strict all-or-nothing atomic rollback on any conflict or gate failure.
 - `sdd-parallel merge --wave K --strict-gates` — enforce strict non-zero exit if any quality gate command fails or is missing.
 - `sdd-parallel merge --wave K --skip-gates` — merge after `verify-wave` scope audit without running test/lint gates (use only when gates are run externally in CI).
 - `sdd-parallel merge --wave K --cleanup` — tear down slots after merging the final wave.
@@ -525,14 +526,14 @@ When an agent is denied access by `PreToolUse`, Terminal Guard, or OS `chmod a-w
 
 ### 4.3. Debugging Non-Python & Polyglot Repositories (`CRGSidecarAdapter` + Explicit File Declarations)
 
-The built-in zero-dependency AST scanner parses Python modules natively. For **TypeScript/JavaScript, Go, Rust**, or multi-language repositories:
+The built-in zero-dependency AST scanner (`ast_scanner.py`) and 3-way registry merger (`registry_merger.py`) parse Python modules natively. For **TypeScript/JavaScript, Go, Rust, Java**, or multi-language repositories:
 
 1. **Make write targets explicit in your SDD specs:**
    Ensure every task lists its target paths via `Code Map`, `Files:`, GSD XML `<files>`, JSONL `"files": [...]`, or backticked file paths (`src/routes/auth.ts`). `sdd-parallel` parses these directly as Tier-1 write targets before any code is written.
 2. **Enable the Tree-sitter sidecar (`code-review-graph` / `CRGSidecarAdapter`):**
    When `code-review-graph` (`v2.3.9` WAL index) is available in the repository, `CRGSidecarAdapter` supplies cross-file call and import edges across polyglot source files so `BSPWaveScheduler` computes Type-2 semantic impact radii ($W_A \cap I_B \neq \emptyset$) beyond Python.
-3. **Protect cross-layer boundaries with `DEFAULT_CONTRACT_GLOBS`:**
-   Pure AST import graphs cannot see runtime serialization boundaries (e.g., Pydantic JSON → TypeScript client, SQL foreign keys, OpenAPI, Protobuf, GraphQL). Built-in `DEFAULT_CONTRACT_GLOBS` (`**/schemas/**`, `**/migrations/**`, `openapi.*`, `*.proto`, `*.graphql`) automatically elevate schema/migration/IDL files to `SPINE` serialization. Add project-specific globs (such as `shared/types/*.ts` or `prisma/schema.prisma`) in `.parallel-config.json`.
+3. **Protect cross-layer boundaries & lockfiles (`DEFAULT_CONTRACT_GLOBS`, `DEPENDENCY_DRIFT`, `Partial Barrier Merge`):**
+   Pure AST import graphs cannot see runtime serialization boundaries (e.g., Pydantic JSON → TypeScript client, SQL foreign keys, OpenAPI, Protobuf, GraphQL). Built-in `DEFAULT_CONTRACT_GLOBS` (`**/schemas/**`, `**/migrations/**`, `openapi.*`, `*.proto`, `*.graphql`) automatically elevate schema/migration/IDL files to `SPINE` serialization. At the merge barrier, `DEPENDENCY_DRIFT` catches concurrent `package.json` / `Cargo.toml` / `go.mod` / lockfile edits, and default `Partial Barrier Merge` safely isolates any conflicting polyglot track. Add project-specific globs (such as `shared/types/*.ts` or `prisma/schema.prisma`) in `.parallel-config.json`.
 
 ### 4.4. Multi-Kit Coexistence & Disambiguation (`--kit`)
 

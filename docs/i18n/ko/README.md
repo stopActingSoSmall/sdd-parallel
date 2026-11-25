@@ -65,7 +65,7 @@ https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-p
 | :--- | :--- | :--- | :--- |
 | **12개 스토리 스프린트** | ~6–8시간 | ~2시간 코딩 + **~2시간 머지 복구** | **총 ~2.5시간 (2~3배 빠름)** |
 | **숨겨진 API 충돌** | 느린 직렬화로 회피 | **`main` 손상** ($W_A \cap I_B \neq \emptyset$) | **사전 차단** (Wave 1 → 2 분할) |
-| **공유 CLI / 라우터** | 직렬 접근 | 매 병합마다 Git 충돌 | **Git 3-way 병합을 통한 동시 실행** (`ADDITIVE_REGISTRY`, 비중복 삽입) |
+| **공유 CLI / 라우터** | 직렬 접근 | 매 병합마다 Git 충돌 | **AST 3-way 병합을 통한 동시 실행** (`registry_merger.py` + fail-closed `Partial Barrier Merge`) |
 | **상태 파일** | 순차 갱신 | 반복적 `<<<<<<<` 마커 | **단조 3-way 병합** (마커 0개) |
 | **스코프 외 수정** | 프롬프트 경고 | `bash`/`sed`로 우회 | **차단** (`PreToolUse` + 터미널 가드 + `chmod a-w`) |
 | **worktree 잔재** | 없음 | 방치된 15개 `task-*` 폴더 | **고정 재사용 슬롯** (`track-a/b/c`) |
@@ -82,7 +82,7 @@ API 키, LLM 구독, 저장소 복제 불필요. [`uv`](https://docs.astral.sh/u
 uvx sdd-parallel demo --kit all   # 단일 키트: uvx sdd-parallel demo --kit spec-kit
 ```
 
-임시 Git 저장소(5개 작업, 6개 Python 모듈)를 생성해 AST 분석, Scope Guard `DENY` 잠금, 무충돌 3-way 상태 병합을 실행합니다(`--kit all` 사용 시 키트당 약 `~6–9s`, 샌드박스 내 `run_quality_gates=False`):
+실제 임시 Git 저장소(5개 작업, 6개 Python 모듈)를 스캐폴딩해 AST 분석, Scope Guard `DENY` 잠금 검증, 3-way AST 병합을 통한 `cli.py` 동시 수정 병합, 그리고 무충돌 3-way 상태 병합 + 라이브 스모크 체크포인트 게이트(`run_quality_gates=True`, 키트당 `< 5s`)를 실행합니다:
 
 ```text
 ================================================================
@@ -228,7 +228,7 @@ my-project/
 1. **코드를 작성하기도 전에 플래너가 어떻게 `write_files`를 알 수 있나요?**
    3단계 보호 계층으로 동작합니다: **(a)** 명세에 선언된 명시적 경로(`Code Map`, `Files:`, GSD XML `<files>`, 백틱 경로) → **(b)** 언급된 함수/클래스 이름을 $O(1)$에 파일로 해석하는 Pre-Wave AST 심볼 링커 → **(c)** 동적 스코프 에스컬레이션(`.tmp/scope-escalation.json`): `PreToolUse`가 거부된 범위 밖 편집을 기록하고, `verify-wave`가 해당 작업을 Wave $K+1$로 이월하며(비워진 슬롯을 초기화하고 `.parallel/wave-plan.json`을 저장), `merge`가 갱신된 계획에 따라 병합을 실행합니다.
 2. **TypeScript, Go, Rust 또는 비-Python 저장소는 어떻게 처리하나요?**
-   정직한 한계: 내장된 무의존성 AST 스캐너는 Python을 네이티브로 파싱합니다. 다중 언어 저장소(TS/JS, Go, Rust)의 경우 `sdd-parallel`은 명세의 명시적 파일 목록과 선택적 Tree-sitter 사이드카 **`code-review-graph`**(`CRGSidecarAdapter`)를 결합하여 파일 간 임포트 및 영향 간선을 계산합니다.
+   정직한 한계: 내장된 무의존성 AST 스캐너(`ast_scanner.py`)와 3-way 레지스트리 병합기(`registry_merger.py`)는 Python을 네이티브로 파싱합니다. 다중 언어 저장소(TS/JS, Go, Rust, Java)의 경우 `sdd-parallel`은 명세의 명시적 파일 목록, 선택적 Tree-sitter 사이드카 **`code-review-graph`**(`CRGSidecarAdapter`), `contract_globs`, `DEPENDENCY_DRIFT` 락파일 검사, 그리고 충돌 트랙을 안전하게 격리하는 **`Partial Barrier Merge`**(`merge` 기본값)에 의존합니다.
 3. **에이전트가 셸(`sed -i`, `python -c`, `cp`)로 `PreToolUse` 훅을 우회할 수 있지 않나요?**
    통제는 단일 훅에 의존하지 않는 **3계층 심층 방어(3-Tier Defense-in-Depth)**로 작동합니다: **Tier 1**(`PreToolUse` + `Bash`/`run_command`/`powershell` 리다이렉션 및 인라인 쓰기를 검사하는 터미널 가드) → **Tier 2**(Spine 및 형제 트랙 소유 파일에 대한 OS 수준 `chmod a-w` 잠금) → **Tier 3**(실제 `git diff merge-base...HEAD`를 감사하고 위반 시 병합을 차단하는 `verify-wave`).
 4. **AST는 계층 간 계약(Pydantic JSON → TS 프론트엔드, SQL FK, OpenAPI)을 볼 수 없지 않나요!**
@@ -275,8 +275,8 @@ flowchart TD
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — 슬롯 프로비저닝, OS 잠금, 경계 주입. |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — 기존 worktree에 잠금 연결. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — 슬롯별 네이티브 실행 명령어 출력. |
-| `sdd-parallel verify-wave --wave K` | `.parallel-lock.json`, `merge-base` diff 및 스코프 에스컬레이션 기준으로 슬롯 감사. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge] [--cleanup]` — 게이트 검증, 3-way 병합, 충돌 또는 게이트 오류 시 원자적 롤백. |
+| `sdd-parallel verify-wave --wave K` | `[--defer-ast-violations]` — `.parallel-lock.json`, `merge-base` diff, 병합 전 `ast_diff_gate` 및 스코프 에스컬레이션 기준으로 슬롯 감사. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge\|--no-partial-merge] [--cleanup]` — 게이트 검증, AST/상태 3-way 병합, 원인 이분 탐색을 동반한 기본 부분 커밋(또는 `--no-partial-merge` 시 원자적 롤백). |
 | `sdd-parallel abort-wave --wave K` | 고정 슬롯을 제자리에서 `HEAD`로 리셋(또는 `--dynamic-worktrees`에서 브랜치 삭제). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO 되돌리기 + 안전 브랜치 + 상태 복원. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — `sprint-status.yaml` 3-way 병합. |
@@ -294,8 +294,10 @@ flowchart TD
 ## 🚢 릴리스 매트릭스: 완료 항목 (v0.2.2) vs 로드맵 (v0.3+)
 
 ### ✅ `v0.1.0 – v0.2.2` 구현 완료 항목
-- [x] BSP 웨이브 스케줄러(Kahn 비순환성) + AST 핫스팟 스캐너 + `code-review-graph v2.3.9` 사이드카.
-- [x] **8클래스 충돌 방어 (A–H):** `extract_spine_bucket()` (C), `NAMESPACE_COLLISION` (D), `ast_diff_gate.py` (A/B/F/G/H) 및 `merge --partial-merge` 원인 이분 탐색과 `.parallel/barrier-feedback-<story_id>.json`.
+- [x] BSP 웨이브 스케줄러(Kahn 비순환성) + AST 핫스팟 스캐너 + `code-review-graph v2.3.9` 사이드카 + Spine 버킷 락(클래스 C) 및 `NAMESPACE_COLLISION`(클래스 D).
+- [x] 병합 전 `ast_diff_gate.py`: 가상 Tarjan 임포트 순환(클래스 G), 시그니처/기본값 드리프트(클래스 A/B), AST 슁글 중복 헬퍼(클래스 F), 락파일 충돌(클래스 H).
+- [x] Partial Barrier Merge(CLI `merge` 기본값, 원자적 롤백을 위한 `--no-partial-merge`), OCC 중심성 순서 지정, 결정론적 원인 이분 탐색, `.parallel/barrier-feedback-<story_id>.json` NACK 주입 및 DAG 테일 재스케줄링(`reschedule_remaining_waves`).
+- [x] Python AST 기반 3-way `ADDITIVE_REGISTRY` 병합기(`registry_merger.py`, fail-closed 폴백) + 파일 내 AST 함수 격리 검사(`are_functions_isolated`) 및 수신자 힌트 기반 라우터 데코레이터.
 - [x] 제자리 재설정, `info/exclude` 마스킹, `.venv`/`node_modules` NTFS Junctions (Windows, no admin) / POSIX symlinks를 지원하는 고정 슬롯(`track-a/b/c`).
 - [x] 3계층 스코프 가드(`PreToolUse` + 터미널 가드 + `chmod a-w`), 심볼 링커, `.tmp/scope-escalation.json`.
 - [x] 단조 3-way 상태 병합기(YAML, Markdown, `STATE.md`, JSONL) + LIFO 트랜잭션 롤백.

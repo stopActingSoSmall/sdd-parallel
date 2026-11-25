@@ -2,7 +2,7 @@
 
 **Product:** `sdd-parallel` (`parallel-flow`)  
 **Category:** Architectural & Algorithmic Capabilities White Paper  
-**Version:** 0.1.0  
+**Version:** 0.2.2  
 **Target Audience:** Second-tier abstraction document for architects, distributed systems researchers, and staff engineers. Explains the algorithmic model, codebase topology, isolation mechanisms, and semantic conflict prevention independent of language-specific implementation code.
 
 ---
@@ -69,9 +69,9 @@ Every production repository consists of heterogeneous files. Naive file-level lo
    Files defining fundamental data contracts (database migrations, schema versioning, core IR models). Any mutation of a `Spine` file is structured by the scheduler into a strictly serialized dependency chain. Tasks within the same Spine chain are never scheduled in the same wave.
 2. **`Additive Registry` (Shared Extension Hubs):**
    High-traffic integration points where independent features append isolated registrations (e.g., CLI command decorators, `__all__` symbol exports, MCP tool registries).
-   `sdd-parallel` allows concurrent tasks to append changes to these files in separate worktrees; status trackers reconcile deterministically via `status_merger.py`, while code registries merge via standard Git 3-way merge (with atomic wave rollback if adjacent/EOF edits collide).
+   `sdd-parallel` allows concurrent tasks to append changes to these files in separate worktrees; status trackers reconcile deterministically via `status_merger.py`, while Python code registries (`cli.py`, `__init__.py`, `*/mcp/server.py`) merge via the stdlib AST-aware 3-way merger (`registry_merger.py`), with fail-closed fallback to `Partial Barrier Merge` if existing function bodies or colliding symbols are mutated.
 3. **`Standard Module` (Application Logic):**
-   Standard business logic modules. Governed by the classical disjoint write constraint ($W_A \cap W_B = \emptyset$) and the semantic impact radius check ($I(T)$).
+   Standard business logic modules. Governed by the disjoint write constraint ($W_A \cap W_B = \emptyset$) and semantic impact radius check ($I(T)$), unless distinct function scopes are declared and `ASTHotspotScanner.are_functions_isolated()` verifies no intra-file call path exists between them.
 
 ### 2.1. Algorithmic Role Detection Pipeline (`ASTHotspotScanner` — 3 Passes Without Hardcoding)
 
@@ -80,7 +80,7 @@ In strict adherence to **Invariant 7 (Anti-Overfitting & Invariant-First Archite
 | Pass | What is Analyzed in the AST | Constants, AST Nodes & Mathematical Criteria |
 | :--- | :--- | :--- |
 | **Pass 1: Signature Parsing** | Parse source text into `ast.Module` and detect schema versioning / migration markers | `_SPINE_KEYWORDS = ("SCHEMA_VERSION", "auto_migrate", "_migrate_v")` $\to$ sets `has_schema_version = True` |
-| **Pass 2: Directed Import Graph & Decorators** | Traverse `ast.Import`, `ast.ImportFrom`, `ast.FunctionDef`, `ast.AsyncFunctionDef` | 1. Constructs `imports` edges and computes node in-degree (**Fan-In**: `len(meta.imported_by)`).<br>2. Inspects `decorator_list` for registration patterns: `_ADDITIVE_DECORATORS = ("command", "tool", "get", "post", "put", "delete", "patch", "include_router", "register", "route")`. |
+| **Pass 2: Directed Import Graph & Decorators** | Traverse `ast.Import`, `ast.ImportFrom`, `ast.FunctionDef`, `ast.AsyncFunctionDef` | 1. Constructs `imports` edges, intra-file call graph (`are_functions_isolated()`), and node in-degree (**Fan-In**: `len(meta.imported_by)`).<br>2. Inspects `decorator_list` with token-bounded receiver hints (`_ROUTER_RECEIVER_HINTS` on `@app.command`, `@router.get`, `@mcp.tool`; bare `@get`/`@register`/`@command` and non-router receivers like `@cache_client.get` remain `STANDARD`). |
 | **Pass 3: Deterministic `FileRole` Attribution** | Hierarchical classification prioritizing safety (`SPINE > ADDITIVE_REGISTRY > STANDARD`) | 1. Test paths (`tests/`, `test_*.py`, `*_test.py`) $\to$ always `STANDARD`.<br>2. **`SPINE`**, if `has_schema_version == True` $\lor$ file name in `{"models.py", "schema.py"}` $\lor$ **topological centrality $\text{In-Degree} \ge 5$**.<br>3. **`ADDITIVE_REGISTRY`**, if `has_registry_decorators == True` $\lor$ entrypoint name in `{"cli.py", "__init__.py"}` $\lor$ `*/mcp/server.py`.<br>4. **`STANDARD`** — all remaining business logic modules. |
 
 ---
@@ -189,8 +189,8 @@ In SDD environments, sprint state is persisted in repository files (`sprint-stat
 ### 7.2. LIFO Transactional Wave Rollback Engine & Partial Barrier Merge
 If a wave fails integration testing or requires rollback:
 - The command `abort-wave --wave K` resets fixed slots (`parallel/track-*`) in place to `HEAD` (or deletes `parallel/wave-*` branches with `--dynamic-worktrees`), clears `.parallel/wave-plan.json`, and unlocks slots.
-- Before `git merge`, `verify-wave` runs `ast_diff_gate.py` across parallel slots to intercept virtual import cycles (Tarjan SCC, Class G), signature/default drift (Classes A/B), AST-shingle duplicate helpers (Class F), and dependency lockfile collisions (Class H).
-- During `merge --wave K`, any merge conflict, `update_state_on_merge` failure, or checkpoint gate failure triggers an atomic rollback to `pre_merge_head` (`git merge --abort` + `git reset --hard pre_merge_head`) strictly before slot cleanup. With `--partial-merge`, healthy tracks land incrementally while failing tracks are isolated via culprit bisection, preserved on `backup/wave-<K>-<track>-failed-<ts>`, written to `.parallel/barrier-feedback-<story_id>.json`, and remaining waves are re-planned via `reschedule_remaining_waves()`.
+- Before `git merge`, `verify-wave` runs `ast_diff_gate.py` across parallel slots to intercept virtual import cycles (Tarjan SCC, Class G), signature/default drift (Classes A/B), AST-shingle duplicate helpers (Class F), and dependency lockfile collisions (Class H). Passing `--defer-ast-violations` records NACK feedback (`_record_track_barrier_nack()`), saves a `backup/` branch, and defers offending tracks.
+- During `merge --wave K` (default `partial_merge=True`, ordered by OCC structural centrality signals), healthy tracks land incrementally on a clean `master`, while conflicting or gate-failing tracks are isolated via deterministic culprit bisection (`_isolate_culprit_tracks_by_bisection`), preserved on `backup/wave-<K>-<track>-failed-<ts>`, written to `.parallel/barrier-feedback-<story_id>.json`, and remaining waves are re-planned via `reschedule_remaining_waves()`. Passing `--no-partial-merge` enforces strict all-or-nothing atomic rollback to `pre_merge_head`.
 - The command `rollback-wave --wave K [--save-backup]` executes a safe, atomic rollback of the latest integrated wave:
   - Enforces strict LIFO ordering (only the most recently integrated wave can be reversed).
   - Automatically provisions an immutable backup branch `backup/wave-<K>-before-rollback-<timestamp>`.

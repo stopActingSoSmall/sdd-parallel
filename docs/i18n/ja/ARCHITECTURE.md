@@ -11,7 +11,7 @@
   <a href="../ru/ARCHITECTURE.md">Русский</a>
 </p>
 
-**バージョン：** 0.1.0  
+**バージョン：** 0.2.2  
 **ステータス：** 承認済みアーキテクチャ基線（SSOT）
 
 ---
@@ -184,23 +184,26 @@ class SDDAdapterProtocol(Protocol):
    - データベーススキーマ、順次移行スクリプト、またはルートデータモデル（`schema.py`, `models.py`, `SCHEMA_VERSION`）。
    - **規則：** 同一の `SPINE` ファイルを変更するタスクは**絶対に同じウェーブで実行されず**、厳格な直列順序に並べられます。
 2. **共有追記型レジストリ (`FileRole.ADDITIVE_REGISTRY`):**
-   - 独立したコマンドやルートが登録されるエントリーポイント（`@app.command` を持つ `cli.py`、`__all__` を持つ `__init__.py` など）。
-   - *不変条件 (ADR-0002)：* 共通フォーマットユーティリティ（`console.py` など）はレジストリから除外され、`STANDARD` に分類されます。
-   - **規則：** 真の `ADDITIVE_REGISTRY` ファイルのみで交差するタスクは、**別個の `git worktree` スロットで並行実行が許可**され、`.tmp/track-context.md` に追記専用ガイドが注入されます。ゼロコンフリクトの意味的マージが保証されるのは SDD ステータス追跡ファイル（`status_merger.py`）のみであり、コードレジストリには標準の Git 3-way マージが使われます（互いに重ならない挿入は問題なく通過しますが、隣接する import やファイル末尾（EOF）の編集は競合を引き起こし、トランザクションウェーブのロールバックをトリガーします）。
+   - 独立したコマンドやルートが登録されるエントリーポイント（`@app.command` を持つ `cli.py`、`@mcp.tool` を持つ `mcp/server.py`、`__all__` を持つ `__init__.py` など）。
+   - *不変条件 (ADR-0002)：* 共通フォーマットユーティリティ（`console.py`、`markdown.py`、`egress/` など）はレジストリから除外され、`FileRole.STANDARD` に分類されます。
+   - **規則：** 真の `ADDITIVE_REGISTRY` ファイルのみで交差するタスクは、**別個の `git worktree` スロットで並行実行が許可**され、`.tmp/track-context.md` に追記専用ガイドが注入されます。ゼロコンフリクトの意味的マージは SDD ステータス追跡ファイル（`status_merger.py`）で保証されます。Python の追記型レジストリ（`cli.py`、`__init__.py`、`*/mcp/server.py`）は決定論的 stdlib AST 3-way マージャー（`registry_merger.py`：互いに素な先頭 import、`__all__`、および直交するトップレベル関数／コマンド）で統合され、既存関数本体や衝突シンボルの変更がある場合はフェイルクローズでフォールバック（`None` $\to$ `Partial Barrier Merge`）します。
 3. **標準モジュールファイル (`FileRole.STANDARD`):**
    - 通常のビジネスロジックやアダプター。
-   - **規則：** $W(A) \cap W(B) \neq \emptyset$ となる場合、仕様で `shared_function_notes` に互いに独立した関数スコープ注記が宣言されていない限り（`_has_isolated_function_scope` により宣言的に検証）、同一ウェーブ内での並行実行は禁止されます。`STANDARD` ファイルが影響半径の計算から除外されることはありません。
+   - **規則：** $W(A) \cap W(B) \neq \emptyset$ となる場合、仕様で `shared_function_notes` に互いに独立した関数スコープ注記が宣言され、かつ `ASTHotspotScanner.are_functions_isolated()` によって両関数の存在とファイル内直接・推移呼び出しエッジの不在（`_has_isolated_function_scope`）が確認されない限り、同一ウェーブ内での並行実行は禁止されます。`STANDARD` ファイルが影響半径の計算から除外されることはありません。
 
 ### 2.2. 3パス静的 AST 解析パイプライン (`ASTHotspotScanner`)
 
 **不変条件 7（アンチ過学習）** に基づき、動的に分類されます：
-1. **パス 1（シグネチャ探索）：** マイグレーション用キーワード（`SCHEMA_VERSION`, `auto_migrate`）を検出。
-2. **パス 2（依存グラフおよびデコレーター走査）：** 参照元カウント（Fan-In）および登録デコレーター（`command`, `tool`, `get`, `post`）を走査。
-3. **パス 3（決定論的分類）：**
-   - テスト（`tests/`）$\to$ 常に `STANDARD`。
-   - `SPINE`：スキーマキーワード検出 $\lor$ `schema.py`/`models.py` $\lor$ **Fan-In $\ge 5$**。
-   - `ADDITIVE_REGISTRY`：登録デコレーター検出 $\lor$ `cli.py`/`__init__.py`。
-   - `STANDARD`：その他の全モジュール。
+1. **パス 1（シグネチャ探索）：** マイグレーション用キーワード（`_SPINE_KEYWORDS = ("SCHEMA_VERSION", "auto_migrate", "_migrate_v")`）を検出 $\to$ `has_schema_version`。
+2. **パス 2（依存グラフおよびデコレーター走査）：** `Import`/`ImportFrom` ノードを走査して参照元カウント（Fan-In `len(meta.imported_by)`）を算出し、トークン境界付きのレシーバーヒント（`@app.command`、`@router.get`、`@mcp.tool` 等の `_ROUTER_RECEIVER_HINTS`；裸の `@get`/`@register`/`@command` や `@cache_client.get` 等の非ルーターレシーバーは `FileRole.STANDARD` のまま維持）を用いて `decorator_list` から登録パターンを検査します。
+3. **パス 3（決定論的分類 `SPINE > ADDITIVE_REGISTRY > STANDARD`）：**
+   - テスト（`tests/`, `test_*.py`）$\to$ 常に `STANDARD`。
+   - `SPINE`：`has_schema_version == True` $\lor$ ファイル名が `{"models.py", "schema.py"}` $\lor$ **トポロジカル中心性 $\text{In-Degree} \ge 5$**。
+   - **Spine バケット（クラス C）：** `extract_spine_bucket()` でマッピングされる `DEFAULT_SPINE_BUCKET_GLOBS`（`**/migrations/**`, `**/versions/**`, `docs/adr/**`）により、同一順序ディレクトリ内に異なるファイルを作成する並行タスクを直列化します。
+   - `ADDITIVE_REGISTRY`：`has_registry_decorators == True` $\lor$ エントリーポイントが `{"cli.py", "__init__.py"}` $\lor$ `*/mcp/server.py`。
+   - `STANDARD`：その他の全ビジネスロジックモジュール。
+   - **名前空間トークン抽出（クラス D）：** `extract_namespace_tokens()` がタスク説明から正規化された CLI フラグ（`cli:--flag`）、環境変数（`env:VAR`）、HTTP ルート（`route:METHOD /path`）を抽出し（読み取り専用セクションや否定節を除外）、ファイル横断レジストリ衝突を検出します。
+   - **多言語境界（Polyglot Boundary）：** 依存ゼロの組み込み AST 解析（`ast_scanner.py`、`registry_merger.py`）は Python をネイティブ対象とします。JS/TS、Go、Rust、Java リポジトリにおける計画立案とバリア安全性は `code-review-graph`（Tree-sitter）、`DEFAULT_CONTRACT_GLOBS`、`DEPENDENCY_DRIFT`、および `Partial Barrier Merge` に依拠します。
 
 ### 2.3. 競合グラフのエッジ種別 (`ConflictEdge`)
 
@@ -315,14 +318,15 @@ class SDDAdapterProtocol(Protocol):
 - **`rollback-wave --wave K [--save-backup]`：** 厳格な LIFO 順で最新ウェーブを巻き戻し、安全ブランチ `backup/wave-<K>-before-rollback-*` を自動作成してタスク状態を復元。
 
 ### 4.8. 言語非依存のチェックポイントゲートとトランザクション自動破棄
-- **マージ前 AST Diff ゲート (`ast_diff_gate.py`) と部分マージ (`--partial-merge`)：** `verify-wave` は仮想インポート循環（Tarjan、クラス G）、デフォルト値ドリフト（クラス A/B）、AST シングル重複ヘルパー（クラス F）、ロックファイル競合（クラス H）を検出します。`merge --partial-merge` は健全トラックを段階的に確定し、二分探索で原因トラックを隔離して `.parallel/barrier-feedback-<story_id>.json` を保存後 `reschedule_remaining_waves()` を実行します。
 
-- **汎用ゲート解決：** `.parallel-config.json` または `pyproject.toml` からテストコマンドを自動検出し、Python、Node、Rust、Go に対応。
-- **トランザクション自動ロールバック：** `sdd-parallel merge --wave K` の実行中に任意のトラックブランチでマージ競合、`update_state_on_merge()` の失敗、またはチェックポイント品質ゲートの失敗が発生した場合、オーケストレーターはスロットクリーンアップ前に `git merge --abort` と `git reset --hard pre_merge_head` を自動実行して `master` をアトミックに復元し、デバッグ用に各トラックスロットをそのまま保持します。
+- **汎用ゲート解決 (`resolve_checkpoint_gates`)：** `.parallel-config.json` または `pyproject.toml` からテストコマンドを自動検出し、Python（`pytest/ruff/mypy`）、Node/TS（`npm test`）、Rust（`cargo test`）、Go（`go test ./...`）に対応。
+- **空テストスイート耐性 (`_is_no_tests_collected`)：** pytest の終了コード 5（`NO_TESTS_COLLECTED`）や `"no test files found"` は、`--strict-gates` が有効でない限りマージを失敗させません。
+- **マージ前 AST Diff ゲート (`ast_diff_gate.py`)：** `git merge` 前に `WorktreeManager.verify_wave()` 内で `>= 2` 個の独立ワークツリースロットに対して実行されます。仮想インポート循環（Tarjan SCC、クラス G）、`merge-base` に対するシグネチャ／デフォルト値／定数ドリフト（クラス A/B）、正規化 AST シングルによる構造的重複ヘルパー関数（Jaccard $\ge 0.75$、クラス F）、および並行依存マニフェスト／ロックファイル編集（クラス H）を検出します。`--defer-ast-violations` を指定すると NACK フィードバック（`_record_track_barrier_nack()`）を記録して安全 `backup/` ブランチを保持し、手動リセットなしで違反トラックを繰り越します。
+- **Partial Barrier Merge（デフォルト）および厳格なアトミックロールバック (`--no-partial-merge`)：** CLI `sdd-parallel merge --wave K` はデフォルトで `partial_merge=True`（OCC 構造中心性シグナル順）となり、健全なトラックをクリーンな `master` へ段階的に着地させつつ、競合またはゲート失敗トラックを決定論的原因二分探索（`_isolate_culprit_tracks_by_bisection`）で隔離し、`backup/wave-<K>-<track>-failed-<ts>` に退避、`.parallel/barrier-feedback-<story_id>.json` へ記録して `BSPWaveScheduler.reschedule_remaining_waves()` で再計画します。`--no-partial-merge` を指定すると、厳格なオール・オア・ナッシングのトランザクションロールバック（`git merge --abort` + `git reset --hard pre_merge_head`）が強制されます。
 
 ### 4.9. スタンドアロン・オフライン Merge-Bomb 検証コマンド (`sdd-parallel demo`)
 
-`sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp]` により、API キーやネットワークアクセスなしで一時リポジトリを生成し、計画・隔離・状態マージの 5 大不変条件をオフラインでローカル検証できます（`--kit all` 指定時は 1 キットあたり約 `~6–9s`、合成サンドボックス内は `run_quality_gates=False`）。
+`sdd-parallel demo [--kit {bmad,spec-kit,gsd,openspec,beads,all}] [--keep-temp]` により、API キーやネットワークアクセスなしで一時リポジトリを生成し、コア計画・隔離・AST 3-way レジストリマージ・ライブチェックポイントゲートをオフライン検証できます（ライブ `run_quality_gates=True` スモークゲート付きで 1 キットあたり `< 5s`）。
 
 ### 4.10. CLI コマンドおよび全フラグリファレンス
 
@@ -332,8 +336,8 @@ class SDDAdapterProtocol(Protocol):
 | `prepare` | ウェーブ K の固定トラックスロットと境界ロックを配備 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--dynamic-worktrees`, `--headless`, `--dry-run`, `--routing-file <path>` |
 | `claim-track` | 既存の外部ワークツリーに境界ロックをアタッチ | `--repo <path>`, `--wave <K>`, `--track <id>`, `--worktree <path>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--headless` |
 | `run-guide` | ウェーブ K のフォーマット済みオペレーター向け実行ガイドを表示 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--antigravity-layout`, `--routing-file <path>` |
-| `verify-wave` | merge-base に対するワークツリー差分およびロック遵守状況を監査し、スコープエスカレーション処理とバリアマニフェスト記録を実施 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--dynamic-worktrees` |
-| `merge` | 3-way 状態マージ、品質ゲート、アトミックロールバック、およびマニフェスト記録を伴うバリアチェックポイント統合 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
+| `verify-wave` | merge-base に対するワークツリー差分およびロック遵守状況を監査し、スコープエスカレーション処理とバリアマニフェスト記録を実施 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--defer-ast-violations`, `--dynamic-worktrees` |
+| `merge` | AST/状態 3-way マージ、品質ゲート、部分マージ／ロールバック、およびマニフェスト記録を伴うバリアチェックポイント統合 | `--repo <path>`, `--wave <K>`, `--max-tracks <K>`, `--kit <auto\|kit>`, `--strict-gates`, `--skip-gates`, `--partial-merge` / `--no-partial-merge`, `--cleanup`, `--dry-run`, `--dynamic-worktrees` |
 | `merge-status` | sprint-status.yaml 専用の独立した決定論的 3-way マージツール | `--base <file>`, `--ours <file>`, `--theirs <file>`, `--out <file>` |
 | `check-lock` | アクティブなフックロジックによるファイル変更権限の検査 | `--file <path>`, `--tool <name>`（`indent=2` の整形済み JSON を出力） |
 | `install-plugin` | ポータブルな Antigravity プラグインのパッケージ化とインストール | `--target-dir <path>`（デフォルトは `~/.gemini/config/plugins/sdd-parallel`） |

@@ -57,6 +57,36 @@ def _run_git(cwd: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _append_demo_cli_command(track_path: Path, import_line: str, cmd_block: str) -> None:
+    """Append an import and an @app.command handler to demo_app/cli.py idempotently."""
+    cli_file = track_path / "src" / "demo_app" / "cli.py"
+    text = cli_file.read_text(encoding="utf-8")
+    if import_line in text:
+        return
+    text = text.replace(
+        "from typing import TypeVar\n",
+        f"from typing import TypeVar\n{import_line}\n",
+        1,
+    )
+    text = text.rstrip("\n") + "\n" + cmd_block
+    cli_file.write_text(text, encoding="utf-8")
+
+
+def _attach_demo_smoke_gate(plan: WavePlan, wave_number: int) -> None:
+    """Attach a fast deterministic Python smoke gate verifying merged cli.py commands."""
+    py_exe = Path(sys.executable).as_posix()
+    smoke_code = (
+        "import sys; sys.path.insert(0, 'src'); "
+        "from demo_app.cli import normalize_cmd, export_cmd; "
+        "assert normalize_cmd('  Ok ') == 'ok'; "
+        "assert export_cmd(2) == 'exported=2'"
+    )
+    for target_wave in plan.waves:
+        if target_wave.wave_number == wave_number:
+            target_wave.checkpoint_gates = [f'"{py_exe}" -c "{smoke_code}"']
+            return
+
+
 _DEMO_KIT_TASKS: dict[str, dict[str, str]] = {
     "bmad": {
         "s1_spine": "1-1",
@@ -667,11 +697,13 @@ def render_stage_1(
     t_norm = task_map["s2_norm"]
     t_api = task_map["s4_api"]
 
-    box = _format_callout_box([
-        f"⚠️  HIDDEN LINK FOUND: api.py ({t_api}) imports normalizer.py ({t_norm})",
-        "   Standard worktrees run them in parallel and crash on merge.",
-        "   SDD-Parallel AST scanner catches semantic imports upfront.",
-    ])
+    box = _format_callout_box(
+        [
+            f"⚠️  HIDDEN LINK FOUND: api.py ({t_api}) imports normalizer.py ({t_norm})",
+            "   Standard worktrees run them in parallel and crash on merge.",
+            "   SDD-Parallel AST scanner catches semantic imports upfront.",
+        ]
+    )
     lines = [box, ""]
     if is_scaffold:
         lines.append(
@@ -706,11 +738,13 @@ def render_stage_2(
     t_api = task_map["s4_api"]
     t_audit = task_map["s5_audit"]
 
-    box = _format_callout_box([
-        f"❌ Standard Worktrees: {t_norm} + {t_api} in parallel -> CRASH ON MERGE",
-        "✅ SDD-Parallel Plan : Split into Wave 1 -> Wave 2",
-        "   Hidden import resolved sequentially, cli.py merged safely!",
-    ])
+    box = _format_callout_box(
+        [
+            f"❌ Standard Worktrees: {t_norm} + {t_api} in parallel -> CRASH ON MERGE",
+            "✅ SDD-Parallel Plan : Split into Wave 1 -> Wave 2",
+            "   Hidden import resolved sequentially, cli.py merged safely!",
+        ]
+    )
     lines = [
         box,
         "",
@@ -736,11 +770,13 @@ def render_stage_3(
     kit: str = "spec-kit",
 ) -> str:
     """Render Stage 3: Worktrees & Scope Guard in Callout-First layout."""
-    box = _format_callout_box([
-        "🔒 Fixed-slot worktrees (.worktrees/track-a, track-b)",
-        "   PreToolUse Scope Guard prevents rogue writes across slots",
-        "   track-a attempt to edit schema.py -> DENY (Spine-Lock)!",
-    ])
+    box = _format_callout_box(
+        [
+            "🔒 Fixed-slot worktrees (.worktrees/track-a, track-b)",
+            "   PreToolUse Scope Guard prevents rogue writes across slots",
+            "   track-a attempt to edit schema.py -> DENY (Spine-Lock)!",
+        ]
+    )
     raw_reason = guard_decision.reason or "Spine contract locked"
     if ". Reason: " in raw_reason:
         _, lock_part = raw_reason.split(". Reason: ", 1)
@@ -785,11 +821,13 @@ def render_stage_4(
     elif kit == "beads":
         status_header_label = "beads.jsonl"
 
-    box = _format_callout_box([
-        f"✨ Wave 1 merged with 0 conflict markers in {status_header_label}",
-        "   Verified across all 5 SDD frameworks (BMAD, Spec Kit, GSD...)",
-        "   Worktrees cleaned up. Ready for Wave 2 execution!",
-    ])
+    box = _format_callout_box(
+        [
+            f"✨ Wave 1 merged with 0 conflict markers in {status_header_label}",
+            "   Verified across all 5 SDD frameworks (BMAD, Spec Kit, GSD...)",
+            "   Worktrees cleaned up. Ready for Wave 2 execution!",
+        ]
+    )
     lines = [
         box,
         "",
@@ -970,6 +1008,15 @@ def demo_merge_step(repo_root: Path, wave: int = 1) -> str:
             + "\ndef normalize_key(key: str) -> str:\n    return key.strip().lower()\n",
             encoding="utf-8",
         )
+        _append_demo_cli_command(
+            track_a_path,
+            "from demo_app.normalizer import normalize_key",
+            (
+                '\n@app.command("normalize")\n'
+                'def normalize_cmd(key: str = " Demo ") -> str:\n'
+                "    return normalize_key(key)\n"
+            ),
+        )
         if kit == "bmad":
             impl_art = track_a_path / "_bmad-output" / "implementation-artifacts"
             status_a = impl_art / "sprint-status.yaml"
@@ -980,7 +1027,10 @@ def demo_merge_step(repo_root: Path, wave: int = 1) -> str:
                 ),
                 encoding="utf-8",
             )
-            _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", status_a.as_posix()])
+            _run_git(
+                track_a_path,
+                ["add", "src/demo_app/normalizer.py", "src/demo_app/cli.py", status_a.as_posix()],
+            )
         elif kit in {"spec-kit", "speckit"}:
             tasks_a = track_a_path / "specs" / "001-telemetry" / "tasks.md"
             if not tasks_a.is_file():
@@ -989,18 +1039,27 @@ def demo_merge_step(repo_root: Path, wave: int = 1) -> str:
                 tasks_a.read_text(encoding="utf-8").replace(f"- [ ] {t_norm}", f"- [x] {t_norm}"),
                 encoding="utf-8",
             )
-            _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", tasks_a.as_posix()])
+            _run_git(
+                track_a_path,
+                ["add", "src/demo_app/normalizer.py", "src/demo_app/cli.py", tasks_a.as_posix()],
+            )
         elif kit == "gsd":
             sum_a = track_a_path / ".planning" / "phases" / "01-core" / f"{t_norm}-SUMMARY.md"
             sum_a.write_text(f"# Summary {t_norm}: Done\n", encoding="utf-8")
-            _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", sum_a.as_posix()])
+            _run_git(
+                track_a_path,
+                ["add", "src/demo_app/normalizer.py", "src/demo_app/cli.py", sum_a.as_posix()],
+            )
         elif kit == "openspec":
             tasks_a = track_a_path / "openspec" / "changes" / t_norm / "tasks.md"
             tasks_a.write_text(
                 tasks_a.read_text(encoding="utf-8").replace("- [ ]", "- [x]"),
                 encoding="utf-8",
             )
-            _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", tasks_a.as_posix()])
+            _run_git(
+                track_a_path,
+                ["add", "src/demo_app/normalizer.py", "src/demo_app/cli.py", tasks_a.as_posix()],
+            )
         elif kit == "beads":
             for fname in ("beads.jsonl", "issues.jsonl"):
                 iss_a = track_a_path / ".beads" / fname
@@ -1018,7 +1077,7 @@ def demo_merge_step(repo_root: Path, wave: int = 1) -> str:
                         encoding="utf-8",
                     )
                     _run_git(track_a_path, ["add", iss_a.as_posix()])
-            _run_git(track_a_path, ["add", "src/demo_app/normalizer.py"])
+            _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", "src/demo_app/cli.py"])
         _run_git(track_a_path, ["commit", "-m", f"feat({t_norm}): add normalize_key helper"])
 
     exp_file = track_b_path / "src" / "demo_app" / "exporter.py"
@@ -1027,6 +1086,15 @@ def demo_merge_step(repo_root: Path, wave: int = 1) -> str:
             exp_file.read_text(encoding="utf-8")
             + "\ndef format_export_summary(count: int) -> str:\n    return f'exported={count}'\n",
             encoding="utf-8",
+        )
+        _append_demo_cli_command(
+            track_b_path,
+            "from demo_app.exporter import format_export_summary",
+            (
+                '\n@app.command("export")\n'
+                "def export_cmd(count: int = 1) -> str:\n"
+                "    return format_export_summary(count)\n"
+            ),
         )
         if kit == "bmad":
             impl_art = track_b_path / "_bmad-output" / "implementation-artifacts"
@@ -1038,7 +1106,10 @@ def demo_merge_step(repo_root: Path, wave: int = 1) -> str:
                 ),
                 encoding="utf-8",
             )
-            _run_git(track_b_path, ["add", "src/demo_app/exporter.py", status_b.as_posix()])
+            _run_git(
+                track_b_path,
+                ["add", "src/demo_app/exporter.py", "src/demo_app/cli.py", status_b.as_posix()],
+            )
         elif kit in {"spec-kit", "speckit"}:
             tasks_b = track_b_path / "specs" / "001-telemetry" / "tasks.md"
             if not tasks_b.is_file():
@@ -1047,18 +1118,27 @@ def demo_merge_step(repo_root: Path, wave: int = 1) -> str:
                 tasks_b.read_text(encoding="utf-8").replace(f"- [ ] {t_exp}", f"- [x] {t_exp}"),
                 encoding="utf-8",
             )
-            _run_git(track_b_path, ["add", "src/demo_app/exporter.py", tasks_b.as_posix()])
+            _run_git(
+                track_b_path,
+                ["add", "src/demo_app/exporter.py", "src/demo_app/cli.py", tasks_b.as_posix()],
+            )
         elif kit == "gsd":
             sum_b = track_b_path / ".planning" / "phases" / "01-core" / f"{t_exp}-SUMMARY.md"
             sum_b.write_text(f"# Summary {t_exp}: Done\n", encoding="utf-8")
-            _run_git(track_b_path, ["add", "src/demo_app/exporter.py", sum_b.as_posix()])
+            _run_git(
+                track_b_path,
+                ["add", "src/demo_app/exporter.py", "src/demo_app/cli.py", sum_b.as_posix()],
+            )
         elif kit == "openspec":
             tasks_b = track_b_path / "openspec" / "changes" / t_exp / "tasks.md"
             tasks_b.write_text(
                 tasks_b.read_text(encoding="utf-8").replace("- [ ]", "- [x]"),
                 encoding="utf-8",
             )
-            _run_git(track_b_path, ["add", "src/demo_app/exporter.py", tasks_b.as_posix()])
+            _run_git(
+                track_b_path,
+                ["add", "src/demo_app/exporter.py", "src/demo_app/cli.py", tasks_b.as_posix()],
+            )
         elif kit == "beads":
             for fname in ("beads.jsonl", "issues.jsonl"):
                 iss_b = track_b_path / ".beads" / fname
@@ -1076,18 +1156,20 @@ def demo_merge_step(repo_root: Path, wave: int = 1) -> str:
                         encoding="utf-8",
                     )
                     _run_git(track_b_path, ["add", iss_b.as_posix()])
-            _run_git(track_b_path, ["add", "src/demo_app/exporter.py"])
+            _run_git(track_b_path, ["add", "src/demo_app/exporter.py", "src/demo_app/cli.py"])
         _run_git(track_b_path, ["commit", "-m", f"feat({t_exp}): add export summary formatter"])
 
     violations = wm.verify_wave(plan=plan, wave_number=wave)
     if violations:
         raise RuntimeError(f"Unexpected scope violations in demo Wave {wave}: {violations}")
 
+    _attach_demo_smoke_gate(plan, wave)
     merged_branches = wm.merge_wave(
         plan=plan,
         wave_number=wave,
-        run_quality_gates=False,
+        run_quality_gates=True,
         cleanup_worktrees=True,
+        partial_merge=True,
     )
 
     merged_status_text = ""
@@ -1253,6 +1335,15 @@ def _execute_single_demo(
         + "\ndef normalize_key(key: str) -> str:\n    return key.strip().lower()\n",
         encoding="utf-8",
     )
+    _append_demo_cli_command(
+        track_a_path,
+        "from demo_app.normalizer import normalize_key",
+        (
+            '\n@app.command("normalize")\n'
+            'def normalize_cmd(key: str = " Demo ") -> str:\n'
+            "    return normalize_key(key)\n"
+        ),
+    )
 
     if kit == "bmad":
         status_a = track_a_path / "_bmad-output" / "implementation-artifacts" / "sprint-status.yaml"
@@ -1263,7 +1354,10 @@ def _execute_single_demo(
             ),
             encoding="utf-8",
         )
-        _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", status_a.as_posix()])
+        _run_git(
+            track_a_path,
+            ["add", "src/demo_app/normalizer.py", "src/demo_app/cli.py", status_a.as_posix()],
+        )
     elif kit in {"spec-kit", "speckit"}:
         tasks_a = track_a_path / "specs" / "001-telemetry" / "tasks.md"
         if not tasks_a.is_file():
@@ -1272,18 +1366,27 @@ def _execute_single_demo(
             tasks_a.read_text(encoding="utf-8").replace(f"- [ ] {t_norm}", f"- [x] {t_norm}"),
             encoding="utf-8",
         )
-        _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", tasks_a.as_posix()])
+        _run_git(
+            track_a_path,
+            ["add", "src/demo_app/normalizer.py", "src/demo_app/cli.py", tasks_a.as_posix()],
+        )
     elif kit == "gsd":
         sum_a = track_a_path / ".planning" / "phases" / "01-core" / f"{t_norm}-SUMMARY.md"
         sum_a.write_text(f"# Summary {t_norm}: Done\n", encoding="utf-8")
-        _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", sum_a.as_posix()])
+        _run_git(
+            track_a_path,
+            ["add", "src/demo_app/normalizer.py", "src/demo_app/cli.py", sum_a.as_posix()],
+        )
     elif kit == "openspec":
         tasks_a = track_a_path / "openspec" / "changes" / t_norm / "tasks.md"
         tasks_a.write_text(
             tasks_a.read_text(encoding="utf-8").replace("- [ ]", "- [x]"),
             encoding="utf-8",
         )
-        _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", tasks_a.as_posix()])
+        _run_git(
+            track_a_path,
+            ["add", "src/demo_app/normalizer.py", "src/demo_app/cli.py", tasks_a.as_posix()],
+        )
     elif kit == "beads":
         for fname in ("beads.jsonl", "issues.jsonl"):
             iss_a = track_a_path / ".beads" / fname
@@ -1301,7 +1404,7 @@ def _execute_single_demo(
                     encoding="utf-8",
                 )
                 _run_git(track_a_path, ["add", iss_a.as_posix()])
-        _run_git(track_a_path, ["add", "src/demo_app/normalizer.py"])
+        _run_git(track_a_path, ["add", "src/demo_app/normalizer.py", "src/demo_app/cli.py"])
 
     _run_git(track_a_path, ["commit", "-m", f"feat({t_norm}): add normalize_key helper"])
 
@@ -1310,6 +1413,15 @@ def _execute_single_demo(
         exp_file.read_text(encoding="utf-8")
         + "\ndef format_export_summary(count: int) -> str:\n    return f'exported={count}'\n",
         encoding="utf-8",
+    )
+    _append_demo_cli_command(
+        track_b_path,
+        "from demo_app.exporter import format_export_summary",
+        (
+            '\n@app.command("export")\n'
+            "def export_cmd(count: int = 1) -> str:\n"
+            "    return format_export_summary(count)\n"
+        ),
     )
 
     if kit == "bmad":
@@ -1321,7 +1433,10 @@ def _execute_single_demo(
             ),
             encoding="utf-8",
         )
-        _run_git(track_b_path, ["add", "src/demo_app/exporter.py", status_b.as_posix()])
+        _run_git(
+            track_b_path,
+            ["add", "src/demo_app/exporter.py", "src/demo_app/cli.py", status_b.as_posix()],
+        )
     elif kit in {"spec-kit", "speckit"}:
         tasks_b = track_b_path / "specs" / "001-telemetry" / "tasks.md"
         if not tasks_b.is_file():
@@ -1330,18 +1445,27 @@ def _execute_single_demo(
             tasks_b.read_text(encoding="utf-8").replace(f"- [ ] {t_exp}", f"- [x] {t_exp}"),
             encoding="utf-8",
         )
-        _run_git(track_b_path, ["add", "src/demo_app/exporter.py", tasks_b.as_posix()])
+        _run_git(
+            track_b_path,
+            ["add", "src/demo_app/exporter.py", "src/demo_app/cli.py", tasks_b.as_posix()],
+        )
     elif kit == "gsd":
         sum_b = track_b_path / ".planning" / "phases" / "01-core" / f"{t_exp}-SUMMARY.md"
         sum_b.write_text(f"# Summary {t_exp}: Done\n", encoding="utf-8")
-        _run_git(track_b_path, ["add", "src/demo_app/exporter.py", sum_b.as_posix()])
+        _run_git(
+            track_b_path,
+            ["add", "src/demo_app/exporter.py", "src/demo_app/cli.py", sum_b.as_posix()],
+        )
     elif kit == "openspec":
         tasks_b = track_b_path / "openspec" / "changes" / t_exp / "tasks.md"
         tasks_b.write_text(
             tasks_b.read_text(encoding="utf-8").replace("- [ ]", "- [x]"),
             encoding="utf-8",
         )
-        _run_git(track_b_path, ["add", "src/demo_app/exporter.py", tasks_b.as_posix()])
+        _run_git(
+            track_b_path,
+            ["add", "src/demo_app/exporter.py", "src/demo_app/cli.py", tasks_b.as_posix()],
+        )
     elif kit == "beads":
         for fname in ("beads.jsonl", "issues.jsonl"):
             iss_b = track_b_path / ".beads" / fname
@@ -1359,7 +1483,7 @@ def _execute_single_demo(
                     encoding="utf-8",
                 )
                 _run_git(track_b_path, ["add", iss_b.as_posix()])
-        _run_git(track_b_path, ["add", "src/demo_app/exporter.py"])
+        _run_git(track_b_path, ["add", "src/demo_app/exporter.py", "src/demo_app/cli.py"])
 
     _run_git(track_b_path, ["commit", "-m", f"feat({t_exp}): add export summary formatter"])
 
@@ -1367,11 +1491,13 @@ def _execute_single_demo(
     if violations:
         raise RuntimeError(f"Unexpected scope violations in demo Wave 1: {violations}")
 
+    _attach_demo_smoke_gate(plan, 1)
     merged_branches = wm.merge_wave(
         plan=plan,
         wave_number=1,
-        run_quality_gates=False,
+        run_quality_gates=True,
         cleanup_worktrees=keep_temp,
+        partial_merge=True,
     )
 
     merged_status_text = ""

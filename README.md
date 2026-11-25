@@ -65,7 +65,7 @@ With 10–15 specs or stories, teams face two bad choices:
 | :--- | :--- | :--- | :--- |
 | **12-story sprint** | ~6–8 h | ~2 h coding + **~2 h fixing merges** | **~2.5 h total (2x–3x faster)** |
 | **Hidden API collisions** | By going slow | **Breaks `main`** ($W_A \cap I_B \neq \emptyset$) | **Prevented upfront** (Wave 1 → 2) |
-| **Shared CLI / routers** | Serialized | Git conflict per merge | **Concurrent via Git 3-way merge** (`ADDITIVE_REGISTRY`, disjoint inserts) |
+| **Shared CLI / routers** | Serialized | Git conflict per merge | **Concurrent via AST 3-way merge** (`registry_merger.py` + fail-closed `Partial Barrier Merge`) |
 | **Status files** | Serial updates | Constant `<<<<<<<` markers | **Monotonic 3-way merge** (0 markers) |
 | **Out-of-scope edits** | Prompt warning | Bypassed via `bash`/`sed` | **Blocked** (`PreToolUse` + Terminal Guard + `chmod a-w`) |
 | **Worktree clutter** | None | 15 leftover `task-*` dirs | **Fixed reusable slots** (`track-a/b/c`) |
@@ -82,7 +82,7 @@ No API key, no LLM subscription, no clone. Run via [`uv`](https://docs.astral.sh
 uvx sdd-parallel demo --kit all   # or single kit: uvx sdd-parallel demo --kit spec-kit
 ```
 
-Scaffolds real throwaway Git repos (5 tasks, 6 Python modules), runs AST analysis, tests Scope Guard `DENY` locks, and executes a 0-conflict 3-way status merge (`~6–9s` per kit with `--kit all`, `run_quality_gates=False` in sandbox):
+Scaffolds real throwaway Git repos (5 tasks, 6 Python modules), runs AST analysis, tests Scope Guard `DENY` locks, merges concurrent `cli.py` edits via 3-way AST merge, and executes a 0-conflict 3-way status merge + live smoke checkpoint gate (`run_quality_gates=True`, `< 5s` per kit):
 
 ```text
 ================================================================
@@ -228,7 +228,7 @@ Legend: 🔒 read-only (`chmod a-w` + `PreToolUse` deny) · 👻 hidden (`info/e
 1. **How does the planner know `write_files` before code is written?**
    Three layers of protection: **(a)** explicit paths declared in specs (`Code Map`, `Files:`, GSD XML `<files>`, backticks) → **(b)** the Pre-Wave AST Symbol Linker resolving mentioned function/class names to files in $O(1)$ → **(c)** Dynamic Scope Escalation (`.tmp/scope-escalation.json`), where `PreToolUse` logs denied out-of-scope edits, `verify-wave` defers the task to Wave $K+1$ (resetting the emptied slot and updating `.parallel/wave-plan.json`), and `merge` executes against the updated plan.
 2. **What about TypeScript, Go, Rust, or non-Python repositories?**
-   Honest boundary: the built-in zero-dependency AST scanner natively parses Python. For polyglot repositories (TS/JS, Go, Rust), `sdd-parallel` combines explicit spec file lists with the optional Tree-sitter sidecar **`code-review-graph`** (`CRGSidecarAdapter`) to compute cross-file import and impact edges.
+   Honest boundary: the built-in zero-dependency AST scanner (`ast_scanner.py`) and 3-way registry merger (`registry_merger.py`) natively parse Python. For polyglot repositories (TS/JS, Go, Rust, Java), `sdd-parallel` relies on explicit spec file lists, the optional Tree-sitter sidecar **`code-review-graph`** (`CRGSidecarAdapter`), `contract_globs`, `DEPENDENCY_DRIFT` lockfile checks, and **`Partial Barrier Merge`** (default on `merge`) to isolate conflicting tracks safely.
 3. **Can an agent bypass `PreToolUse` hooks via shell (`sed -i`, `python -c`, `cp`)?**
    Enforcement never relies on a single hook — it is **3-Tier Defense-in-Depth**: **Tier 1** (`PreToolUse` + Terminal Guard inspecting `Bash`/`run_command`/`powershell` redirects and inline writes) → **Tier 2** (OS-level `chmod a-w` on Spine and sibling-owned files) → **Tier 3** (`verify-wave` auditing actual `git diff merge-base...HEAD` and blocking the merge on any violation).
 4. **AST cannot see cross-layer contracts (Pydantic JSON → TS frontend, SQL FK, OpenAPI)!**
@@ -275,8 +275,8 @@ Shared flags: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-file FILE
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — Provision slots, OS locks, boundaries. |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — Lock an existing worktree. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — Print native launch command per slot. |
-| `sdd-parallel verify-wave --wave K` | Audit slots vs `.parallel-lock.json`, `merge-base` diff, pre-merge `ast_diff_gate`, and scope escalations. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge] [--cleanup]` — Gates, 3-way merge, partial commit with culprit bisection (`--partial-merge`), or atomic rollback. |
+| `sdd-parallel verify-wave --wave K` | `[--defer-ast-violations]` — Audit slots vs `.parallel-lock.json`, `merge-base` diff, pre-merge `ast_diff_gate`, and scope escalations. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge\|--no-partial-merge] [--cleanup]` — Gates, AST/status 3-way merge, default partial commit with culprit bisection (or atomic rollback with `--no-partial-merge`). |
 | `sdd-parallel abort-wave --wave K` | Reset fixed slots in place to `HEAD` (or delete branches in `--dynamic-worktrees`). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO revert + safety branch + status reset. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — 3-way merge for `sprint-status.yaml`. |
@@ -296,7 +296,8 @@ Shared flags: `--repo REPO`, `--max-tracks N`, `--kit KIT`, `--routing-file FILE
 ### ✅ Shipped in `v0.1.0 – v0.2.2`
 - [x] BSP wave scheduler (Kahn acyclicity) + AST hotspot scanner + `code-review-graph v2.3.9` sidecar + Spine Bucket Locks (Class C) & `NAMESPACE_COLLISION` (Class D).
 - [x] Pre-merge `ast_diff_gate.py`: virtual Tarjan import cycles (Class G), signature/default drift (Classes A/B), AST-shingle duplicate helpers (Class F), lockfile collisions (Class H).
-- [x] Partial Barrier Merge (`merge --partial-merge`), deterministic culprit bisection, `.parallel/barrier-feedback-<story_id>.json` NACK injection, and DAG tail re-scheduling (`reschedule_remaining_waves`).
+- [x] Partial Barrier Merge (default in CLI `merge`, `--no-partial-merge` for atomic rollback), OCC centrality ordering, deterministic culprit bisection, `.parallel/barrier-feedback-<story_id>.json` NACK injection, and DAG tail re-scheduling (`reschedule_remaining_waves`).
+- [x] Python AST-aware 3-way `ADDITIVE_REGISTRY` merger (`registry_merger.py`, fail-closed fallback) + intra-file AST function isolation (`are_functions_isolated`) and receiver-hinted router decorators.
 - [x] Fixed slots (`track-a/b/c`) with in-place reset, `info/exclude` masking, `.venv`/`node_modules` NTFS Junctions (Windows, no admin) / POSIX symlinks.
 - [x] 3-tier Scope Guard (`PreToolUse` + Terminal Guard + `chmod a-w`), symbol linker, `.tmp/scope-escalation.json`.
 - [x] Monotonic 3-way status merger (YAML, Markdown, `STATE.md`, JSONL) + LIFO transactional rollback.

@@ -65,7 +65,7 @@ https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-p
 | :--- | :--- | :--- | :--- |
 | **12 个故事的冲刺** | ~6–8 小时 | ~2 小时编码 + **~2 小时修复合并** | **总计约 2.5 小时（提速 2x–3x）** |
 | **隐蔽 API 碰撞** | 靠慢速串行规避 | **破坏 `main`** ($W_A \cap I_B \neq \emptyset$) | **前置预防**（拆分为 Wave 1 → 2） |
-| **共享 CLI / 路由** | 串行修改 | 每次合并必冲突 | **通过 Git 三方合并实现并发**（`ADDITIVE_REGISTRY`，互不重叠的插入） |
+| **共享 CLI / 路由** | 串行修改 | 每次合并必冲突 | **通过 AST 三方合并实现并发**（`registry_merger.py` + 故障关闭 `Partial Barrier Merge`） |
 | **状态文件** | 串行更新 | 频繁出现 `<<<<<<<` 标记 | **单调三方合并**（0 冲突标记） |
 | **越界修改** | 仅靠 Prompt 警告 | 可被 `bash`/`sed` 绕过 | **内核级阻断**（`PreToolUse` + 终端守卫 + `chmod a-w`） |
 | **Worktree 杂乱** | 无 | 残留 15 个 `task-*` 目录 | **固定复用槽位**（`track-a/b/c`） |
@@ -82,7 +82,7 @@ https://github.com/stopActingSoSmall/sdd-parallel/releases/download/v0.1.0/sdd-p
 uvx sdd-parallel demo --kit all   # 或单套件演示：uvx sdd-parallel demo --kit spec-kit
 ```
 
-自动脚手架生成临时 Git 仓库（5 个任务、6 个 Python 模块），运行 AST 分析、测试 Scope Guard `DENY` 锁定并执行 0 冲突三方状态合并（使用 `--kit all` 时每个套件约 `~6–9s`，沙箱中 `run_quality_gates=False`）：
+自动脚手架生成临时 Git 仓库（5 个任务、6 个 Python 模块），运行 AST 分析、测试 Scope Guard `DENY` 锁定、通过三方 AST 合并整合并发的 `cli.py` 修改，并执行 0 冲突三方状态合并与实时冒烟检查点门禁（`run_quality_gates=True`，每个套件 `< 5s`）：
 
 ```text
 ================================================================
@@ -228,7 +228,7 @@ my-project/
 1. **在代码写出之前，调度器如何预知 `write_files`？**
    三层防护机制：**(a)** 规范中声明的显式路径（`Code Map`、`Files:`、GSD XML `<files>`、反引号路径）→ **(b)** 波次前 AST 符号链接器（Pre-Wave AST Symbol Linker），以 $O(1)$ 复杂度将提及的函数/类名解析到对应文件 → **(c)** 动态范围提权（`.tmp/scope-escalation.json`），由 `PreToolUse` 记录被拒绝的越界编辑，`verify-wave` 将任务延后至 Wave $K+1$（重置腾空的槽位并保存更新后的 `.parallel/wave-plan.json`），随后 `merge` 基于更新后的计划执行合并。
 2. **TypeScript、Go、Rust 或非 Python 代码库怎么办？**
-   诚实边界：内置零依赖 AST 扫描器原生解析 Python。对于多语言代码库（TS/JS、Go、Rust），`sdd-parallel` 将显式规范文件列表与可选的 Tree-sitter 伴生工具 **`code-review-graph`**（`CRGSidecarAdapter`）相结合，从而计算跨文件导入与影响边。
+   诚实边界：内置零依赖 AST 扫描器（`ast_scanner.py`）和三方注册表合并器（`registry_merger.py`）原生解析 Python。对于多语言代码库（TS/JS、Go、Rust、Java），`sdd-parallel` 依赖显式规范文件列表、可选的 Tree-sitter 伴生工具 **`code-review-graph`**（`CRGSidecarAdapter`）、`contract_globs`、`DEPENDENCY_DRIFT` 锁文件检查以及 **`Partial Barrier Merge`**（`merge` 默认开启）来安全隔离冲突轨道。
 3. **智能体能否通过 Shell（`sed -i`、`python -c`、`cp`）绕过 `PreToolUse` 钩子？**
    强制执行从不依赖单一钩子 —— 而是**三层纵深防御（3-Tier Defense-in-Depth）**：**第 1 层**（`PreToolUse` + 终端守卫检查 `Bash`/`run_command`/`powershell` 重定向与内联写入）→ **第 2 层**（对 Spine 及同级轨道所属文件施加操作系统级 `chmod a-w` 只读锁）→ **第 3 层**（`verify-wave` 审计实际的 `git diff merge-base...HEAD`，发现任何违规立即阻断合并）。
 4. **AST 无法感知跨层契约（Pydantic JSON → TS 前端、SQL 外键、OpenAPI）！**
@@ -275,8 +275,8 @@ flowchart TD
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — 准备槽位、OS 锁定与边界文件。 |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — 锁定外部已有工作树。 |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — 打印各槽位原生启动命令。 |
-| `sdd-parallel verify-wave --wave K` | 对照 `.parallel-lock.json`、`merge-base` diff 及范围提权（scope escalations）审计槽位。 |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge] [--cleanup]` — 门禁校验、三方合并、冲突或门禁出错时原子回滚。 |
+| `sdd-parallel verify-wave --wave K` | `[--defer-ast-violations]` — 对照 `.parallel-lock.json`、`merge-base` diff、预合并 `ast_diff_gate` 及范围提权（scope escalations）审计槽位。 |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge\|--no-partial-merge] [--cleanup]` — 门禁校验、AST/状态三方合并、默认部分提交与故障二分定位（或使用 `--no-partial-merge` 执行原子回滚）。 |
 | `sdd-parallel abort-wave --wave K` | 将固定槽位就地重置为 `HEAD`（或在 `--dynamic-worktrees` 下删除动态分支）。 |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO 回滚 + 备份分支 + 状态重置。 |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — `sprint-status.yaml` 三方合并。 |
@@ -294,20 +294,23 @@ flowchart TD
 ## 🚢 发布矩阵：已实现 (v0.2.2) vs 规划路线图 (v0.3+)
 
 ### ✅ 已在 `v0.1.0 – v0.2.2` 中发布
-- [x] **8 类碰撞防御 (A–H)**：`extract_spine_bucket()` (C)、`NAMESPACE_COLLISION` (D)、`ast_diff_gate.py` (A/B/F/G/H) 与 `--partial-merge` 故障二分定位及 `.parallel/barrier-feedback-<story_id>.json`。
-- [x] BSP 波次调度器（Kahn 无环检查）+ AST 热点扫描器 + `code-review-graph v2.3.9` 伴生进程。
+- [x] BSP 波次调度器（Kahn 无环检查）+ AST 热点扫描器 + `code-review-graph v2.3.9` 伴生进程 + 骨干桶锁（Class C）与 `NAMESPACE_COLLISION`（Class D）。
+- [x] 预合并 `ast_diff_gate.py`：虚拟 Tarjan 导入循环（Class G）、签名/默认值漂移（Class A/B）、AST Shingle 重复辅助函数（Class F）、锁文件碰撞（Class H）。
+- [x] `Partial Barrier Merge`（CLI `merge` 默认启用，`--no-partial-merge` 用于原子回滚）、OCC 中心度排序、确定性故障二分定位、`.parallel/barrier-feedback-<story_id>.json` NACK 注入及 DAG 尾部重调度（`reschedule_remaining_waves`）。
+- [x] Python AST 感知的三方 `ADDITIVE_REGISTRY` 合并器（`registry_merger.py`，故障关闭回退）+ 文件内 AST 函数隔离检查（`are_functions_isolated`）与基于接收者提示的路由装饰器。
 - [x] 固定槽位（`track-a/b/c`）原地重置、`info/exclude` 掩码与 `.venv`/`node_modules` 的 NTFS Junctions (Windows, no admin) / POSIX symlinks。
 - [x] 三层 Scope Guard（`PreToolUse` + 终端守卫 + `chmod a-w`）、符号链接器、`.tmp/scope-escalation.json`。
 - [x] 单调三方状态合并器（YAML、Markdown、`STATE.md`、JSONL）+ LIFO 事务性回滚。
 - [x] 5 大 SDD 适配器（Spec Kit + `extension.yml`、BMAD + `mattpocock/skills` + `bmad-loop`、GSD、OpenSpec、Beads）。
-- [x] 离线 `demo --kit all`、`bench` 回测、HTML Wave Inspector（`inspect --open`）、`--scaffold-only`。
+- [x] 离线 `demo --kit all`、`bench` 8 类回测（A–H，0 FN）、HTML Wave Inspector（`inspect --open`）、`--scaffold-only`。
 - [x] 多窗口与 Depth-0 Autopilot（`agy`、Claude Code、Codex），支持 `--routing-file`、`TaskStructuralSignals`、`--policy cyclic`（`ADR-0009`）。
 - [x] 全新克隆 CI（Ubuntu/macOS/Windows，Python 3.11–3.13）与 PyPI Trusted Publishing。
 
 ### 🚧 规划路线图 (`v0.3+`)
 - [ ] 严格套件自动检测（零静默回退，TTY 消歧）
+- [ ] System-1 意图提取器（`TaskIntentVector`）与 Decision-1 成对碰撞分类器
 - [ ] 原生多语言 Tree-sitter AST 与自动 CRG 索引（TS/JS、Go、Rust）
-- [ ] 可选 System-1 预提取器（`--extractor none|gliner|clairic`）与自适应 `--max-tracks auto`
+- [ ] 自适应 `--max-tracks auto` 与 Antigravity `/swarm` 简报导出器（`--format swarm-brief`）
 
 ---
 

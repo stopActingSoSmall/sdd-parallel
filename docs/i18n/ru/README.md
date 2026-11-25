@@ -65,7 +65,7 @@ https://github.com/user-attachments/assets/5dcfeb80-e48f-4bf8-8e90-76cc463f5edd
 | :--- | :--- | :--- | :--- |
 | **Спринт (12 задач)** | ~6–8 ч | ~2 ч кода + **~2 ч мерджей** | **~2.5 ч (2x–3x быстрее)** |
 | **Коллизии API** | Медленным ходом | **Ломают `main`** ($W_A \cap I_B \neq \emptyset$) | **Отсечены** (Волна 1 → 2) |
-| **CLI / роутеры** | По очереди | Конфликт Git на мердже | **Параллельно через Git 3-way** (`ADDITIVE_REGISTRY`, разнесённые вставки) |
+| **CLI / роутеры** | По очереди | Конфликт Git на мердже | **Параллельно через AST 3-way мердж** (`registry_merger.py` + fail-closed `Partial Barrier Merge`) |
 | **Статусы** | Последовательно | Маркеры `<<<<<<<` | **3-way мердж** (0 маркеров) |
 | **Чужие файлы** | Просьба в промпте | Обход через `bash`/`sed` | **Блок** (`PreToolUse` + Terminal Guard + `chmod a-w`) |
 | **Worktree** | Нет | 15 папок `task-*` | **Слоты** (`track-a/b/c`) |
@@ -82,7 +82,7 @@ https://github.com/user-attachments/assets/5dcfeb80-e48f-4bf8-8e90-76cc463f5edd
 uvx sdd-parallel demo --kit all   # или один: uvx sdd-parallel demo --kit spec-kit
 ```
 
-Создаёт Git-репо (5 задач, 6 модулей Python), гоняет AST, `DENY`-блоки и 3-way мердж статусов без конфликтов (`~6–9 с` на кит в `--kit all`, `run_quality_gates=False` в песочнице):
+Создаёт Git-репо (5 задач, 6 модулей Python), гоняет AST, `DENY`-блоки, объединяет параллельные правки `cli.py` через 3-way AST-мердж и выполняет 0-конфликтный 3-way мердж статусов + живой smoke-гейт (`run_quality_gates=True`, `< 5s` на кит):
 
 ```text
 ================================================================
@@ -228,7 +228,7 @@ my-project/
 1. **Откуда планировщик знает `write_files` до того, как код написан?**
    Три рубежа защиты: **(a)** явные пути в спеках (`Code Map`, `Files:`, GSD XML `<files>`, пути в backticks) → **(b)** Pre-Wave AST Symbol Linker, резолвящий упомянутые имена функций и классов в файлы за $O(1)$ → **(c)** Dynamic Scope Escalation (`.tmp/scope-escalation.json`), где `PreToolUse` фиксирует запрещённый доступ, `verify-wave` переносит задачу в Волну $K+1$ (сбрасывая слот и обновляя `.parallel/wave-plan.json`), а `merge` работает по обновлённому плану.
 2. **А что насчёт TypeScript, Go, Rust и не-Python репозиториев?**
-   Честная граница: встроенный AST-сканер без внешних зависимостей нативно парсит Python. Для полиглотных репозиториев (TS/JS, Go, Rust) `sdd-parallel` комбинирует явные списки файлов из спек с опциональным Tree-sitter сайдкаром **`code-review-graph`** (`CRGSidecarAdapter`) для расчёта межфайловых импортов и радиуса влияния.
+   Честная граница: встроенный AST-сканер без внешних зависимостей (`ast_scanner.py`) и 3-way мерджер реестров (`registry_merger.py`) нативно парсят Python. Для полиглотных репозиториев (TS/JS, Go, Rust, Java) `sdd-parallel` опирается на явные списки файлов из спек, опциональный Tree-sitter сайдкар **`code-review-graph`** (`CRGSidecarAdapter`), `contract_globs`, проверки lock-файлов `DEPENDENCY_DRIFT` и **`Partial Barrier Merge`** (по умолчанию в `merge`) для безопасной изоляции конфликтующих треков.
 3. **Может ли агент обойти `PreToolUse` хуки через shell (`sed -i`, `python -c`, `cp`)?**
    Защита не полагается на один хук — это **3-уровневая эшелонированная оборона (3-Tier Defense-in-Depth)**: **Tier 1** (`PreToolUse` + Terminal Guard, проверяющий редиректы и инлайн-запись в `Bash`/`run_command`/`powershell`) → **Tier 2** (блокировка `chmod a-w` на уровне ОС для Spine и файлов соседних треков) → **Tier 3** (`verify-wave`, проверяющий реальный `git diff merge-base...HEAD` и блокирующий слияние при любом нарушении).
 4. **AST не видит межслойные контракты (Pydantic JSON → TS-фронтенд, SQL FK, OpenAPI)!**
@@ -275,8 +275,8 @@ flowchart TD
 | `sdd-parallel prepare --wave K` | `[--headless] [--antigravity-layout]` — Слоты, блокировки, границы. |
 | `sdd-parallel claim-track --wave K` | `--track <id> --worktree <path> [--headless]` — Привязка к внешнему worktree. |
 | `sdd-parallel run-guide --wave K` | `[--antigravity-layout]` — Команда запуска для слота. |
-| `sdd-parallel verify-wave --wave K` | Аудит слотов по `.parallel-lock.json`, `merge-base`, пре-мердж `ast_diff_gate` и scope-эскалациям. |
-| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge] [--cleanup]` — Gates, 3-way merge, частичный коммит с бисекцией виновника (`--partial-merge`) или атомарный откат. |
+| `sdd-parallel verify-wave --wave K` | `[--defer-ast-violations]` — Аудит слотов по `.parallel-lock.json`, `merge-base` diff, пре-мердж `ast_diff_gate` и scope-эскалациям. |
+| `sdd-parallel merge --wave K` | `[--skip-gates] [--strict-gates] [--partial-merge\|--no-partial-merge] [--cleanup]` — Гейты, AST/статус 3-way merge, частичный коммит по умолчанию с бисекцией виновника (или атомарный откат с `--no-partial-merge`). |
 | `sdd-parallel abort-wave --wave K` | Сброс fixed slots к `HEAD` (или удаление веток в `--dynamic-worktrees`). |
 | `sdd-parallel rollback-wave --wave K` | `[--to-commit COMMIT] [--save-backup\|--no-backup]` — LIFO-откат + backup + статусы. |
 | `sdd-parallel merge-status` | `--base B --ours O --theirs T --out OUT` — 3-way merge `sprint-status.yaml`. |
@@ -296,7 +296,8 @@ flowchart TD
 ### ✅ Реализовано в `v0.1.0 – v0.2.2`
 - [x] Планировщик BSP (Kahn) + AST-сканер + сайдкар `code-review-graph v2.3.9` + Spine Bucket Locks (Класс C) и `NAMESPACE_COLLISION` (Класс D).
 - [x] Добарьерный `ast_diff_gate.py`: виртуальные циклы импортов Тарьяна (Класс G), дрейф сигнатур/дефолтов (Классы A/B), дубликаты хелперов по AST-шинглам (Класс F), коллизии lock-файлов (Класс H).
-- [x] Частичный барьерный мердж (`merge --partial-merge`), детерминированная бисекция виновника, `.parallel/barrier-feedback-<story_id>.json` NACK-инжекция и перепланирование хвоста волн (`reschedule_remaining_waves`).
+- [x] `Partial Barrier Merge` (по умолчанию в CLI `merge`, `--no-partial-merge` для атомарного отката), упорядочение по центральности OCC, детерминированная бисекция виновника, `.parallel/barrier-feedback-<story_id>.json` NACK-инжекция и перепланирование хвоста волн (`reschedule_remaining_waves`).
+- [x] Python AST-aware 3-way `ADDITIVE_REGISTRY` мерджер (`registry_merger.py`, fail-closed откат) + внутрифайловая AST-изоляция функций (`are_functions_isolated`) и роутерные декораторы с подсказками получателя.
 - [x] Слоты (`track-a/b/c`), in-place сброс, `info/exclude`, `.venv`/`node_modules` через NTFS Junctions (Windows, no admin) / POSIX symlinks.
 - [x] 3-уровневый Scope Guard (`PreToolUse` + Terminal Guard + `chmod a-w`), symbol linker, `.tmp/scope-escalation.json`.
 - [x] Монотонный 3-way мерджер статусов (YAML, Markdown, `STATE.md`, JSONL) + LIFO-откат.
