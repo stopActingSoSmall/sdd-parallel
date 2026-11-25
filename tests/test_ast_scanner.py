@@ -247,7 +247,7 @@ def test_are_functions_isolated_is_fail_closed_on_dynamic_calls(tmp_path: Path) 
     src_dir = tmp_path / "src"
     src_dir.mkdir()
     (src_dir / "dyn.py").write_text(
-        "import os\n\n"
+        "import os\nfrom plugins import factory\n\n"
         "class First:\n"
         "    def step(self) -> int:\n        return 1\n\n"
         "class Second:\n"
@@ -255,7 +255,7 @@ def test_are_functions_isolated_is_fail_closed_on_dynamic_calls(tmp_path: Path) 
         "def helper() -> int:\n    return 1\n\n"
         "def pure() -> int:\n    return len(os.sep)\n\n"
         "def caller() -> int:\n    target = helper\n    return target()\n\n"
-        "def dispatch(flag: bool, factory) -> int:\n"
+        "def dispatch(flag: bool) -> int:\n"
         "    if flag:\n        worker = First()\n"
         "    else:\n        worker = factory()\n"
         "    return worker.step()\n",
@@ -267,3 +267,27 @@ def test_are_functions_isolated_is_fail_closed_on_dynamic_calls(tmp_path: Path) 
     assert not scanner.are_functions_isolated("src/dyn.py", "caller", "helper")
     assert not scanner.are_functions_isolated("src/dyn.py", "dispatch", "Second.step")
     assert scanner.are_functions_isolated("src/dyn.py", "pure", "helper")
+
+
+def test_are_functions_isolated_handles_subscript_callee_and_inheritance(tmp_path: Path) -> None:
+    """Subscript callees fail closed; inherited/overridden methods keep call edges."""
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "inh.py").write_text(
+        "def helper() -> int:\n    return 1\n\n"
+        "def caller(callbacks) -> int:\n    return callbacks[0]()\n\n"
+        "def other() -> int:\n    return 2\n\n"
+        "class Base:\n"
+        "    def step(self) -> int:\n        return 1\n\n"
+        "    def solo(self) -> int:\n        return 3\n\n"
+        "class Child(Base):\n"
+        "    def run(self) -> int:\n        return self.step()\n",
+        encoding="utf-8",
+    )
+    scanner = ASTHotspotScanner(tmp_path)
+    scanner.scan()
+
+    assert not scanner.are_functions_isolated("src/inh.py", "caller", "helper")
+    assert not scanner.are_functions_isolated("src/inh.py", "Child.run", "Base.step")
+    assert scanner.are_functions_isolated("src/inh.py", "Child.run", "Base.solo")
+    assert scanner.are_functions_isolated("src/inh.py", "other", "helper")

@@ -332,6 +332,32 @@ class ASTHotspotScanner:
             elif isinstance(top, ast.ImportFrom):
                 resolvable_names.update(a.asname or a.name for a in top.names)
 
+        class_bases: dict[str, set[str]] = {
+            n.name: {b.id for b in n.bases if isinstance(b, ast.Name) and b.id in class_names}
+            for n in tree.body
+            if isinstance(n, ast.ClassDef)
+        }
+
+        def _resolve_method(cls_name: str, attr_name: str) -> set[str]:
+            """Resolve method over same-file ancestors and descendants (overrides)."""
+            ancestors: set[str] = set()
+            stack = [cls_name]
+            while stack:
+                for base in class_bases.get(stack.pop(), ()):
+                    if base not in ancestors:
+                        ancestors.add(base)
+                        stack.append(base)
+            descendants: set[str] = set()
+            stack = [cls_name]
+            while stack:
+                cur = stack.pop()
+                for child, bases in class_bases.items():
+                    if cur in bases and child not in descendants:
+                        descendants.add(child)
+                        stack.append(child)
+            related = {cls_name} | ancestors | descendants
+            return {f"{c}.{attr_name}" for c in related if attr_name in class_methods.get(c, ())}
+
         def _method_name_fallback(attr_name: str) -> set[str]:
             return {f"{c}.{attr_name}" for c, ms in class_methods.items() if attr_name in ms}
 
@@ -395,35 +421,33 @@ class ASTHotspotScanner:
                         found.add(UNRESOLVED_CALL)
                 elif isinstance(sub.func, ast.Attribute):
                     attr_name = sub.func.attr
-                    if isinstance(sub.func.value, ast.Name):
-                        owner = sub.func.value.id
+                    recv = sub.func.value
+                    if isinstance(recv, ast.Name):
+                        owner = recv.id
                         if class_name and owner in {"self", "cls", class_name}:
-                            found.add(f"{class_name}.{attr_name}")
+                            found |= _resolve_method(class_name, attr_name)
                         elif owner in local_types:
                             for resolved_cls in local_types[owner]:
                                 if resolved_cls == _UNKNOWN_RECEIVER:
                                     found |= _method_name_fallback(attr_name)
                                 else:
-                                    found.add(f"{resolved_cls}.{attr_name}")
+                                    found |= _resolve_method(resolved_cls, attr_name)
                         elif owner in class_names:
-                            found.add(f"{owner}.{attr_name}")
+                            found |= _resolve_method(owner, attr_name)
                         else:
                             found.add(f"{owner}.{attr_name}")
-                            for cls_name, methods in class_methods.items():
-                                if attr_name in methods:
-                                    found.add(f"{cls_name}.{attr_name}")
+                            found |= _method_name_fallback(attr_name)
                     elif (
-                        isinstance(sub.func.value, ast.Call)
-                        and isinstance(sub.func.value.func, ast.Name)
+                        isinstance(recv, ast.Call)
+                        and isinstance(recv.func, ast.Name)
+                        and recv.func.id in class_names
                     ):
-                        callee = sub.func.value.func.id
-                        if callee in class_names:
-                            found.add(f"{callee}.{attr_name}")
-                        else:
-                            found.add(f"{callee}.{attr_name}")
-                            for cls_name, methods in class_methods.items():
-                                if attr_name in methods:
-                                    found.add(f"{cls_name}.{attr_name}")
+                        found |= _resolve_method(recv.func.id, attr_name)
+                    else:
+                        found |= _method_name_fallback(attr_name)
+                else:
+                    # Subscript/call/lambda callee: target unknowable statically.
+                    found.add(UNRESOLVED_CALL)
             return found
 
         for node in tree.body:
