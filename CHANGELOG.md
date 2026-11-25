@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.2] - 2026-11-25
 
+### Conceptual Highlights (Before → After)
+- **Concurrent Edits in Shared Registry Files (`cli.py`, `__init__.py`, `*/mcp/server.py`):** Previously, parallel tracks adding orthogonal commands or exports collided on adjacent lines and blocked the wave; now `registry_merger.py` performs deterministic Python stdlib `ast` 3-way merges with fail-closed fallback (`None` -> `Partial Barrier Merge`) if existing function bodies or colliding symbols are mutated.
+- **Wave Barrier Resilience (`Partial Barrier Merge` & NACK Feedback Loop):** Previously, one broken track rolled back the entire wave all-or-nothing; now `sdd-parallel merge` defaults to `partial_merge=True`, landing clean tracks in OCC order, isolating culprits via greedy prefix bisection into `backup/wave-<K>-<track>-failed-<ts>`, writing `.parallel/barrier-feedback-<story_id>.json`, and re-scheduling remaining waves.
+- **Pre-Merge Semantic Collision Interception (`ast_diff_gate.py`):** Previously, cross-track import cycles, signature/default drift, duplicated helpers, and concurrent lockfile edits surfaced only after `git merge`; now `verify-wave` inspects branch AST diffs against `merge-base` before merging.
+- **Ordered Directory Serialization & Namespace Collisions:** `extract_spine_bucket()` serializes parallel creations in ordered directories (`**/migrations/**`, `**/versions/**`, `docs/adr/**`, Class C) and `extract_namespace_tokens()` detects cross-file CLI flag, ENV var, and HTTP route collisions (Class D) during `plan`.
+
+### Default Behavior & CLI Changes
+- **`partial_merge=True` by default in `sdd-parallel merge`:** Pass `--no-partial-merge` to enforce legacy strict all-or-nothing rollback.
+- **`--defer-ast-violations` in `sdd-parallel verify-wave`:** Allows deferring tracks flagged by `ast_diff_gate` directly into barrier NACK feedback and next-wave rescheduling.
+- **Persistent Wave Plan Cache:** `prepare`, `claim-track`, `verify-wave`, `merge`, `autopilot`, `run-guide`, and `inspect` share `.parallel/wave-plan.json` via `_load_or_compute_repo_plan()`, preserving dynamic scope escalations and rescheduled tails.
+
 ### Added
 - **Python AST-Aware 3-Way `ADDITIVE_REGISTRY` Merger (`registry_merger.py`):** Deterministic stdlib `ast` 3-way merge for concurrent header imports, `__all__`, and orthogonal top-level commands/functions (e.g., `cli.py`, `__init__.py`, `*/mcp/server.py`) with fail-closed fallback (`None` -> `Partial Barrier Merge`) when existing function bodies or colliding symbols are mutated.
 - **Pre-Merge AST Diff Gate (`ast_diff_gate.py`):** Intercepts virtual cross-track import cycles (Tarjan SCC, Class G), signature/default/constant drift vs `merge-base` (Classes A/B), structurally duplicate new helper functions via normalized AST shingles (Jaccard >= 0.75, Class F), and concurrent dependency manifest/lockfile edits (Class H) inside `verify-wave` (with `--defer-ast-violations`).
