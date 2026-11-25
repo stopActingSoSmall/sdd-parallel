@@ -137,6 +137,26 @@ def test_extract_namespace_tokens_ignores_negated_constraints() -> None:
     }
 
 
+def test_extract_namespace_tokens_handles_headings_literals_and_inline_constraints() -> None:
+    """Active headings, literal --read-only flags, and pre-constraint tokens are preserved."""
+    text = (
+        "## Add --export-json and POST /v2/reports\n"
+        "Add --read-only.\n"
+        "Add --strict-mode without changing --legacy-flag.\n"
+        "Do not touch --read-only or GET /legacy.\n"
+        "## Forbidden / Read-Only\n"
+        "- Add --blocked-flag\n"
+    )
+    tokens = ASTHotspotScanner.extract_namespace_tokens(text)
+
+    assert tokens == {
+        "ns:CLI:--export-json",
+        "ns:ROUTE:POST /v2/reports",
+        "ns:CLI:--read-only",
+        "ns:CLI:--strict-mode",
+    }
+
+
 def test_are_functions_isolated_ast_verification(tmp_path: Path) -> None:
     """Verify AST intra-file call graph checks existence, direct, transitive, and method calls."""
     src_dir = tmp_path / "src"
@@ -152,7 +172,17 @@ def test_are_functions_isolated_ast_verification(tmp_path: Path) -> None:
         "    return helper_c()\n\n"
         "def caller_a() -> int:\n"
         "    return middle_b()\n\n"
+        "def build_worker():\n"
+        "    return Worker()\n\n"
+        "def run_local_worker() -> int:\n"
+        "    worker = Worker()\n"
+        "    return worker.step_two()\n\n"
+        "def run_dynamic_worker(factory) -> int:\n"
+        "    obj = factory()\n"
+        "    return obj.step_two()\n\n"
         "class Worker:\n"
+        "    def __init__(self) -> None:\n"
+        "        self.ready = True\n\n"
         "    def step_one(self) -> int:\n"
         "        return self.step_two()\n\n"
         "    def step_two(self) -> int:\n"
@@ -170,5 +200,13 @@ def test_are_functions_isolated_ast_verification(tmp_path: Path) -> None:
     assert not scanner.are_functions_isolated("src/service.py", "caller_a", "helper_c")
     assert not scanner.are_functions_isolated("src/service.py", "step_one", "step_two")
     assert scanner.are_functions_isolated("src/service.py", "step_one", "step_isolated")
+    assert not scanner.are_functions_isolated("src/service.py", "build_worker", "Worker.__init__")
+    assert not scanner.are_functions_isolated(
+        "src/service.py", "run_local_worker", "Worker.step_two"
+    )
+    assert not scanner.are_functions_isolated(
+        "src/service.py", "run_dynamic_worker", "Worker.step_two"
+    )
+    assert scanner.are_functions_isolated("src/service.py", "run_local_worker", "step_isolated")
     assert not scanner.are_functions_isolated("src/service.py", "independent_a", "missing_fn")
     assert not scanner.are_functions_isolated("src/unknown.py", "fn_a", "fn_b")

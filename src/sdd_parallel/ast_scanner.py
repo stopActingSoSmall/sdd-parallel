@@ -306,41 +306,105 @@ class ASTHotspotScanner:
         """Extract top-level functions/methods and intra-file call edges."""
         defined_functions: set[str] = set()
         raw_calls: dict[str, set[str]] = {}
+        class_methods: dict[str, set[str]] = {}
+
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                defined_functions.add(node.name)
+            elif isinstance(node, ast.ClassDef):
+                methods: set[str] = set()
+                for item in node.body:
+                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        defined_functions.add(f"{node.name}.{item.name}")
+                        methods.add(item.name)
+                class_methods[node.name] = methods
+
+        class_names = set(class_methods)
+
+        def _extract_local_class_types(
+            body_node: ast.FunctionDef | ast.AsyncFunctionDef,
+        ) -> dict[str, str]:
+            local_types: dict[str, str] = {}
+            all_args = (
+                list(body_node.args.posonlyargs)
+                + list(body_node.args.args)
+                + list(body_node.args.kwonlyargs)
+            )
+            for arg in all_args:
+                if isinstance(arg.annotation, ast.Name) and arg.annotation.id in class_names:
+                    local_types[arg.arg] = arg.annotation.id
+            for sub in ast.walk(body_node):
+                if isinstance(sub, ast.Assign):
+                    if (
+                        isinstance(sub.value, ast.Call)
+                        and isinstance(sub.value.func, ast.Name)
+                        and sub.value.func.id in class_names
+                    ):
+                        for target in sub.targets:
+                            if isinstance(target, ast.Name):
+                                local_types[target.id] = sub.value.func.id
+                elif isinstance(sub, ast.AnnAssign) and isinstance(sub.target, ast.Name):
+                    if (
+                        isinstance(sub.value, ast.Call)
+                        and isinstance(sub.value.func, ast.Name)
+                        and sub.value.func.id in class_names
+                    ):
+                        local_types[sub.target.id] = sub.value.func.id
+                    elif isinstance(sub.annotation, ast.Name) and sub.annotation.id in class_names:
+                        local_types[sub.target.id] = sub.annotation.id
+            return local_types
 
         def _collect_calls(
             body_node: ast.FunctionDef | ast.AsyncFunctionDef,
             class_name: str | None = None,
         ) -> set[str]:
             found: set[str] = set()
+            local_types = _extract_local_class_types(body_node)
             for sub in ast.walk(body_node):
                 if not isinstance(sub, ast.Call):
                     continue
                 if isinstance(sub.func, ast.Name):
-                    found.add(sub.func.id)
+                    callee = sub.func.id
+                    found.add(callee)
+                    if callee in class_names:
+                        found.add(f"{callee}.__init__")
+                        found.add(f"{callee}.__new__")
                 elif isinstance(sub.func, ast.Attribute):
+                    attr_name = sub.func.attr
                     if isinstance(sub.func.value, ast.Name):
                         owner = sub.func.value.id
                         if class_name and owner in {"self", "cls", class_name}:
-                            found.add(f"{class_name}.{sub.func.attr}")
+                            found.add(f"{class_name}.{attr_name}")
+                        elif owner in local_types:
+                            found.add(f"{local_types[owner]}.{attr_name}")
+                        elif owner in class_names:
+                            found.add(f"{owner}.{attr_name}")
                         else:
-                            found.add(f"{owner}.{sub.func.attr}")
+                            found.add(f"{owner}.{attr_name}")
+                            for cls_name, methods in class_methods.items():
+                                if attr_name in methods:
+                                    found.add(f"{cls_name}.{attr_name}")
                     elif (
                         isinstance(sub.func.value, ast.Call)
                         and isinstance(sub.func.value.func, ast.Name)
                     ):
-                        found.add(f"{sub.func.value.func.id}.{sub.func.attr}")
+                        callee = sub.func.value.func.id
+                        if callee in class_names:
+                            found.add(f"{callee}.{attr_name}")
+                        else:
+                            found.add(f"{callee}.{attr_name}")
+                            for cls_name, methods in class_methods.items():
+                                if attr_name in methods:
+                                    found.add(f"{cls_name}.{attr_name}")
             return found
 
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                fn_key = node.name
-                defined_functions.add(fn_key)
-                raw_calls[fn_key] = _collect_calls(node)
+                raw_calls[node.name] = _collect_calls(node)
             elif isinstance(node, ast.ClassDef):
                 for item in node.body:
                     if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         fn_key = f"{node.name}.{item.name}"
-                        defined_functions.add(fn_key)
                         raw_calls[fn_key] = _collect_calls(item, class_name=node.name)
 
         intra_file_calls = {
@@ -434,8 +498,12 @@ class ASTHotspotScanner:
         tokens: set[str] = set()
         cli_stop = {"--help", "--version"}
         clause_split_re = re.compile(
-            r"[;.]\s+|\.\s*$|,\s+(?=(?:but\s+)?(?:do\s+not|don't|must\s+not|never|avoid|"
-            r"without\b|keep\b|preserve\b|не\s+))"
+            r"(?i)[;.]\s+|\.\s*$|"
+            r",\s+(?=(?:but\s+)?(?:do\s+not|don't|must\s+not|never|avoid|"
+            r"without\b|keep\b|leave\b|preserve\b|не\s+))|"
+            r"\s+(?:(?:and|but|и|но)\s+)?(?=(?:do\s+not|don't|must\s+not|never|avoid|"
+            r"without\s+(?:changing|modifying|touching)|keep\s+existing|preserve|"
+            r"не\s+менять|не\s+трогать|без\s+изменения|не\s+изменять|сохранить)\b)"
         )
         env_re = re.compile(
             r"\b([A-Z][A-Z0-9_]{2,}_(?:MODE|KEY|PORT|DIR|URL|ENV|HOST|TOKEN|TIMEOUT|PATH|FLAG))\b"
@@ -448,14 +516,16 @@ class ASTHotspotScanner:
             stripped = line.strip()
             if re.match(r"^#{1,6}\s+", stripped):
                 in_readonly_section = bool(_READONLY_SECTION_HEADER_RE.match(stripped))
-                continue
+                if in_readonly_section:
+                    continue
             if in_readonly_section:
                 continue
 
             for clause in clause_split_re.split(line):
                 if not clause.strip():
                     continue
-                if _NEGATED_CONSTRAINT_RE.search(clause):
+                prose_only = env_re.sub(" ", route_re.sub(" ", cli_re.sub(" ", clause)))
+                if _NEGATED_CONSTRAINT_RE.search(prose_only):
                     continue
 
                 for m in env_re.finditer(clause):
