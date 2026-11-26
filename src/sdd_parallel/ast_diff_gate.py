@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from sdd_parallel.ast_scanner import ASTHotspotScanner
-from sdd_parallel.models import TaskNode, WaveTrack
+from sdd_parallel.ast_scanner import ASTHotspotScanner, resolve_import_from_targets
+from sdd_parallel.models import TaskNode, WaveTrack, normalize_rel_path
 
 _EXCLUDED_HELPER_NAMES: frozenset[str] = frozenset(
     {
@@ -114,7 +114,7 @@ class ASTGateFinding:
 
 
 def _normalize_rel_path(path: str) -> str:
-    return path.replace("\\", "/").lstrip("./")
+    return normalize_rel_path(path)
 
 
 def _read_base_file(
@@ -193,47 +193,34 @@ def _extract_file_imports(
     mod_to_path: Mapping[str, str],
 ) -> set[str]:
     """Extract resolved internal relative paths imported by a Python source file."""
+    norm_rel = _normalize_rel_path(rel_f)
     try:
-        tree = ast.parse(source, filename=rel_f)
+        tree = ast.parse(source, filename=norm_rel)
     except SyntaxError:
         return set()
 
-    stem_path = rel_f[:-3] if rel_f.endswith(".py") else rel_f
-    parts = [p for p in stem_path.split("/") if p]
-    is_pkg_init = bool(parts and parts[-1] == "__init__")
-    if is_pkg_init:
-        parts.pop()
-    if src_dir and parts and parts[0] == src_dir:
-        mod_parts = parts[1:]
-    else:
-        mod_parts = parts
-    pkg_parts = mod_parts if is_pkg_init else mod_parts[:-1]
+    def _resolve_mod(mod_name: str) -> str | None:
+        return _resolve_module_path(mod_name, mod_to_path)
 
     targets: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 resolved = _resolve_module_path(alias.name, mod_to_path)
-                if resolved and resolved != rel_f and not ASTHotspotScanner._is_test_path(resolved):
+                if (
+                    resolved
+                    and resolved != norm_rel
+                    and not ASTHotspotScanner._is_test_path(resolved)
+                ):
                     targets.add(resolved)
         elif isinstance(node, ast.ImportFrom):
-            base_mod = node.module or ""
-            if node.level > 0:
-                up = node.level - 1
-                if up > len(pkg_parts):
-                    continue
-                anchor = pkg_parts[: len(pkg_parts) - up]
-                rel_mod_parts = base_mod.split(".") if base_mod else []
-                base_mod = ".".join(anchor + rel_mod_parts)
-
-            for alias in node.names:
-                resolved = None
-                if alias.name != "*":
-                    candidate = f"{base_mod}.{alias.name}" if base_mod else alias.name
-                    resolved = _resolve_module_path(candidate, mod_to_path)
-                if resolved is None and base_mod:
-                    resolved = _resolve_module_path(base_mod, mod_to_path)
-                if resolved and resolved != rel_f and not ASTHotspotScanner._is_test_path(resolved):
+            for resolved in resolve_import_from_targets(
+                node=node,
+                rel_path=norm_rel,
+                src_dir=src_dir,
+                resolve_module_fn=_resolve_mod,
+            ):
+                if not ASTHotspotScanner._is_test_path(resolved):
                     targets.add(resolved)
     return targets
 
@@ -530,21 +517,22 @@ def check_signature_and_default_drift(
             if not norm_f.endswith(".py") or ASTHotspotScanner._is_test_path(norm_f):
                 continue
 
-            new_path = wt_a / norm_f
-            if not new_path.is_file():
-                continue
             base_source = _read_base_file(repo_root, mb_a, norm_f, worktree_root=wt_a)
             if base_source is None:
                 continue
-            try:
-                new_source = new_path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-
             base_contracts = _extract_module_contracts(base_source)
             if not base_contracts:
                 continue
-            new_contracts = _extract_module_contracts(new_source)
+
+            new_path = wt_a / norm_f
+            if not new_path.is_file():
+                new_contracts: dict[str, str] = {}
+            else:
+                try:
+                    new_source = new_path.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                new_contracts = _extract_module_contracts(new_source)
 
             drifted_symbols = [
                 sym

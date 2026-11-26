@@ -6,7 +6,7 @@ import ast
 import builtins
 import re
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,6 +15,7 @@ from sdd_parallel.models import (
     FileRole,
     TaskNode,
     is_contract_file,
+    normalize_rel_path,
 )
 
 _SPINE_KEYWORDS = ("SCHEMA_VERSION", "auto_migrate", "_migrate_v")
@@ -110,6 +111,50 @@ _EXCLUDED_SYMBOLS = frozenset(
 )
 
 
+def resolve_import_from_targets(
+    node: ast.ImportFrom,
+    rel_path: str,
+    src_dir: str,
+    resolve_module_fn: Callable[[str], str | None],
+) -> set[str]:
+    """Resolve internal target file paths for an ast.ImportFrom node (absolute or relative)."""
+    norm_rel = normalize_rel_path(rel_path)
+    stem_path = norm_rel[:-3] if norm_rel.endswith(".py") else norm_rel
+    parts = [p for p in stem_path.split("/") if p]
+    is_pkg_init = bool(parts and parts[-1] == "__init__")
+    if is_pkg_init:
+        parts.pop()
+    norm_src = normalize_rel_path(src_dir)
+    if norm_src and parts and parts[0] == norm_src:
+        mod_parts = parts[1:]
+    else:
+        mod_parts = parts
+    pkg_parts = mod_parts if is_pkg_init else mod_parts[:-1]
+
+    base_mod = (node.module or "").strip(".")
+    if node.level > 0:
+        up = node.level - 1
+        if up > len(pkg_parts):
+            return set()
+        anchor = pkg_parts[: len(pkg_parts) - up]
+        rel_mod_parts = [p for p in base_mod.split(".") if p] if base_mod else []
+        base_mod = ".".join(anchor + rel_mod_parts)
+    elif not base_mod:
+        return set()
+
+    targets: set[str] = set()
+    for alias in node.names:
+        resolved: str | None = None
+        if alias.name != "*":
+            candidate = f"{base_mod}.{alias.name}" if base_mod else alias.name
+            resolved = resolve_module_fn(candidate)
+        if resolved is None and base_mod:
+            resolved = resolve_module_fn(base_mod)
+        if resolved and resolved != norm_rel:
+            targets.add(resolved)
+    return targets
+
+
 @dataclass(slots=True)
 class FileMetadata:
     """Static AST analysis metadata for a single source file."""
@@ -181,7 +226,7 @@ class ASTHotspotScanner:
         raw_trees: dict[str, ast.Module] = {}
 
         for py_file in py_files:
-            rel_path = py_file.relative_to(self.repo_root).as_posix()
+            rel_path = normalize_rel_path(py_file.relative_to(self.repo_root).as_posix())
             mod_name = self._path_to_module(py_file)
             try:
                 source = py_file.read_text(encoding="utf-8")
@@ -212,11 +257,16 @@ class ASTHotspotScanner:
                         if target_rel and target_rel != rel_path:
                             meta.imports.add(target_rel)
                             self._files[target_rel].imported_by.add(rel_path)
-                elif isinstance(node, ast.ImportFrom) and node.module:
-                    target_rel = self._resolve_module_to_path(node.module)
-                    if target_rel and target_rel != rel_path:
-                        meta.imports.add(target_rel)
-                        self._files[target_rel].imported_by.add(rel_path)
+                elif isinstance(node, ast.ImportFrom):
+                    for target_rel in resolve_import_from_targets(
+                        node=node,
+                        rel_path=rel_path,
+                        src_dir=self.src_dir,
+                        resolve_module_fn=self._resolve_module_to_path,
+                    ):
+                        if target_rel in self._files and target_rel != rel_path:
+                            meta.imports.add(target_rel)
+                            self._files[target_rel].imported_by.add(rel_path)
                 elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     for dec in node.decorator_list:
                         if self._is_registry_decorator(dec):
@@ -483,7 +533,7 @@ class ASTHotspotScanner:
 
     def are_functions_isolated(self, rel_path: str, scope_a: str, scope_b: str) -> bool:
         """Verify via AST that scope_a and scope_b refer to existing, non-calling functions."""
-        norm_path = rel_path.replace("\\", "/").lstrip("./")
+        norm_path = normalize_rel_path(rel_path)
         if not self._files:
             self.scan()
         tokens_a = set(re.findall(r"[A-Za-z_][A-Za-z0-9_.]*", scope_a))
@@ -520,7 +570,7 @@ class ASTHotspotScanner:
 
     def classify_file(self, rel_path: str) -> FileRole:
         """Return architectural role of a relative file path."""
-        normalized = rel_path.replace("\\", "/").lstrip("./")
+        normalized = normalize_rel_path(rel_path)
         if self._is_test_path(normalized):
             return FileRole.STANDARD
         if normalized in self._files:
@@ -536,7 +586,7 @@ class ASTHotspotScanner:
 
     def get_importers(self, rel_path: str) -> set[str]:
         """Return all files that directly import rel_path."""
-        normalized = rel_path.replace("\\", "/")
+        normalized = normalize_rel_path(rel_path)
         meta = self._files.get(normalized)
         return set(meta.imported_by) if meta else set()
 
@@ -566,7 +616,7 @@ class ASTHotspotScanner:
         env_re = re.compile(
             r"\b([A-Z][A-Z0-9_]{2,}_(?:MODE|KEY|PORT|DIR|URL|ENV|HOST|TOKEN|TIMEOUT|PATH|FLAG))\b"
         )
-        cli_re = re.compile(r"(?:^|[\s`'\"(])(--[a-z][a-z0-9-]{2,})\b")
+        cli_re = re.compile(r"(?:^|[\s`'\"(])(--[a-z][a-z0-9-]+)\b")
         route_re = re.compile(r"\b(GET|POST|PUT|DELETE|PATCH)\s+(/[A-Za-z0-9_./{}:-]+)")
 
         in_readonly_section = False
@@ -641,10 +691,14 @@ class ASTHotspotScanner:
         # 1. If write_files is empty, prioritize title symbols as primary write targets
         if not task.write_files and task.title:
             found_title_files = self.resolve_symbols_in_text(task.title)
+            existing_writes = {
+                norm for wf in task.write_files if (norm := normalize_rel_path(wf))
+            }
             for file_path in sorted(found_title_files):
-                norm = file_path.replace("\\", "/")
-                if norm not in task.write_files:
+                norm = normalize_rel_path(file_path)
+                if norm and norm not in existing_writes:
                     task.write_files.append(norm)
+                    existing_writes.add(norm)
                     newly_added.append(norm)
 
         combined_text = "\n".join(
@@ -665,17 +719,27 @@ class ASTHotspotScanner:
 
         found_files = self.resolve_symbols_in_text(combined_text)
         is_write_empty = not task.write_files
+        existing_writes = {
+            norm for wf in task.write_files if (norm := normalize_rel_path(wf))
+        }
+        existing_impacts = {
+            norm for imp in task.impact_files if (norm := normalize_rel_path(imp))
+        }
 
         for file_path in sorted(found_files):
-            norm = file_path.replace("\\", "/")
+            norm = normalize_rel_path(file_path)
+            if not norm:
+                continue
             if is_write_empty:
-                if norm not in task.write_files:
+                if norm not in existing_writes:
                     task.write_files.append(norm)
+                    existing_writes.add(norm)
                     newly_added.append(norm)
             else:
                 # Context-Read symbol: enrich impact_files for semantic collision checking
-                if norm not in task.write_files and norm not in task.impact_files:
+                if norm not in existing_writes and norm not in existing_impacts:
                     task.impact_files.append(norm)
+                    existing_impacts.add(norm)
                     newly_added.append(norm)
 
         return newly_added

@@ -35,7 +35,11 @@ reviews:
         2. PATH SANITIZATION: Flag any hardcoded local workstation paths (e.g., C:/Users/..., /Users/...).
         3. ANTI-OVERFITTING: Flag magic strings, hardcoded repo-specific filenames, or brittle heuristics tailored to a single demo repository.
         4. DO NOT comment on formatting, imports, or static typing — ruff and mypy --strict already enforce these in CI.
-        5. DEFENSE-IN-DEPTH & FAIL-CLOSED BOUNDARY: When a static analysis or heuristic module (AST, regex, import graph, manifest parser) already implements a conservative fail-closed fallback or is backed by a downstream barrier gate (verify-wave, ast_diff_gate, checkpoint_gates, Partial Barrier Merge), DO NOT request support for rare dynamic language constructs (complex multiple-inheritance mixin MRO, dynamic getattr/globals dispatch, metaprogramming).
+        5. DEFENSE-IN-DEPTH & DOCUMENTED BOUNDARIES (ADR-0009, ADR-0013, TD-04, TD-05):
+           - In ASTHotspotScanner.are_functions_isolated(), single-file call-graph checks intentionally omit inherited __init__/method MRO resolution, mixin MRO, and dynamic dispatch (TD-05), relying on verify-wave (ast_diff_gate, checkpoint_gates, Partial Barrier Merge). Do NOT flag MRO/constructor inheritance gaps there.
+           - In BSPWaveScheduler(ast_scanner=None), declarative shared_function_notes fallback is an intentional contract for in-memory graph unit tests and non-Python polyglot runs (TD-04); CLI entrypoints always pass an ASTHotspotScanner instance.
+           - In CRGSidecarAdapter, do NOT suggest blocking parallel scheduling when SQLite impact queries truncate at >500 nodes (high fan-in modules already trigger FileRole.SPINE >= 5, and Python direct importers are unioned from ASTHotspotScanner).
+           - In manifest.py, save_wave_manifest() runs solely in the single orchestrator process after the synchronous BSP wave barrier; do NOT request cross-process file locks.
         6. ACTIONABILITY GATE: Flag only defects that cause false fail-open behavior on standard inputs, corrupt Git/worktree state, violate ADR-0009/ADR-0013 invariants, or break deterministic tests.
     - path: "src/sdd_parallel/{worktree.py,plugin_installer.py,hooks/**}"
       instructions: |
