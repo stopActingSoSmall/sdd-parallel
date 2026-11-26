@@ -13,8 +13,8 @@ reviews:
   auto_review:
     enabled: true
     auto_incremental_review: true
-    auto_pause_after_reviewed_commits: 3
-    drafts: false
+    auto_pause_after_reviewed_commits: 1
+    drafts: true
     base_branches:
       - "master"
   path_filters:
@@ -28,6 +28,27 @@ reviews:
     - "!.tmp/**"
     - "!.parallel/**"
   path_instructions:
+    - path: "src/sdd_parallel/adapters/__init__.py"
+      instructions: |
+        RETRO AUDIT LENS 4 (Read-Only ACL & Parser Robustness): Report ONLY Critical/High bugs where adapters mutate upstream kit files outside explicit merge hooks, catastrophic regex backtracking (ReDoS), task ID collisions across specs, or Scoped ID Rollback mismatches.
+    - path: "src/sdd_parallel/adapters/bmad.py"
+      instructions: |
+        RETRO AUDIT LENS 4 (Read-Only ACL & Parser Robustness): Report ONLY Critical/High bugs where adapters mutate upstream kit files outside explicit merge hooks, catastrophic regex backtracking (ReDoS), task ID collisions across specs, or Scoped ID Rollback mismatches.
+    - path: "src/sdd_parallel/adapters/openspec.py"
+      instructions: |
+        RETRO AUDIT LENS 4 (Read-Only ACL & Parser Robustness): Report ONLY Critical/High bugs where adapters mutate upstream kit files outside explicit merge hooks, catastrophic regex backtracking (ReDoS), task ID collisions across specs, or Scoped ID Rollback mismatches.
+    - path: "src/sdd_parallel/adapters/custom.py"
+      instructions: |
+        RETRO AUDIT LENS 4 (Read-Only ACL & Parser Robustness): Report ONLY Critical/High bugs where adapters mutate upstream kit files outside explicit merge hooks, catastrophic regex backtracking (ReDoS), task ID collisions across specs, or Scoped ID Rollback mismatches.
+    - path: "src/sdd_parallel/adapters/spec_kit.py"
+      instructions: |
+        RETRO AUDIT LENS 4 (Read-Only ACL & Parser Robustness): Report ONLY Critical/High bugs where adapters mutate upstream kit files outside explicit merge hooks, catastrophic regex backtracking (ReDoS), task ID collisions across specs, or Scoped ID Rollback mismatches.
+    - path: "src/sdd_parallel/adapters/gsd_hijack.py"
+      instructions: |
+        RETRO AUDIT LENS 4 (Read-Only ACL & Parser Robustness): Report ONLY Critical/High bugs where adapters mutate upstream kit files outside explicit merge hooks, catastrophic regex backtracking (ReDoS), task ID collisions across specs, or Scoped ID Rollback mismatches.
+    - path: "src/sdd_parallel/adapters/beads.py"
+      instructions: |
+        RETRO AUDIT LENS 4 (Read-Only ACL & Parser Robustness): Report ONLY Critical/High bugs where adapters mutate upstream kit files outside explicit merge hooks, catastrophic regex backtracking (ReDoS), task ID collisions across specs, or Scoped ID Rollback mismatches.
     - path: "src/sdd_parallel/**/*.py"
       instructions: |
         Enforce strict architectural invariants from AGENTS.md and ADR-0009:
