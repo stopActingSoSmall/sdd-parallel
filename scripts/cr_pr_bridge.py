@@ -418,15 +418,33 @@ class GitHubPRClient:
             headers["Content-Type"] = "application/json; charset=utf-8"
 
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                raw = resp.read().decode("utf-8")
-                return json.loads(raw) if raw.strip() else {}
-        except urllib.error.HTTPError as exc:
-            err_body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(
-                f"GitHub API {method} {url} failed ({exc.code}): {err_body}"
-            ) from exc
+        retry_delays = (5, 15, 30)
+        last_exc: Exception | None = None
+        for attempt in range(len(retry_delays) + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    raw = resp.read().decode("utf-8")
+                    return json.loads(raw) if raw.strip() else {}
+            except urllib.error.HTTPError as exc:
+                err_body = exc.read().decode("utf-8", errors="replace")
+                if exc.code in {502, 503, 504} and attempt < len(retry_delays):
+                    last_exc = RuntimeError(
+                        f"GitHub API {method} {url} failed ({exc.code}): {err_body}"
+                    )
+                    time.sleep(retry_delays[attempt])
+                    continue
+                raise RuntimeError(
+                    f"GitHub API {method} {url} failed ({exc.code}): {err_body}"
+                ) from exc
+            except (TimeoutError, urllib.error.URLError, OSError) as exc:
+                last_exc = exc
+                if attempt < len(retry_delays):
+                    time.sleep(retry_delays[attempt])
+                    continue
+                raise RuntimeError(
+                    f"GitHub API {method} {url} network error after retries: {exc}"
+                ) from exc
+        raise RuntimeError(f"GitHub API {method} {url} failed: {last_exc}")
 
     def _rest(
         self,
@@ -764,7 +782,7 @@ class GitHubPRClient:
         if cr_runs:
             cr_runs_ok = all(
                 r["status"] == "completed"
-                and r["conclusion"] in {"success", "neutral", "skipped"}
+                and r["conclusion"] in {"success", "neutral"}
                 for r in cr_runs
             )
             cr_completed = cr_runs_ok or cr_review_for_sha
@@ -1085,10 +1103,13 @@ def prepare_cluster_audit_pr(
         ),
         draft=True,
     )
+    pr_num = pr.get("number")
+    if pr_num is not None:
+        gh.reply_to_pr(int(pr_num), "@coderabbitai full review")
     return {
         "cluster_id": cluster_id,
         "slug": spec.slug,
-        "pr_number": pr.get("number"),
+        "pr_number": pr_num,
         "pr_url": pr.get("html_url"),
         "base_branch": base_branch,
         "head_branch": head_branch,

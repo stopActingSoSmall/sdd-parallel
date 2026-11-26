@@ -369,3 +369,32 @@ def test_run_all_clusters_audit_orchestration(
     assert poll_counts == {101: 2, 102: 2}
     assert (tmp_path / summary["report_path"]).is_file()
     assert (tmp_path / summary["log_path"]).is_file()
+
+
+def test_request_json_retries_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = cr_pr_bridge.GitHubPRClient("owner", "repo", "tok")
+    attempts = 0
+
+    class DummyResp:
+        def __enter__(self) -> DummyResp:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"ok": true}'
+
+    def fake_urlopen(req: Any, timeout: int = 30) -> DummyResp:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise TimeoutError("The read operation timed out")
+        return DummyResp()
+
+    monkeypatch.setattr(cr_pr_bridge.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(cr_pr_bridge.time, "sleep", lambda _: None)
+
+    res = client._request_json("GET", "https://api.github.com/rate_limit")
+    assert res == {"ok": True}
+    assert attempts == 3
