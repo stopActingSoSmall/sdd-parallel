@@ -278,3 +278,84 @@ def test_worktree_track_context_includes_token_hygiene(tmp_path: Path) -> None:
     context_md = wm.render_track_context_md(wave, track, lock, headless=True)
     assert "Context & Token Hygiene" in context_md
     assert "unchanged contract" in context_md
+
+
+def test_custom_adapter_multi_spec_duplicate_ids_and_yaml_rollback(tmp_path: Path) -> None:
+    """Verify duplicate ID qualification, fallback sources, and YAML/markdown rollback."""
+    (tmp_path / ".parallel").mkdir(parents=True)
+    (tmp_path / ".parallel" / "custom-kit.yaml").write_text(
+        "version: '1.0'\nkit_id: 'custom'\n",
+        encoding="utf-8",
+    )
+
+    # 1. Duplicate local IDs across specs/a/tasks.md ([x]) and specs/b/tasks.md ([ ])
+    spec_a = tmp_path / "specs" / "a"
+    spec_b = tmp_path / "specs" / "b"
+    spec_a.mkdir(parents=True)
+    spec_b.mkdir(parents=True)
+    (spec_a / "tasks.md").write_text(
+        "- [x] T001: Done task in A\n  - Files: `src/a.py`\n",
+        encoding="utf-8",
+    )
+    (spec_b / "tasks.md").write_text(
+        "- [ ] T001: Active task in B\n  - Files: `src/b.py`\n",
+        encoding="utf-8",
+    )
+
+    # 2. Fallback phases/task_51_slug.md and tasks/cleanup.md
+    phases_dir = tmp_path / "phases"
+    phases_dir.mkdir()
+    (phases_dir / "task_51_slug.md").write_text(
+        "---\nstatus: done\n---\n# Task 51\n- `src/p51.py`\n",
+        encoding="utf-8",
+    )
+    tasks_dir = tmp_path / "tasks"
+    tasks_dir.mkdir()
+    (tasks_dir / "cleanup.md").write_text(
+        "---\nid: clean-1\nstatus: done\n---\n# Cleanup\n",
+        encoding="utf-8",
+    )
+
+    adapter = CustomManifestAdapter(tmp_path)
+    status_files = adapter.get_status_files()
+    assert "specs/a/tasks.md" in status_files
+    assert "specs/b/tasks.md" in status_files
+    assert "phases/task_51_slug.md" in status_files
+    assert "tasks/cleanup.md" in status_files
+
+    active_tasks = adapter.load_tasks(include_done=False)
+    active_ids = {t.id for t in active_tasks}
+    assert "b:T001" in active_ids
+
+    all_tasks = adapter.load_tasks(include_done=True)
+    all_ids = {t.id for t in all_tasks}
+    assert {"a:T001", "b:T001", "51", "clean-1"}.issubset(all_ids)
+
+    # Reset a:T001, 51, clean-1
+    adapter.reset_tasks_status(["a:T001", "51", "clean-1"], target_status="ready-for-dev")
+    assert "- [ ] T001" in (spec_a / "tasks.md").read_text(encoding="utf-8")
+    assert "status: ready-for-dev" in (phases_dir / "task_51_slug.md").read_text(encoding="utf-8")
+    assert "status: ready-for-dev" in (tasks_dir / "cleanup.md").read_text(encoding="utf-8")
+
+    # 3. YAML roadmap rollback
+    roadmap_file = tmp_path / "roadmap.yaml"
+    roadmap_file.write_text(
+        "tasks:\n"
+        "  - id: 'FEAT-1'\n"
+        "    status: 'done'\n"
+        "  - id: 'FEAT-2'\n"
+        "    status: 'done'\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".parallel" / "custom-kit.yaml").write_text(
+        "version: '1.0'\n"
+        "roadmap_sources:\n"
+        "  - path: 'roadmap.yaml'\n"
+        "    format: 'yaml'\n",
+        encoding="utf-8",
+    )
+    yaml_adapter = CustomManifestAdapter(tmp_path)
+    yaml_adapter.reset_tasks_status(["FEAT-1"], target_status="ready-for-dev")
+    reloaded = {t.id: t for t in yaml_adapter.load_tasks(include_done=True)}
+    assert reloaded["FEAT-1"].status == TaskStatus.READY_FOR_DEV
+    assert reloaded["FEAT-2"].status == TaskStatus.DONE

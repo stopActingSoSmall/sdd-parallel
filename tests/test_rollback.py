@@ -27,8 +27,8 @@ def _init_git_repo(root: Path) -> None:
     subprocess.run(["git", "config", "user.name", "Test Runner"], cwd=root, check=True)
 
 
-def test_bmad_adapter_reset_tasks_status_and_removes_specs(tmp_path: Path) -> None:
-    """Verify BMADAdapter.reset_tasks_status updates YAML and unlinks spec-*.md."""
+def test_bmad_adapter_reset_tasks_status_and_preserves_specs(tmp_path: Path) -> None:
+    """Verify BMADAdapter.reset_tasks_status updates YAML and preserves spec-*.md."""
     impl_dir = tmp_path / "_bmad-output" / "implementation-artifacts"
     impl_dir.mkdir(parents=True)
 
@@ -56,8 +56,8 @@ def test_bmad_adapter_reset_tasks_status_and_removes_specs(tmp_path: Path) -> No
     assert "  11-2-session: ready-for-dev" in content
     assert "  12-1-token: done" in content
 
-    assert not spec_11_1.exists()
-    assert not spec_11_2.exists()
+    assert spec_11_1.exists()
+    assert spec_11_2.exists()
     assert spec_12_1.exists()
 
 

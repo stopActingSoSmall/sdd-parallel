@@ -6,6 +6,8 @@ specifications, and configurable status rankings without hardcoding paths in the
 
 from __future__ import annotations
 
+import io
+import json
 import re
 import subprocess
 from collections.abc import Sequence
@@ -114,6 +116,73 @@ class CustomManifestAdapter:
             return TaskStatus.READY_FOR_DEV
         return TaskStatus.BACKLOG
 
+    @staticmethod
+    def _extract_standalone_task_id(file_path: Path, content: str) -> str:
+        """Extract canonical task ID from frontmatter id or filename stem."""
+        m_id = re.search(r"^id:\s*['\"]?([A-Za-z0-9_.-]+)['\"]?", content, re.MULTILINE)
+        if m_id:
+            return m_id.group(1)
+        stem = file_path.stem
+        m_task = re.match(r"^task_([0-9]+(?:_[a-zA-Z](?=_|$)|[a-zA-Z])?)(?:_.*)?$", stem)
+        if m_task:
+            return m_task.group(1)
+        if stem.startswith("task_"):
+            return stem[len("task_") :]
+        return stem
+
+    def _source_scope_for_file(self, file_path: Path) -> str:
+        """Compute deterministic source scope prefix for qualifying colliding IDs."""
+        if file_path.parent != self.repo_root and file_path.stem.lower() in {
+            "tasks",
+            "roadmap",
+            "stories",
+            "items",
+            "index",
+            "spec",
+            "todo",
+        }:
+            return file_path.parent.name
+        return file_path.stem
+
+    def _get_effective_sources(self) -> list[dict[str, str]]:
+        """Resolve configured roadmap_sources or fallback auto-discovery patterns."""
+        cfg = self.get_config()
+        sources = cfg.get("roadmap_sources", [])
+        if not sources:
+            return [
+                {"path": "phases/task_*.md", "format": "markdown"},
+                {"path": "specs/*/tasks.md", "format": "markdown"},
+                {"path": "tasks/*.md", "format": "markdown"},
+            ]
+        effective: list[dict[str, str]] = []
+        for src in sources:
+            if isinstance(src, str):
+                if src.strip():
+                    effective.append({"path": src.strip(), "format": "auto"})
+            elif isinstance(src, dict):
+                pat = str(src.get("path", "")).strip()
+                if pat:
+                    effective.append(
+                        {"path": pat, "format": str(src.get("format", "auto")).lower()}
+                    )
+        return effective
+
+    def _extract_tasks_from_file(
+        self, matched_path: Path, fmt: str = "auto"
+    ) -> list[TaskNode]:
+        """Extract TaskNodes from a single roadmap file according to format."""
+        fmt_l = fmt.lower()
+        if fmt_l in {"yaml", "json"} or matched_path.suffix.lower() in {".yaml", ".yml", ".json"}:
+            return self._parse_yaml_tasks(matched_path)
+        if fmt_l == "checklist":
+            return self._parse_checklist_markdown(matched_path)
+        extracted = self._parse_checklist_markdown(matched_path)
+        if not extracted:
+            single = self._parse_task_file_markdown(matched_path)
+            if single:
+                extracted = [single]
+        return extracted
+
     def _parse_task_file_markdown(self, file_path: Path) -> TaskNode | None:
         """Parse a standalone task specification file (e.g. phases/task_01.md)."""
         try:
@@ -121,13 +190,7 @@ class CustomManifestAdapter:
         except OSError:
             return None
 
-        # Resolve ID from filename or frontmatter
-        task_id = file_path.stem
-        m_id = re.search(r"^id:\s*['\"]?([A-Za-z0-9_.-]+)['\"]?", content, re.MULTILINE)
-        if m_id:
-            task_id = m_id.group(1)
-        elif task_id.startswith("task_"):
-            task_id = task_id.replace("task_", "")
+        task_id = self._extract_standalone_task_id(file_path, content)
 
         # Title
         title = task_id
@@ -333,102 +396,212 @@ class CustomManifestAdapter:
         include_done: bool = False,
         plan_source: str = "auto",
     ) -> list[TaskNode]:
-        """Load and parse task nodes from configured roadmap sources."""
-        cfg = self.get_config()
-        sources = cfg.get("roadmap_sources", [])
-        if not sources:
-            # Fallback auto-discovery if manifest has no explicit sources
-            sources = [
-                {"path": "phases/task_*.md", "format": "markdown"},
-                {"path": "specs/*/tasks.md", "format": "markdown"},
-                {"path": "tasks/*.md", "format": "markdown"},
-            ]
+        """Load and parse task nodes from configured or fallback roadmap sources."""
+        sources = self._get_effective_sources()
+        per_file_tasks: list[tuple[Path, list[TaskNode]]] = []
+        seen_paths: set[Path] = set()
+        id_file_counts: dict[str, int] = {}
 
-        all_tasks: list[TaskNode] = []
-        seen_ids: set[str] = set()
-
-        for src in sources:
-            if isinstance(src, str):
-                src_dict = {"path": src, "format": "markdown"}
-            elif isinstance(src, dict):
-                src_dict = src
-            else:
-                continue
-
+        for src_dict in sources:
             pattern = src_dict.get("path", "")
             fmt = str(src_dict.get("format", "auto")).lower()
 
             for matched_path in sorted(self.repo_root.glob(pattern)):
-                if not matched_path.is_file():
+                if not matched_path.is_file() or matched_path in seen_paths:
                     continue
+                seen_paths.add(matched_path)
 
-                extracted: list[TaskNode] = []
-                if fmt in {"yaml", "json"} or matched_path.suffix in {".yaml", ".yml", ".json"}:
-                    extracted = self._parse_yaml_tasks(matched_path)
-                elif fmt == "checklist":
-                    extracted = self._parse_checklist_markdown(matched_path)
+                extracted = self._extract_tasks_from_file(matched_path, fmt=fmt)
+                if not extracted:
+                    continue
+                per_file_tasks.append((matched_path, extracted))
+                for local_id in {t.id for t in extracted}:
+                    id_file_counts[local_id] = id_file_counts.get(local_id, 0) + 1
+
+        all_tasks: list[TaskNode] = []
+        seen_ids: set[str] = set()
+        for matched_path, extracted in per_file_tasks:
+            scope = self._source_scope_for_file(matched_path)
+            local_to_final: dict[str, str] = {}
+            for t in extracted:
+                if id_file_counts.get(t.id, 0) > 1 and scope:
+                    local_to_final[t.id] = f"{scope}:{t.id}"
                 else:
-                    # Try checklist first; if empty, try standalone task file
-                    extracted = self._parse_checklist_markdown(matched_path)
-                    if not extracted:
-                        single = self._parse_task_file_markdown(matched_path)
-                        if single:
-                            extracted = [single]
+                    local_to_final[t.id] = t.id
 
-                for t in extracted:
-                    if t.id not in seen_ids:
-                        seen_ids.add(t.id)
-                        all_tasks.append(t)
+            for t in extracted:
+                t.id = local_to_final[t.id]
+                t.depends_on = [local_to_final.get(dep, dep) for dep in t.depends_on]
+                if t.id not in seen_ids:
+                    seen_ids.add(t.id)
+                    all_tasks.append(t)
 
         if not include_done:
             all_tasks = [t for t in all_tasks if t.status != TaskStatus.DONE]
 
         return all_tasks
 
+    def _compute_id_file_counts(self) -> dict[str, int]:
+        """Count in how many roadmap files each local task ID appears."""
+        id_file_counts: dict[str, int] = {}
+        seen_paths: set[Path] = set()
+        for src_dict in self._get_effective_sources():
+            pat = src_dict.get("path", "")
+            fmt = str(src_dict.get("format", "auto")).lower()
+            for p in sorted(self.repo_root.glob(pat)):
+                if not p.is_file() or p in seen_paths:
+                    continue
+                seen_paths.add(p)
+                extracted = self._extract_tasks_from_file(p, fmt=fmt)
+                for local_id in {t.id for t in extracted}:
+                    id_file_counts[local_id] = id_file_counts.get(local_id, 0) + 1
+        return id_file_counts
+
+    def _reset_yaml_or_json_status(
+        self,
+        sf_path: Path,
+        scope: str,
+        target_set: set[str],
+        id_file_counts: dict[str, int],
+        target_status: str,
+    ) -> None:
+        """Reset status fields in YAML or JSON roadmap files for matching task IDs."""
+        text = sf_path.read_text(encoding="utf-8-sig")
+        is_json = sf_path.suffix.lower() == ".json"
+        if is_json:
+            try:
+                data: Any = json.loads(text)
+            except json.JSONDecodeError:
+                return
+        else:
+            yaml_rt = YAML()
+            yaml_rt.preserve_quotes = True
+            try:
+                data = yaml_rt.load(text)
+            except Exception:
+                return
+
+        items_list: list[Any] | None = None
+        if isinstance(data, list):
+            items_list = data
+        elif isinstance(data, dict):
+            for key in ("tasks", "stories", "roadmap", "items"):
+                val = data.get(key)
+                if isinstance(val, list):
+                    items_list = val
+                    break
+
+        if items_list is None:
+            return
+
+        modified = False
+        for item in items_list:
+            if not isinstance(item, dict):
+                continue
+            raw_id = str(item.get("id") or item.get("name") or "").strip()
+            if not raw_id:
+                continue
+            qual_id = f"{scope}:{raw_id}" if scope else raw_id
+            if qual_id in target_set or (
+                raw_id in target_set and id_file_counts.get(raw_id, 0) <= 1
+            ):
+                item["status"] = target_status
+                modified = True
+
+        if not modified:
+            return
+
+        if is_json:
+            sf_path.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
+        else:
+            buf = io.StringIO()
+            yaml_rt.dump(data, buf)
+            sf_path.write_text(buf.getvalue(), encoding="utf-8")
+
     def reset_tasks_status(
         self,
         task_ids: Sequence[str],
         target_status: str = "ready-for-dev",
     ) -> None:
-        """Reset status for given task IDs in roadmap files."""
+        """Reset status for task IDs in checklist, markdown, and YAML/JSON files."""
         target_set = set(task_ids)
+        if not target_set:
+            return
+
+        id_file_counts = self._compute_id_file_counts()
         for sf_rel in self.get_status_files():
             sf_path = self.repo_root / sf_rel
             if not sf_path.is_file():
                 continue
+            scope = self._source_scope_for_file(sf_path)
+
+            if sf_path.suffix.lower() in {".yaml", ".yml", ".json"}:
+                self._reset_yaml_or_json_status(
+                    sf_path=sf_path,
+                    scope=scope,
+                    target_set=target_set,
+                    id_file_counts=id_file_counts,
+                    target_status=target_status,
+                )
+                continue
+
             try:
                 text = sf_path.read_text(encoding="utf-8-sig")
             except OSError:
                 continue
 
-            # If checklist: uncheck matching tasks
+            # 1. Checklist markdown: uncheck matching tasks with scoped ID guard
             lines = text.splitlines()
+            has_checklist = False
             modified = False
             new_lines: list[str] = []
             for line in lines:
                 cm = _CHECKLIST_TASK_RE.match(line)
-                if cm and cm.group(2) in target_set:
-                    line = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
-                    modified = True
+                if cm:
+                    has_checklist = True
+                    raw_id = cm.group(2)
+                    qual_id = f"{scope}:{raw_id}" if scope else raw_id
+                    if qual_id in target_set or (
+                        raw_id in target_set and id_file_counts.get(raw_id, 0) <= 1
+                    ):
+                        updated = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
+                        if updated != line:
+                            modified = True
+                            line = updated
                 new_lines.append(line)
 
-            if modified:
-                sf_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            if has_checklist:
+                if modified:
+                    sf_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
                 continue
 
-            # If single-file task: update status line or frontmatter
-            for tid in target_set:
-                if sf_path.stem == tid or sf_path.stem == f"task_{tid}":
-                    if _FM_STATUS_RE.search(text):
-                        text = _FM_STATUS_RE.sub(f"status: {target_status}", text)
-                        sf_path.write_text(text, encoding="utf-8")
-                    elif re.search(r"(\*\*Status:\*\*|\bStatus:\s*).*", text):
-                        text = re.sub(
-                            r"(\*\*Status:\*\*|\bStatus:\s*).*",
-                            rf"\g<1> {target_status}",
-                            text,
-                        )
-                        sf_path.write_text(text, encoding="utf-8")
+            # 2. Standalone markdown task file: match frontmatter id or canonical stem ID
+            primary_id = self._extract_standalone_task_id(sf_path, text)
+            candidates = {primary_id, sf_path.stem, sf_path.stem.removeprefix("task_")}
+            qualified_candidates = {f"{scope}:{c}" for c in candidates if scope}
+            if (target_set & qualified_candidates) or (
+                (target_set & candidates) and id_file_counts.get(primary_id, 0) <= 1
+            ):
+                if _FM_STATUS_RE.search(text):
+                    updated_text = _FM_STATUS_RE.sub(
+                        f"status: {target_status}", text, count=1
+                    )
+                    sf_path.write_text(updated_text, encoding="utf-8")
+                elif re.search(
+                    r"^(\s*[-*]\s*(?:\*{0,2}(?:Status|State):?\*{0,2}:?)\s*).*$",
+                    text,
+                    re.MULTILINE | re.IGNORECASE,
+                ):
+                    updated_text = re.sub(
+                        r"^(\s*[-*]\s*(?:\*{0,2}(?:Status|State):?\*{0,2}:?)\s*).*$",
+                        rf"\g<1>{target_status}",
+                        text,
+                        count=1,
+                        flags=re.MULTILINE | re.IGNORECASE,
+                    )
+                    sf_path.write_text(updated_text, encoding="utf-8")
 
     def cleanup_wave_artifacts(self, wave_id: int, task_ids: Sequence[str]) -> None:
         """Reset task statuses upon wave cleanup/abort."""
@@ -548,11 +721,10 @@ class CustomManifestAdapter:
 
     def get_status_files(self) -> list[str]:
         """Return relative paths of all files holding task statuses."""
-        cfg = self.get_config()
-        sources = cfg.get("roadmap_sources", [])
+        sources = self._get_effective_sources()
         status_files: list[str] = []
         for src in sources:
-            pat = src.get("path") if isinstance(src, dict) else str(src)
+            pat = src.get("path", "")
             if pat:
                 for p in sorted(self.repo_root.glob(pat)):
                     if p.is_file():

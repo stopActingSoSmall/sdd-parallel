@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import re
 import subprocess
 from collections.abc import Sequence
@@ -375,16 +376,22 @@ class BMADAdapter:
 
         return blockers
 
+    def _find_spec_file_for_story(self, story_key: str, short_id: str) -> Path | None:
+        if not self.impl_dir.is_dir():
+            return None
+        targets = {t for t in (story_key, short_id) if t}
+        for cand in sorted(self.impl_dir.glob("spec-*.md")):
+            stem_key = cand.stem[len("spec-") :]
+            if self._story_key_matches_target(stem_key, targets):
+                return cand
+        return None
+
     def _get_spec_text(self, story_key: str, short_id: str) -> str:
         """Return raw spec markdown text if present in implementation artifacts."""
-        if not self.impl_dir.is_dir():
-            return ""
-        candidates = list(self.impl_dir.glob(f"spec-{story_key}*.md"))
-        if not candidates:
-            candidates = list(self.impl_dir.glob(f"spec-{short_id}-*.md"))
-        if candidates:
+        spec_file = self._find_spec_file_for_story(story_key, short_id)
+        if spec_file is not None:
             try:
-                return candidates[0].read_text(encoding="utf-8-sig")
+                return spec_file.read_text(encoding="utf-8-sig")
             except Exception:
                 pass
         return ""
@@ -393,15 +400,11 @@ class BMADAdapter:
         self, story_key: str, short_id: str
     ) -> tuple[list[str], list[str], dict[str, str]]:
         """Extract Python file paths, explicit deps, and function scope notes from spec."""
-        if not self.impl_dir.is_dir():
-            return [], [], {}
-        candidates = list(self.impl_dir.glob(f"spec-{story_key}*.md"))
-        if not candidates:
-            candidates = list(self.impl_dir.glob(f"spec-{short_id}-*.md"))
-        if not candidates:
+        spec_file = self._find_spec_file_for_story(story_key, short_id)
+        if spec_file is None:
             return [], [], {}
 
-        spec_text = candidates[0].read_text(encoding="utf-8-sig")
+        spec_text = spec_file.read_text(encoding="utf-8-sig")
         in_code_map = False
         code_map_src: list[str] = []
         code_map_tests: list[str] = []
@@ -646,16 +649,131 @@ class BMADAdapter:
             return TaskStatus.DONE
         return TaskStatus.from_raw(norm)
 
+    @staticmethod
+    def _story_key_matches_target(key: str, target_set: set[str]) -> bool:
+        """Check whether story key matches any target ID on exact token/slug boundaries."""
+        clean_key = key.strip()
+        if not clean_key:
+            return False
+        if clean_key in target_set:
+            return True
+        for tid in target_set:
+            if not tid:
+                continue
+            if clean_key.startswith(f"{tid}-"):
+                suffix = clean_key[len(tid) + 1 :]
+                if suffix and suffix[0].isalpha():
+                    return True
+            if tid.startswith(f"{clean_key}-"):
+                suffix = tid[len(clean_key) + 1 :]
+                if suffix and suffix[0].isalpha():
+                    return True
+        return False
+
+    @staticmethod
+    def _extract_plan_stem_id(plan_file: Path) -> str:
+        """Extract canonical story/ticket ID from a BMAD v7 *-plan.md or leaf filename."""
+        stem = plan_file.name
+        if stem.endswith("-plan.md"):
+            stem = stem[: -len("-plan.md")]
+        elif stem.endswith(".md"):
+            stem = stem[: -len(".md")]
+        return re.sub(r"^(?:story|ticket|task|bug|epic)-", "", stem, flags=re.IGNORECASE)
+
+    def _plan_file_matches_target(self, plan_f: Path, target_set: set[str]) -> bool:
+        """Check whether a BMAD v7 *-plan.md file belongs to any ID in target_set."""
+        try:
+            fm = self._parse_frontmatter_dict(plan_f.read_text(encoding="utf-8-sig"))
+            fm_id = fm.get("id")
+            if fm_id:
+                return self._story_key_matches_target(str(fm_id).strip(), target_set)
+        except OSError:
+            pass
+        cleaned_stem = self._extract_plan_stem_id(plan_f)
+        return self._story_key_matches_target(cleaned_stem, target_set)
+
+    def _ticket_scope_prefix(self, tf: Path) -> str:
+        """Compute stable relative scope prefix for qualifying colliding ticket IDs."""
+        search_dirs = [
+            self.repo_root / "tickets",
+            self.impl_dir / "stories",
+            self.repo_root / "stories",
+            self.repo_root / ".scratch",
+        ]
+        for sdir in search_dirs:
+            try:
+                rel_parts = tf.relative_to(sdir).parts
+            except ValueError:
+                continue
+            dir_parts = rel_parts[:-1]
+            if sdir.name == ".scratch":
+                filtered = [p for p in dir_parts if p != "issues"]
+                return ":".join(filtered) if filtered else "scratch"
+            if dir_parts:
+                return ":".join(dir_parts)
+            return sdir.relative_to(self.repo_root).as_posix().replace("/", ":")
+        try:
+            parent_parts = tf.parent.relative_to(self.repo_root).parts
+            return ":".join(parent_parts) if parent_parts else ""
+        except ValueError:
+            return tf.parent.name
+
+    def _resolve_ticket_file_ids(
+        self, ticket_files: Sequence[Path] | None = None
+    ) -> dict[Path, str]:
+        """Resolve unique canonical IDs for ticket files, qualifying colliding stems/IDs."""
+        files = list(ticket_files) if ticket_files is not None else self._find_ticket_files()
+        raw_entries: list[tuple[Path, str]] = []
+        raw_counts: dict[str, int] = {}
+
+        for tf in files:
+            try:
+                text = tf.read_text(encoding="utf-8-sig")
+                fm = self._parse_frontmatter_dict(text)
+            except OSError:
+                fm = {}
+            raw_id = str(fm.get("id") or tf.stem).strip()
+            raw_entries.append((tf, raw_id))
+            raw_counts[raw_id] = raw_counts.get(raw_id, 0) + 1
+
+        resolved: dict[Path, str] = {}
+        seen_canonical: dict[str, Path] = {}
+        for tf, raw_id in raw_entries:
+            if raw_counts.get(raw_id, 0) > 1:
+                scope = self._ticket_scope_prefix(tf)
+                canonical_id = f"{scope}:{raw_id}" if scope else raw_id
+            else:
+                canonical_id = raw_id
+            if canonical_id in seen_canonical:
+                raise ValueError(
+                    f"Duplicate BMAD ticket id '{raw_id}' in "
+                    f"{seen_canonical[canonical_id]} and {tf}"
+                )
+            seen_canonical[canonical_id] = tf
+            resolved[tf] = canonical_id
+        return resolved
+
     def _load_ticket_nodes(self, include_done: bool = False) -> list[TaskNode]:
         """Load tasks from ticket files in tickets/, stories/, or .scratch/."""
         ticket_files = self._find_ticket_files()
+        ticket_id_map = self._resolve_ticket_file_ids(ticket_files)
+        scope_local_to_canonical: dict[tuple[str, str], str] = {}
+        for tf in ticket_files:
+            scope = self._ticket_scope_prefix(tf)
+            canonical_id = ticket_id_map[tf]
+            local_stem = tf.stem
+            scope_local_to_canonical[(scope, local_stem)] = canonical_id
+            if ":" in canonical_id:
+                raw_part = canonical_id.rsplit(":", 1)[-1]
+                scope_local_to_canonical[(scope, raw_part)] = canonical_id
+
         tasks: list[TaskNode] = []
         for tf in ticket_files:
             text = tf.read_text(encoding="utf-8-sig")
             fm = self._parse_frontmatter_dict(text)
 
-            raw_id = fm.get("id") or tf.stem
-            ticket_id = str(raw_id).strip()
+            ticket_id = ticket_id_map[tf]
+            tf_scope = self._ticket_scope_prefix(tf)
 
             raw_title = fm.get("title")
             if not raw_title:
@@ -723,13 +841,15 @@ class BMADAdapter:
             if isinstance(fm_deps, list):
                 for d in fm_deps:
                     d_str = str(d).strip().strip("`'\"")
-                    if d_str and d_str != ticket_id and d_str not in depends_on:
-                        depends_on.append(d_str)
+                    mapped_d = scope_local_to_canonical.get((tf_scope, d_str), d_str)
+                    if mapped_d and mapped_d != ticket_id and mapped_d not in depends_on:
+                        depends_on.append(mapped_d)
             elif isinstance(fm_deps, str):
                 for part in re.split(r"[,; ]+", fm_deps):
                     d_str = part.strip().strip("`'\"")
-                    if d_str and d_str != ticket_id and d_str not in depends_on:
-                        depends_on.append(d_str)
+                    mapped_d = scope_local_to_canonical.get((tf_scope, d_str), d_str)
+                    if mapped_d and mapped_d != ticket_id and mapped_d not in depends_on:
+                        depends_on.append(mapped_d)
 
             for dep_m in _DEP_REF_RE.finditer(text):
                 dep_id = f"{dep_m.group(1)}-{dep_m.group(2)}"
@@ -799,6 +919,8 @@ class BMADAdapter:
             loaded = yaml.load(text)
             if isinstance(loaded, dict):
                 yaml_dict = loaded
+            elif isinstance(loaded, list):
+                yaml_dict = {"stories": loaded}
         except Exception:
             yaml_dict = _extract_status_map(text)
 
@@ -1027,19 +1149,18 @@ class BMADAdapter:
             return raw_entries
 
         def find_plan_or_leaf_file(tickets_dir: Path, tid: str, slug: str) -> Path | None:
-            # Check story-<slug>-plan.md or <type>-<slug>-plan.md
-            for cand in sorted(tickets_dir.glob(f"*{tid}*-plan.md")):
-                if cand.is_file():
+            targets = {t for t in (tid, slug) if t}
+            # Check story-<slug>-plan.md or <type>-<slug>-plan.md with exact boundary match
+            for cand in sorted(tickets_dir.glob("*-plan.md")):
+                if cand.is_file() and self._plan_file_matches_target(cand, targets):
                     return cand
-            for cand in sorted(tickets_dir.glob(f"*{slug}*-plan.md")):
-                if cand.is_file():
-                    return cand
-            # Check leaf markdown file
-            for cand in sorted(tickets_dir.glob(f"*{tid}*.md")):
-                if cand.is_file() and not cand.name.endswith("-plan.md"):
-                    return cand
-            for cand in sorted(tickets_dir.glob(f"*{slug}*.md")):
-                if cand.is_file() and not cand.name.endswith("-plan.md"):
+            # Check leaf markdown file with exact boundary match
+            for cand in sorted(tickets_dir.glob("*.md")):
+                if (
+                    cand.is_file()
+                    and not cand.name.endswith("-plan.md")
+                    and self._story_key_matches_target(self._extract_plan_stem_id(cand), targets)
+                ):
                     return cand
             return None
 
@@ -1219,6 +1340,88 @@ class BMADAdapter:
 
         return []
 
+    def _reset_stories_yaml_status(
+        self, stories_yaml: Path, target_set: set[str], target_status: str
+    ) -> None:
+        """Reset matching stories in stories.yaml while preserving ids, comments, and siblings."""
+        text = stories_yaml.read_text(encoding="utf-8-sig")
+        try:
+            from ruamel.yaml import YAML
+
+            yaml_rt = YAML()
+            yaml_rt.preserve_quotes = True
+            yaml_rt.indent(mapping=2, sequence=4, offset=2)
+            data = yaml_rt.load(text)
+            if isinstance(data, (dict, list)):
+                modified = False
+                containers: list[Any] = []
+                if isinstance(data, list):
+                    containers.append(data)
+                elif isinstance(data, dict):
+                    has_named = False
+                    for key in ("stories", "development_status"):
+                        if key in data and isinstance(data[key], (dict, list)):
+                            containers.append(data[key])
+                            has_named = True
+                    if not has_named:
+                        containers.append(data)
+
+                for container in containers:
+                    if isinstance(container, dict):
+                        for k in list(container.keys()):
+                            key_str = str(k)
+                            if key_str in {"last_updated", "version"}:
+                                continue
+                            if self._story_key_matches_target(key_str, target_set):
+                                val = container[k]
+                                if isinstance(val, dict):
+                                    val["status"] = target_status
+                                else:
+                                    container[k] = target_status
+                                modified = True
+                    elif isinstance(container, list):
+                        for item in container:
+                            if isinstance(item, dict) and "id" in item:
+                                item_id = str(item["id"]).strip()
+                                if self._story_key_matches_target(item_id, target_set):
+                                    item["status"] = target_status
+                                    modified = True
+
+                if modified:
+                    buf = io.StringIO()
+                    yaml_rt.dump(data, buf)
+                    stories_yaml.write_text(buf.getvalue(), encoding="utf-8")
+                return
+        except Exception:
+            pass
+
+        # Fallback finite-state line parser if YAML has syntax errors
+        new_lines: list[str] = []
+        active_list_match = False
+        for line in text.splitlines():
+            list_id_m = re.match(r"^\s*-\s*id:\s*['\"]?([^'\"\s#]+)['\"]?", line)
+            if list_id_m:
+                active_list_match = self._story_key_matches_target(list_id_m.group(1), target_set)
+                new_lines.append(line)
+                continue
+            if line.lstrip().startswith("- "):
+                active_list_match = False
+            if active_list_match and re.match(r"^\s*status:\s*", line):
+                indent = line[: len(line) - len(line.lstrip())]
+                new_lines.append(f"{indent}status: {target_status}")
+                continue
+            kv_m = _KV_LINE_RE.match(line)
+            if kv_m and not line.lstrip().startswith("- "):
+                indent, key, _val, comment = kv_m.groups()
+                if (
+                    key not in {"status", "id", "title", "files", "effort"}
+                    and self._story_key_matches_target(key, target_set)
+                ):
+                    new_lines.append(f"{indent}{key}: {target_status}{comment}")
+                    continue
+            new_lines.append(line)
+        stories_yaml.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
     def reset_tasks_status(
         self,
         task_ids: Sequence[str],
@@ -1226,6 +1429,8 @@ class BMADAdapter:
     ) -> None:
         """Reset task statuses in sprint-status.yaml, stories.yaml, or ticket files."""
         target_set = set(task_ids)
+        if not target_set:
+            return
         if self.sprint_status_path.is_file():
             lines = self.sprint_status_path.read_text(encoding="utf-8-sig").splitlines()
             new_lines: list[str] = []
@@ -1243,12 +1448,7 @@ class BMADAdapter:
                     match = _KV_LINE_RE.match(line)
                     if match:
                         indent, key, _val, comment = match.groups()
-                        clean_id = key
-                        if "-" in key:
-                            parts = key.split("-")
-                            if len(parts) >= 2:
-                                clean_id = f"{parts[0]}-{parts[1]}"
-                        if key in target_set or clean_id in target_set:
+                        if self._story_key_matches_target(key, target_set):
                             new_lines.append(f"{indent}{key}: {target_status}{comment}")
                             continue
                 new_lines.append(line)
@@ -1256,38 +1456,29 @@ class BMADAdapter:
 
         stories_yaml = self._find_stories_yaml()
         if stories_yaml is not None and stories_yaml.is_file():
-            text = stories_yaml.read_text(encoding="utf-8-sig")
-            new_lines = []
-            for line in text.splitlines():
-                modified_line = line
-                for tid in target_set:
-                    if tid in line and ":" in line:
-                        modified_line = re.sub(
-                            r":\s*[A-Za-z0-9_-]+",
-                            f": {target_status}",
-                            line,
-                            count=1,
-                        )
-                new_lines.append(modified_line)
-            stories_yaml.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            self._reset_stories_yaml_status(stories_yaml, target_set, target_status)
 
-        for tf in self._find_ticket_files():
-            if tf.stem in target_set or any(tid in tf.name for tid in target_set):
-                lines = tf.read_text(encoding="utf-8-sig").splitlines()
-                t_lines = []
-                for line in lines:
-                    if line.strip().startswith("status:"):
-                        indent = line[: len(line) - len(line.lstrip())]
-                        line = f"{indent}status: {target_status}"
-                    line = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
-                    t_lines.append(line)
-                tf.write_text("\n".join(t_lines) + "\n", encoding="utf-8")
+        ticket_files = self._find_ticket_files()
+        if ticket_files:
+            ticket_id_map = self._resolve_ticket_file_ids(ticket_files)
+            for tf in ticket_files:
+                canonical_id = ticket_id_map.get(tf)
+                if canonical_id in target_set:
+                    lines = tf.read_text(encoding="utf-8-sig").splitlines()
+                    t_lines = []
+                    for line in lines:
+                        if line.strip().startswith("status:"):
+                            indent = line[: len(line) - len(line.lstrip())]
+                            line = f"{indent}status: {target_status}"
+                        line = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
+                        t_lines.append(line)
+                    tf.write_text("\n".join(t_lines) + "\n", encoding="utf-8")
 
         # Support BMAD v7 plan files (e.g. story-*-plan.md or *-<tid>*-plan.md)
         init_dir = self._find_bmad_v7_initiative_dir()
         if init_dir and (init_dir / "tickets").is_dir():
             for plan_f in (init_dir / "tickets").rglob("*-plan.md"):
-                if plan_f.is_file() and any(tid in plan_f.name for tid in target_set):
+                if plan_f.is_file() and self._plan_file_matches_target(plan_f, target_set):
                     lines = plan_f.read_text(encoding="utf-8-sig").splitlines()
                     p_lines = []
                     for line in lines:
@@ -1297,11 +1488,6 @@ class BMADAdapter:
                         line = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
                         p_lines.append(line)
                     plan_f.write_text("\n".join(p_lines) + "\n", encoding="utf-8")
-
-        if self.impl_dir.is_dir():
-            for tid in target_set:
-                for p in list(self.impl_dir.glob(f"spec-{tid}*.md")):
-                    p.unlink(missing_ok=True)
 
     def cleanup_wave_artifacts(self, wave_id: int, task_ids: Sequence[str]) -> None:
         """Clean up wave parallel artifacts and generated specs."""

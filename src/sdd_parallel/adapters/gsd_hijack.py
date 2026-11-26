@@ -20,6 +20,9 @@ _ROADMAP_PHASE_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 _CHECKLIST_DONE_RE = re.compile(r"^\s*-\s*\[[xX]\]\s*(.+)$")
+_STATE_CHECKLIST_ITEM_RE = re.compile(
+    r"^\s*[-*]\s*\[([ xX])\]\s*`?([A-Za-z0-9]+-\d+)`?(?:\b|$)"
+)
 
 
 class GSDHijackAdapter:
@@ -105,13 +108,9 @@ class GSDHijackAdapter:
         if not self.state_file.is_file():
             return done_ids
         for line in self.state_file.read_text(encoding="utf-8-sig").splitlines():
-            m = _CHECKLIST_DONE_RE.match(line)
-            if m:
-                content = m.group(1)
-                for token in re.split(r"[\s,:;()]+", content):
-                    clean = token.strip().strip("`'\"")
-                    if re.match(r"^\d{1,3}-\d{1,3}$", clean):
-                        done_ids.add(clean)
+            m = _STATE_CHECKLIST_ITEM_RE.match(line)
+            if m and m.group(1).lower() == "x":
+                done_ids.add(m.group(2))
         return done_ids
 
     def _parse_roadmap_phase_dependencies(self) -> dict[str, list[str]]:
@@ -253,14 +252,14 @@ class GSDHijackAdapter:
         now_str = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         lines: list[str] = []
         if self.state_file.is_file():
+            merged_set = set(merged_task_ids)
             existing = self.state_file.read_text(encoding="utf-8-sig").splitlines()
             for line in existing:
                 updated_line = line
-                # Check off task items if present in checklist form
-                for tid in merged_task_ids:
-                    if f"{tid}" in line and "- [ ]" in line:
-                        updated_line = line.replace("- [ ]", "- [x]")
-                        break
+                # Check off task items matching the leading plan ID only
+                m = _STATE_CHECKLIST_ITEM_RE.match(line)
+                if m and m.group(1) == " " and m.group(2) in merged_set:
+                    updated_line = re.sub(r"\[\s\]", "[x]", line, count=1)
                 lines.append(updated_line)
         else:
             lines = [
@@ -300,21 +299,26 @@ class GSDHijackAdapter:
     ) -> None:
         """Reset completed tasks in .planning/STATE.md and remove *-SUMMARY.md."""
         target_set = set(task_ids)
+        if not target_set:
+            return
         if self.state_file.is_file():
             lines = self.state_file.read_text(encoding="utf-8-sig").splitlines()
             new_lines: list[str] = []
             for line in lines:
-                m = _CHECKLIST_DONE_RE.match(line)
-                if m:
-                    content = m.group(1)
-                    if any(tid in content for tid in target_set):
-                        line = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
+                m = _STATE_CHECKLIST_ITEM_RE.match(line)
+                if m and m.group(1).lower() == "x" and m.group(2) in target_set:
+                    line = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
                 new_lines.append(line)
             self.state_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
         if self.phases_dir.is_dir():
-            for tid in target_set:
-                for sf in list(self.phases_dir.rglob(f"*{tid}*-SUMMARY.md")):
+            summary_patterns = [
+                re.compile(rf"(?:^|[-_/]){re.escape(tid)}-SUMMARY\.md$")
+                for tid in target_set
+                if tid
+            ]
+            for sf in list(self.phases_dir.rglob("*-SUMMARY.md")):
+                if any(pat.search(sf.name) for pat in summary_patterns):
                     sf.unlink(missing_ok=True)
 
     def cleanup_wave_artifacts(self, wave_id: int, task_ids: Sequence[str]) -> None:
