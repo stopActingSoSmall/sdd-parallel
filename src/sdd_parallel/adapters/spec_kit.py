@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
 from collections.abc import Sequence
@@ -9,6 +10,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from sdd_parallel.models import EffortTier, FileRole, TaskNode, TaskStatus, Wave, WaveTrack
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from sdd_parallel.ast_scanner import ASTHotspotScanner
@@ -339,25 +342,49 @@ class SpecKitAdapter:
         task_ids: Sequence[str],
         target_status: str = "ready-for-dev",
     ) -> None:
-        """Reset checkboxes in tasks.md files for task_ids to unchecked (- [ ])."""
+        """Reset checkboxes in tasks.md files for task_ids with strict feature-scope isolation."""
         target_set = set(task_ids)
-        for tf in self._find_tasks_files():
+        if not target_set:
+            return
+        tasks_files = self._find_tasks_files()
+        tid_to_features: dict[str, set[str]] = {}
+        for tf in tasks_files:
+            feature_slug = tf.parent.name
+            for line in tf.read_text(encoding="utf-8-sig").splitlines():
+                m = _TASK_LINE_RE.match(line)
+                if m:
+                    tid_to_features.setdefault(m.group(2), set()).add(feature_slug)
+
+        for tid in target_set:
+            if ":" not in tid and len(tid_to_features.get(tid, set())) > 1:
+                logger.warning(
+                    "Ambiguous unqualified Spec Kit task ID '%s' across features %s; "
+                    "skipping reset to avoid mutating sibling features.",
+                    tid,
+                    sorted(tid_to_features[tid]),
+                )
+
+        for tf in tasks_files:
             feature_slug = tf.parent.name
             lines = tf.read_text(encoding="utf-8-sig").splitlines()
             new_lines: list[str] = []
+            modified = False
             for line in lines:
                 m = _TASK_LINE_RE.match(line)
                 if m:
                     t_id = m.group(2)
                     full_id = f"{feature_slug}:{t_id}"
-                    if (
-                        t_id in target_set
-                        or full_id in target_set
-                        or any(t == full_id or t.endswith(f":{t_id}") for t in target_set)
-                    ):
-                        line = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
+                    is_unique_bare = (
+                        t_id in target_set and len(tid_to_features.get(t_id, set())) == 1
+                    )
+                    if full_id in target_set or is_unique_bare:
+                        updated = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
+                        if updated != line:
+                            modified = True
+                            line = updated
                 new_lines.append(line)
-            tf.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            if modified:
+                tf.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
     def cleanup_wave_artifacts(self, wave_id: int, task_ids: Sequence[str]) -> None:
         """Reset task checkboxes and clean wave artifacts."""
@@ -446,9 +473,10 @@ class SpecKitAdapter:
             return task_id.split("/", 1)[0]
         for tf in self._find_tasks_files():
             try:
-                content = tf.read_text(encoding="utf-8-sig")
-                if task_id in content:
-                    return tf.parent.name
+                for line in tf.read_text(encoding="utf-8-sig").splitlines():
+                    m = _TASK_LINE_RE.match(line)
+                    if m and m.group(2) == task_id:
+                        return tf.parent.name
             except OSError:
                 pass
         return "001-feature"

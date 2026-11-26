@@ -492,18 +492,34 @@ class OpenSpecAdapter:
         task_ids: Sequence[str],
         target_status: str = "ready-for-dev",
     ) -> None:
-        """Reset checklist items for task_ids in openspec changes tasks.md."""
+        """Reset checklist items for task_ids in active openspec changes tasks.md."""
         target_set = set(task_ids)
-        if not self.changes_dir.is_dir():
+        if not target_set or not self.changes_dir.is_dir():
             return
-        for tf in self.changes_dir.rglob("tasks.md"):
+        for tf in sorted(self.changes_dir.rglob("tasks.md")):
+            try:
+                rel_parts = tf.relative_to(self.changes_dir).parts
+            except ValueError:
+                continue
+            if any(part in {"archive", ".archive"} for part in rel_parts):
+                continue
+            change_id = rel_parts[0] if rel_parts else tf.parent.name
+            reset_all = change_id in target_set
             lines = tf.read_text(encoding="utf-8-sig").splitlines()
             new_lines: list[str] = []
+            task_idx = 1
+            modified = False
             for line in lines:
-                if any(tid in line for tid in target_set):
-                    line = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
+                m = _CHECKLIST_RE.match(line)
+                if m:
+                    sub_id = f"{change_id}-T{task_idx:02d}"
+                    task_idx += 1
+                    if (reset_all or sub_id in target_set) and m.group(1).lower() == "x":
+                        line = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
+                        modified = True
                 new_lines.append(line)
-            tf.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            if modified:
+                tf.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
     def cleanup_wave_artifacts(self, wave_id: int, task_ids: Sequence[str]) -> None:
         """Reset tasks and clean wave artifacts."""
@@ -661,12 +677,15 @@ class OpenSpecAdapter:
         return self.repo_root / ".parallel" / "artifacts"
 
     def get_status_files(self) -> list[str]:
-        """Return relative paths of OpenSpec tasks.md files."""
+        """Return relative paths of active OpenSpec tasks.md files (excluding archive)."""
         if not self.changes_dir.is_dir():
             return []
         files: list[str] = []
         for p in sorted(self.changes_dir.rglob("tasks.md")):
             try:
+                rel_parts = p.relative_to(self.changes_dir).parts
+                if any(part in {"archive", ".archive"} for part in rel_parts):
+                    continue
                 rel = p.relative_to(self.repo_root).as_posix()
                 if rel not in files:
                     files.append(rel)

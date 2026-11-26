@@ -1822,3 +1822,206 @@ def test_openspec_v1_16_1_trailing_hash_headings(tmp_path: Path) -> None:
     assert "src/app/core.py" in task.write_files
 
 
+def test_beads_load_tasks_is_strictly_read_only_and_scoped_reset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify Beads load_tasks reads bd export stdout without writes and resets via bd update."""
+    beads_dir = tmp_path / ".beads"
+    beads_dir.mkdir(parents=True)
+    (beads_dir / "config.yaml").write_text("tracker: beads\n", encoding="utf-8")
+
+    called_cmds: list[list[str]] = []
+
+    def fake_which(cmd: str) -> str | None:
+        return f"/usr/bin/{cmd}" if cmd == "bd" else None
+
+    def fake_run(
+        cmd: list[str],
+        cwd: Path | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        encoding: str | None = None,
+        check: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        called_cmds.append(cmd)
+        if cmd[:2] == ["bd", "export"]:
+            stdout = json.dumps(
+                {
+                    "id": "bd-1",
+                    "title": "Read-only exported",
+                    "status": "open",
+                    "files": ["src/a.py"],
+                }
+            )
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout + "\n", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("shutil.which", fake_which)
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    adapter = BeadsAdapter(tmp_path)
+    tasks = adapter.load_tasks()
+    assert [t.id for t in tasks] == ["bd-1"]
+    assert called_cmds[0] == ["bd", "export"]
+    assert not (beads_dir / "beads.jsonl").exists()
+    assert not (beads_dir / "issues.jsonl").exists()
+
+    # Now test scoped reset on existing issues.jsonl
+    issues_file = beads_dir / "issues.jsonl"
+    issues_file.write_text(
+        "\n".join(
+            [
+                json.dumps({"id": "bd-1", "title": "First", "status": "closed"}),
+                json.dumps({"id": "bd-2", "title": "Second", "status": "closed"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    called_cmds.clear()
+    adapter_with_file = BeadsAdapter(tmp_path)
+    adapter_with_file.reset_tasks_status(["bd-1"])
+
+    assert called_cmds == [["bd", "update", "bd-1", "--status", "open"]]
+    assert not any("import" in cmd for cmd in called_cmds)
+    records = {
+        json.loads(line)["id"]: json.loads(line)
+        for line in issues_file.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    }
+    assert records["bd-1"]["status"] == "open"
+    assert records["bd-2"]["status"] == "closed"
+
+
+def test_bmad_rollback_preserves_list_story_ids_and_sibling_specs(tmp_path: Path) -> None:
+    """Verify BMAD rollback preserves list IDs, tickets by frontmatter id, and sibling specs."""
+    impl_dir = tmp_path / "_bmad-output" / "implementation-artifacts"
+    impl_dir.mkdir(parents=True)
+
+    stories_yaml = impl_dir / "stories.yaml"
+    stories_yaml.write_text(
+        "stories:\n"
+        "  - id: 1-1\n"
+        "    title: Story One\n"
+        "    status: done\n"
+        "  - id: 1-10\n"
+        "    title: Story Ten\n"
+        "    status: done\n",
+        encoding="utf-8",
+    )
+
+    spec_1_1 = impl_dir / "spec-1-1-auth.md"
+    spec_1_1.write_text("# Spec 1-1\n", encoding="utf-8")
+    spec_1_10 = impl_dir / "spec-1-10-payments.md"
+    spec_1_10.write_text("# Spec 1-10\n", encoding="utf-8")
+
+    tickets_dir = tmp_path / "tickets"
+    (tickets_dir / "platform").mkdir(parents=True)
+    (tickets_dir / "billing").mkdir(parents=True)
+    login_ticket = tickets_dir / "login.md"
+    login_ticket.write_text(
+        "---\nid: auth-7\nstatus: done\n---\n# Login\n- [x] Substep\n",
+        encoding="utf-8",
+    )
+    plat_setup = tickets_dir / "platform" / "setup.md"
+    plat_setup.write_text("---\nstatus: done\n---\n# Platform setup\n", encoding="utf-8")
+    bill_setup = tickets_dir / "billing" / "setup.md"
+    bill_setup.write_text("---\nstatus: done\n---\n# Billing setup\n", encoding="utf-8")
+
+    adapter = BMADAdapter(tmp_path)
+    ticket_tasks = adapter._load_ticket_nodes(include_done=True)
+    assert {"auth-7", "platform:setup", "billing:setup"} == {t.id for t in ticket_tasks}
+
+    adapter.reset_tasks_status(["1-1", "auth-7", "platform:setup"], target_status="ready-for-dev")
+
+    stories_after = stories_yaml.read_text(encoding="utf-8")
+    assert "id: 1-1\n" in stories_after
+    assert "id: ready-for-dev" not in stories_after
+    assert "status: ready-for-dev" in stories_after
+    assert "id: 1-10\n    title: Story Ten\n    status: done" in stories_after
+
+    assert spec_1_1.exists()
+    assert spec_1_10.exists()
+
+    login_after = login_ticket.read_text(encoding="utf-8")
+    assert "status: ready-for-dev" in login_after
+    assert "- [ ] Substep" in login_after
+
+    assert "status: ready-for-dev" in plat_setup.read_text(encoding="utf-8")
+    assert "status: done" in bill_setup.read_text(encoding="utf-8")
+
+
+def test_gsd_openspec_speckit_exact_scoped_rollback(tmp_path: Path) -> None:
+    """Verify exact scoped matching on merge and rollback for GSD, OpenSpec, and Spec Kit."""
+    # 1. GSD
+    gsd_root = tmp_path / "gsd_repo"
+    phases = gsd_root / ".planning" / "phases" / "01-core"
+    phases.mkdir(parents=True)
+    state_md = gsd_root / ".planning" / "STATE.md"
+    state_md.write_text(
+        "- [ ] 01-01 Core setup\n"
+        "- [ ] 01-02 (after 01-01)\n"
+        "- [x] 101-01 Unrelated high phase\n",
+        encoding="utf-8",
+    )
+    sum_01 = phases / "01-01-SUMMARY.md"
+    sum_101 = phases / "101-01-SUMMARY.md"
+    sum_01.write_text("# 01-01\n", encoding="utf-8")
+    sum_101.write_text("# 101-01\n", encoding="utf-8")
+
+    gsd = GSDHijackAdapter(gsd_root)
+    gsd.update_state_on_merge(wave_number=1, merged_task_ids=["01-01"])
+    merged_state = state_md.read_text(encoding="utf-8")
+    assert "- [x] 01-01 Core setup" in merged_state
+    assert "- [ ] 01-02 (after 01-01)" in merged_state
+
+    gsd.reset_tasks_status(["01-01"])
+    reset_state = state_md.read_text(encoding="utf-8")
+    assert "- [ ] 01-01 Core setup" in reset_state
+    assert "- [x] 101-01 Unrelated high phase" in reset_state
+    assert not sum_01.exists()
+    assert sum_101.exists()
+
+    # 2. OpenSpec
+    os_root = tmp_path / "openspec_repo"
+    c_bill = os_root / "openspec" / "changes" / "billing"
+    c_auth = os_root / "openspec" / "changes" / "auth"
+    c_arch = os_root / "openspec" / "changes" / "archive" / "billing-old"
+    c_bill.mkdir(parents=True)
+    c_auth.mkdir(parents=True)
+    c_arch.mkdir(parents=True)
+
+    (c_bill / "tasks.md").write_text("- [x] Step 1\n- [x] Step 2\n", encoding="utf-8")
+    (c_auth / "tasks.md").write_text("- [x] Step 1\n- [x] Step 2\n", encoding="utf-8")
+    (c_arch / "tasks.md").write_text("- [x] Archived billing\n", encoding="utf-8")
+
+    os_adapter = OpenSpecAdapter(os_root)
+    os_adapter.reset_tasks_status(["billing", "auth-T02"])
+    assert (c_bill / "tasks.md").read_text(encoding="utf-8") == "- [ ] Step 1\n- [ ] Step 2\n"
+    assert (c_auth / "tasks.md").read_text(encoding="utf-8") == "- [x] Step 1\n- [ ] Step 2\n"
+    assert (c_arch / "tasks.md").read_text(encoding="utf-8") == "- [x] Archived billing\n"
+
+    # 3. Spec Kit
+    sk_root = tmp_path / "speckit_repo"
+    f_bill = sk_root / "specs" / "billing"
+    f_rep = sk_root / "specs" / "reports"
+    f_bill.mkdir(parents=True)
+    f_rep.mkdir(parents=True)
+    (f_bill / "tasks.md").write_text("- [x] T001 Invoice\n- [x] T002 Webhook\n", encoding="utf-8")
+    (f_rep / "tasks.md").write_text("- [x] T001 Report\n", encoding="utf-8")
+
+    sk = SpecKitAdapter(sk_root)
+    # Bare ambiguous T001 must not mutate either feature
+    sk.reset_tasks_status(["T001"])
+    assert "- [x] T001 Invoice" in (f_bill / "tasks.md").read_text(encoding="utf-8")
+    assert "- [x] T001 Report" in (f_rep / "tasks.md").read_text(encoding="utf-8")
+
+    # Scoped billing:T001 resets only billing, unique bare T002 resets billing T002
+    sk.reset_tasks_status(["billing:T001", "T002"])
+    assert (f_bill / "tasks.md").read_text(encoding="utf-8") == (
+        "- [ ] T001 Invoice\n- [ ] T002 Webhook\n"
+    )
+    assert (f_rep / "tasks.md").read_text(encoding="utf-8") == "- [x] T001 Report\n"
+
+

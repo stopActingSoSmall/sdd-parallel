@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 import shutil
 import subprocess
+import uuid
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from sdd_parallel.models import EffortTier, TaskNode, TaskStatus, Wave, WaveTrack
+
+logger = logging.getLogger(__name__)
 
 _BACKTICK_PATH_RE = re.compile(
     r"`([A-Za-z0-9_./-]+\.(?:py|ts|tsx|js|jsx|go|rs|sql|json|yaml|yml|toml|html|css|md))`"
@@ -148,44 +153,44 @@ class BeadsAdapter:
             return EffortTier.LOW
         return EffortTier.MEDIUM
 
-    def _try_export_from_bd_cli(self) -> bool:
-        """Export Dolt database to JSONL using native bd CLI if available."""
+    def _try_export_from_bd_cli(self) -> list[str]:
+        """Read-only export of Dolt database to stdout using native bd CLI if available."""
         try:
             res = subprocess.run(
-                ["bd", "export", "-o", str(self.issues_path)],
+                ["bd", "export"],
                 cwd=self.repo_root,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 check=False,
             )
-            return (
-                res.returncode == 0
-                and self.issues_path.is_file()
-                and self.issues_path.stat().st_size > 0
-            )
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.splitlines()
+            return []
         except OSError:
-            return False
+            return []
 
     def load_tasks(
         self,
         include_done: bool = False,
         plan_source: str = "auto",
     ) -> list[TaskNode]:
-        """Load issues from .beads/issues.jsonl and enrich with file footprints."""
-        if (
-            not self.issues_path.is_file()
-            or self.issues_path.stat().st_size == 0
-        ) and (
-            (self.beads_dir / "embeddeddolt").is_dir()
-            or (self.beads_dir / "config.yaml").is_file()
-        ):
-            self._try_export_from_bd_cli()
+        """Load issues from .beads/issues.jsonl or read-only bd export stdout."""
+        raw_lines: list[str]
+        if self.issues_path.is_file() and self.issues_path.stat().st_size > 0:
+            raw_lines = self.issues_path.read_text(encoding="utf-8-sig").splitlines()
+        elif (self.beads_dir / "embeddeddolt").is_dir() or (
+            self.beads_dir / "config.yaml"
+        ).is_file():
+            raw_lines = self._try_export_from_bd_cli()
+        else:
+            return []
 
-        if not self.issues_path.is_file():
+        if not raw_lines:
             return []
 
         tasks: list[TaskNode] = []
-        for raw_line in self.issues_path.read_text(encoding="utf-8-sig").splitlines():
+        for raw_line in raw_lines:
             line = raw_line.strip()
             if not line:
                 continue
@@ -254,37 +259,67 @@ class BeadsAdapter:
         task_ids: Sequence[str],
         target_status: str = "ready-for-dev",
     ) -> None:
-        """Reset status of issues in .beads/issues.jsonl to open."""
+        """Reset status of targeted issues in .beads/*.jsonl and Dolt DB without full import."""
         target_set = set(task_ids)
-        if not self.issues_path.is_file():
+        if not target_set:
             return
-        lines = self.issues_path.read_text(encoding="utf-8-sig").splitlines()
-        new_lines: list[str] = []
-        for line in lines:
-            if not line.strip():
-                continue
-            try:
-                rec: dict[str, Any] = json.loads(line)
-            except json.JSONDecodeError:
-                new_lines.append(line)
-                continue
-            issue_id = str(rec.get("id", ""))
-            if issue_id in target_set:
-                rec["status"] = "open"
-                rec["closed_at"] = None
-            new_lines.append(json.dumps(rec, ensure_ascii=False))
-        self.issues_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-        if (self.beads_dir / "embeddeddolt").is_dir() or (self.beads_dir / "config.yaml").is_file():
-            try:
-                subprocess.run(
-                    ["bd", "import", "--allow-stale", "-i", str(self.issues_path)],
-                    cwd=self.repo_root,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-            except OSError:
-                pass
+
+        changed_ids: list[str] = []
+        if self.issues_path.is_file():
+            lines = self.issues_path.read_text(encoding="utf-8-sig").splitlines()
+            new_lines: list[str] = []
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    rec: dict[str, Any] = json.loads(line)
+                except json.JSONDecodeError:
+                    new_lines.append(line)
+                    continue
+                issue_id = str(rec.get("id", ""))
+                if issue_id in target_set:
+                    rec["status"] = "open"
+                    rec["closed_at"] = None
+                    if issue_id and issue_id not in changed_ids:
+                        changed_ids.append(issue_id)
+                new_lines.append(json.dumps(rec, ensure_ascii=False))
+
+            payload = ("\n".join(new_lines) + "\n") if new_lines else ""
+            tmp_path = (
+                self.issues_path.parent
+                / f".tmp-{self.issues_path.name}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+            )
+            tmp_path.write_text(payload, encoding="utf-8")
+            os.replace(tmp_path, self.issues_path)
+        else:
+            changed_ids = [tid for tid in dict.fromkeys(task_ids) if tid]
+
+        if (
+            changed_ids
+            and (
+                (self.beads_dir / "embeddeddolt").is_dir()
+                or (self.beads_dir / "config.yaml").is_file()
+            )
+            and shutil.which("bd")
+        ):
+            for tid in changed_ids:
+                try:
+                    res = subprocess.run(
+                        ["bd", "update", tid, "--status", "open"],
+                        cwd=self.repo_root,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if res.returncode != 0:
+                        logger.warning(
+                            "bd update %s --status open failed with exit code %s: %s",
+                            tid,
+                            res.returncode,
+                            res.stderr.strip(),
+                        )
+                except OSError as exc:
+                    logger.warning("Failed to run bd update for %s: %s", tid, exc)
 
     def cleanup_wave_artifacts(self, wave_id: int, task_ids: Sequence[str]) -> None:
         """Reset tasks and clean wave artifacts."""
