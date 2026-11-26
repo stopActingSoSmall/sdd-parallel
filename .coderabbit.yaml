@@ -13,8 +13,8 @@ reviews:
   auto_review:
     enabled: true
     auto_incremental_review: true
-    auto_pause_after_reviewed_commits: 3
-    drafts: false
+    auto_pause_after_reviewed_commits: 1
+    drafts: true
     base_branches:
       - "master"
   path_filters:
@@ -28,6 +28,18 @@ reviews:
     - "!.tmp/**"
     - "!.parallel/**"
   path_instructions:
+    - path: "src/sdd_parallel/runner.py"
+      instructions: |
+        RETRO AUDIT LENS 5 (Subprocess Lifecycle, Deadlocks & CLI Contracts): Report ONLY Critical/High bugs causing zombie subprocesses on timeout, Windows stdout/stderr pipe deadlocks, violations of the Freeze Invariant on verdict.is_qualified, or incorrect CLI fail-closed exit codes.
+    - path: "src/sdd_parallel/autopilot.py"
+      instructions: |
+        RETRO AUDIT LENS 5 (Subprocess Lifecycle, Deadlocks & CLI Contracts): Report ONLY Critical/High bugs causing zombie subprocesses on timeout, Windows stdout/stderr pipe deadlocks, violations of the Freeze Invariant on verdict.is_qualified, or incorrect CLI fail-closed exit codes.
+    - path: "src/sdd_parallel/cli.py"
+      instructions: |
+        RETRO AUDIT LENS 5 (Subprocess Lifecycle, Deadlocks & CLI Contracts): Report ONLY Critical/High bugs causing zombie subprocesses on timeout, Windows stdout/stderr pipe deadlocks, violations of the Freeze Invariant on verdict.is_qualified, or incorrect CLI fail-closed exit codes.
+    - path: "src/sdd_parallel/inspector.py"
+      instructions: |
+        RETRO AUDIT LENS 5 (Subprocess Lifecycle, Deadlocks & CLI Contracts): Report ONLY Critical/High bugs causing zombie subprocesses on timeout, Windows stdout/stderr pipe deadlocks, violations of the Freeze Invariant on verdict.is_qualified, or incorrect CLI fail-closed exit codes.
     - path: "src/sdd_parallel/**/*.py"
       instructions: |
         Enforce strict architectural invariants from AGENTS.md and ADR-0009:
