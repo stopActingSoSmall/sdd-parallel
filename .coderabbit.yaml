@@ -13,8 +13,8 @@ reviews:
   auto_review:
     enabled: true
     auto_incremental_review: true
-    auto_pause_after_reviewed_commits: 3
-    drafts: false
+    auto_pause_after_reviewed_commits: 1
+    drafts: true
     base_branches:
       - "master"
   path_filters:
@@ -28,6 +28,15 @@ reviews:
     - "!.tmp/**"
     - "!.parallel/**"
   path_instructions:
+    - path: "src/sdd_parallel/worktree.py"
+      instructions: |
+        RETRO AUDIT LENS 1 (Transactions, OS Locks & Hook Security): Report ONLY Critical/High bugs in partial git worktree failures, WorktreeRollbackManager LIFO rollback violations, Windows PermissionError/Junction handling, .parallel-lock.json bypasses, path traversal, or silent fail-open in PreToolUse hooks.
+    - path: "src/sdd_parallel/plugin_installer.py"
+      instructions: |
+        RETRO AUDIT LENS 1 (Transactions, OS Locks & Hook Security): Report ONLY Critical/High bugs in partial git worktree failures, WorktreeRollbackManager LIFO rollback violations, Windows PermissionError/Junction handling, .parallel-lock.json bypasses, path traversal, or silent fail-open in PreToolUse hooks.
+    - path: "src/sdd_parallel/hooks/blast_radius_guard.py"
+      instructions: |
+        RETRO AUDIT LENS 1 (Transactions, OS Locks & Hook Security): Report ONLY Critical/High bugs in partial git worktree failures, WorktreeRollbackManager LIFO rollback violations, Windows PermissionError/Junction handling, .parallel-lock.json bypasses, path traversal, or silent fail-open in PreToolUse hooks.
     - path: "src/sdd_parallel/**/*.py"
       instructions: |
         Enforce strict architectural invariants from AGENTS.md and ADR-0009:
