@@ -691,7 +691,10 @@ def test_wave_runner_auto_merge_and_config_partial_merge(
     runner = WaveRunner(repo, invoker=mock_invoker)
     summary = runner.run_wave(plan, wave_number=1, auto_merge=True)
     assert summary.all_succeeded is True
-    assert summary.auto_merged is True
+    assert summary.auto_merged is False
+    assert summary.partial_merge_used is True
+    assert summary.merged_tracks == ["track-a"]
+    assert summary.rejected_tracks == ["track-b"]
     assert (repo / "src" / "b.py").is_file()
     assert not (repo / "tests" / "test_bad.py").exists()
     assert len(load_barrier_feedback(repo, ["T002"])) == 1

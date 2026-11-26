@@ -10,6 +10,7 @@ import concurrent.futures
 import json
 import os
 import shutil
+import signal
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -116,6 +117,95 @@ class TrackExecutionPolicy(Protocol):
     def execute(self, ctx: TrackExecutionContext) -> TrackExecutionResult: ...
 
 
+def _run_harness_subprocess(
+    argv: Sequence[str],
+    cwd: Path,
+    env: Mapping[str, str] | None,
+    timeout_seconds: float,
+) -> subprocess.CompletedProcess[str]:
+    """Run a harness CLI subprocess and kill its entire process tree on timeout."""
+    env_arg = dict(env) if env is not None else None
+    argv_list = list(argv)
+    if os.name == "nt":
+        creationflags = int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200))
+        proc = subprocess.Popen(
+            argv_list,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env_arg,
+            creationflags=creationflags,
+        )
+    else:
+        proc = subprocess.Popen(
+            argv_list,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env_arg,
+            start_new_session=True,
+        )
+
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout_seconds)
+        return subprocess.CompletedProcess(
+            args=argv_list,
+            returncode=proc.returncode,
+            stdout=stdout or "",
+            stderr=stderr or "",
+        )
+    except subprocess.TimeoutExpired as timeout_exc:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        else:
+            killpg_fn = getattr(os, "killpg", None)
+            if killpg_fn is not None:
+                try:
+                    sig = getattr(signal, "SIGKILL", signal.SIGTERM)
+                    killpg_fn(proc.pid, sig)
+                except ProcessLookupError:
+                    pass
+                except OSError:
+                    try:
+                        proc.kill()
+                    except OSError:
+                        pass
+            else:
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+
+        try:
+            drain_out, drain_err = proc.communicate(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            for pipe in (proc.stdout, proc.stderr):
+                if pipe is not None:
+                    try:
+                        pipe.close()
+                    except OSError:
+                        pass
+            raise timeout_exc from None
+
+        raise subprocess.TimeoutExpired(
+            cmd=timeout_exc.cmd,
+            timeout=timeout_exc.timeout,
+            output=drain_out,
+            stderr=drain_err,
+        ) from timeout_exc
+
+
 def _create_default_invoker(
     harness: str,
     timeout_seconds: float,
@@ -176,14 +266,11 @@ def _create_default_invoker(
         else:
             raise ValueError(f"Unsupported harness: {harness}")
 
-        return subprocess.run(
+        return _run_harness_subprocess(
             argv,
             cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
             env=env_full,
-            check=False,
+            timeout_seconds=timeout_seconds,
         )
 
     return _invoker
@@ -316,154 +403,167 @@ class BoundedCyclicReviewPolicy:
         exit_code = 0
         error_msg: str | None = None
 
-        for k in range(1, self.max_iterations + 1):
-            iterations_used = k
-            sched = self.iteration_schedule.get(k)
-            eff = sched.effort if (sched and sched.effort) else ctx.track.effort
-            mod = (
-                sched.model
-                if (sched and sched.model)
-                else (
-                    ctx.track.model_override.strip()
-                    if (ctx.track.model_override and ctx.track.model_override.strip())
-                    else launcher.resolve_model_for_effort(ctx.harness, eff)
-                )
+        if ctx.reviewer_fn is None:
+            terminal_status = "FAILED"
+            exit_code = 1
+            iterations_used = 0
+            error_msg = (
+                "BoundedCyclicReviewPolicy requires a configured reviewer_fn "
+                "(CLI reviewer wiring is scheduled in Task 34b)."
             )
-            mode = (
-                sched.execution_mode
-                if (sched and sched.execution_mode != "NORMAL")
-                else ctx.track.execution_mode
-            )
-
-            # Divergence oscillation detection:
-            if last_verdict and last_verdict.divergence_flag in {
-                "WHACK_A_MOLE",
-                "ADDITIVE_BLOAT",
-            }:
-                mode = "SUBTRACTIVE"
-
-            track_copy = WaveTrack(
-                track_id=ctx.track.track_id,
-                task_ids=ctx.track.task_ids,
-                effort=eff,
-                execution_mode=mode,
-                model_override=mod,
-            )
-            base_prompt = launcher._build_track_prompt(
-                ctx.wave_number, track_copy, ctx.worktree_path, sdd_kit=ctx.sdd_kit
-            )
-
-            if k >= 2 and last_verdict:
-                feedback_prefix = (
-                    f"[PREVIOUS REVIEW FEEDBACK (Iteration {k-1})]: {last_verdict.summary} "
-                    f"(Blockers: {last_verdict.effective_blockers}, "
-                    f"Critical: {last_verdict.critical_count}, High: {last_verdict.high_count}). "
-                )
-                prompt = feedback_prefix + base_prompt
-            else:
-                prompt = base_prompt
-
-            # Inner loop for Zero-Budget Pre-Flight NACK
-            while True:
-                try:
-                    proc = invoker(prompt, mod, eff, ctx.worktree_path)
-                    latest_stdout = proc.stdout or ""
-                    latest_stderr = proc.stderr or ""
-                    exit_code = proc.returncode
-                    sid = extract_session_id_from_stdout(latest_stdout)
-                    if sid:
-                        session_id = sid
-                except subprocess.TimeoutExpired:
-                    terminal_status = "TIMED_OUT"
-                    exit_code = 124
-                    error_msg = (
-                        f"Track timed out after {ctx.timeout_seconds}s on iteration {k}"
+        else:
+            for k in range(1, self.max_iterations + 1):
+                iterations_used = k
+                sched = self.iteration_schedule.get(k)
+                eff = sched.effort if (sched and sched.effort) else ctx.track.effort
+                mod = (
+                    sched.model
+                    if (sched and sched.model)
+                    else (
+                        ctx.track.model_override.strip()
+                        if (ctx.track.model_override and ctx.track.model_override.strip())
+                        else launcher.resolve_model_for_effort(ctx.harness, eff)
                     )
-                    break
-                except Exception as exc:
-                    terminal_status = "FAILED"
-                    exit_code = 1
-                    error_msg = f"Invocation error on iteration {k}: {exc}"
-                    break
+                )
+                mode = (
+                    sched.execution_mode
+                    if (sched and sched.execution_mode != "NORMAL")
+                    else ctx.track.execution_mode
+                )
 
-                # Preflight Gate Check
-                nack_detected = False
-                if self.preflight_commands and exit_code == 0:
-                    for pf_cmd in self.preflight_commands:
-                        pf_res = subprocess.run(
-                            list(pf_cmd),
-                            cwd=ctx.worktree_path,
-                            capture_output=True,
-                            text=True,
-                            check=False,
+                # Divergence oscillation detection:
+                if last_verdict and last_verdict.divergence_flag in {
+                    "WHACK_A_MOLE",
+                    "ADDITIVE_BLOAT",
+                }:
+                    mode = "SUBTRACTIVE"
+
+                track_copy = WaveTrack(
+                    track_id=ctx.track.track_id,
+                    task_ids=ctx.track.task_ids,
+                    effort=eff,
+                    execution_mode=mode,
+                    model_override=mod,
+                )
+                base_prompt = launcher._build_track_prompt(
+                    ctx.wave_number, track_copy, ctx.worktree_path, sdd_kit=ctx.sdd_kit
+                )
+
+                if k >= 2 and last_verdict:
+                    feedback_prefix = (
+                        f"[PREVIOUS REVIEW FEEDBACK (Iteration {k-1})]: {last_verdict.summary} "
+                        f"(Blockers: {last_verdict.effective_blockers}, "
+                        f"Critical: {last_verdict.critical_count}, "
+                        f"High: {last_verdict.high_count}). "
+                    )
+                    prompt = feedback_prefix + base_prompt
+                else:
+                    prompt = base_prompt
+
+                # Inner loop for Zero-Budget Pre-Flight NACK
+                while True:
+                    try:
+                        proc = invoker(prompt, mod, eff, ctx.worktree_path)
+                        latest_stdout = proc.stdout or ""
+                        latest_stderr = proc.stderr or ""
+                        exit_code = proc.returncode
+                        sid = extract_session_id_from_stdout(latest_stdout)
+                        if sid:
+                            session_id = sid
+                    except subprocess.TimeoutExpired:
+                        terminal_status = "TIMED_OUT"
+                        exit_code = 124
+                        error_msg = (
+                            f"Track timed out after {ctx.timeout_seconds}s on iteration {k}"
                         )
-                        if pf_res.returncode != 0:
-                            if preflight_bounces < self.max_preflight_bounces:
-                                preflight_bounces += 1
-                                nack_detected = True
+                        break
+                    except Exception as exc:
+                        terminal_status = "FAILED"
+                        exit_code = 1
+                        error_msg = f"Invocation error on iteration {k}: {exc}"
+                        break
+
+                    # Preflight Gate Check
+                    nack_detected = False
+                    if self.preflight_commands and exit_code == 0:
+                        for pf_cmd in self.preflight_commands:
+                            pf_res = subprocess.run(
+                                list(pf_cmd),
+                                cwd=ctx.worktree_path,
+                                capture_output=True,
+                                text=True,
+                                check=False,
+                            )
+                            if pf_res.returncode != 0:
                                 cmd_str = " ".join(pf_cmd)
                                 ret_code = pf_res.returncode
-                                nack_msg = (
-                                    f"[PREFLIGHT GATE NACK]: Command '{cmd_str}' "
-                                    f"failed with returncode {ret_code}:\n"
-                                    f"{pf_res.stderr or pf_res.stdout}\n"
-                                    f"Fix preflight gate failure before requesting review.\n\n"
+                                if preflight_bounces < self.max_preflight_bounces:
+                                    preflight_bounces += 1
+                                    nack_detected = True
+                                    nack_msg = (
+                                        f"[PREFLIGHT GATE NACK]: Command '{cmd_str}' "
+                                        f"failed with returncode {ret_code}:\n"
+                                        f"{pf_res.stderr or pf_res.stdout}\n"
+                                        f"Fix preflight gate failure before requesting review.\n\n"
+                                    )
+                                    prompt = nack_msg + prompt
+                                    break
+                                terminal_status = "FAILED"
+                                exit_code = ret_code or 1
+                                error_msg = (
+                                    f"Preflight gate '{cmd_str}' failed after "
+                                    f"{preflight_bounces} retry bounce(s)"
                                 )
-                                prompt = nack_msg + prompt
-                                break
-                            else:
                                 break
 
-                if nack_detected:
-                    continue  # Zero-budget bounce: retry without incrementing k!
-                break
+                    if nack_detected:
+                        continue  # Zero-budget bounce: retry without incrementing k!
+                    break
 
-            if terminal_status == "TIMED_OUT" or error_msg:
-                break
-
-            # Reviewer Step
-            if ctx.reviewer_fn is not None:
-                verdict = ctx.reviewer_fn(ctx, k)
-            else:
-                verdict = ReviewVerdict(
-                    iteration=k,
-                    summary="Default qualified verdict (no external reviewer configured).",
-                    critical_count=0,
-                    high_count=0,
-                )
-            verdicts.append(verdict)
-            last_verdict = verdict
-
-            # Convergence Check (Freeze Invariant)
-            if verdict.is_qualified:
-                terminal_status = "SUCCEEDED"
-                exit_code = 0
-                break
-
-            # Exhaustion Gate
-            if k == self.max_iterations:
-                triage_path = ctx.worktree_path / ".tmp" / "exhaustion-triage.json"
-                triage_path.parent.mkdir(parents=True, exist_ok=True)
-                triage_data = {
-                    "task_ids": list(ctx.track.task_ids),
-                    "iterations_used": k,
-                    "remaining_blockers": verdict.effective_blockers,
-                    "divergence_flag": verdict.divergence_flag,
-                    "recommended_action": self.on_exhaustion,
-                    "split_candidates": list(verdict.split_candidates),
-                }
-                triage_path.write_text(
-                    json.dumps(triage_data, indent=2, ensure_ascii=False) + "\n",
-                    encoding="utf-8",
-                )
-                if self.on_exhaustion == "propose_split":
-                    terminal_status = "EXHAUSTED_NEEDS_SPLIT"
-                elif self.on_exhaustion == "defer_wave":
-                    terminal_status = "ESCALATED_DEFERRED"
-                else:
+                if terminal_status == "TIMED_OUT" or error_msg:
+                    break
+                if exit_code != 0:
                     terminal_status = "FAILED"
-                exit_code = 1
-                break
+                    error_msg = (
+                        f"Executor exited with non-zero code {exit_code} on iteration {k}"
+                    )
+                    break
+
+                # Reviewer Step
+                verdict = ctx.reviewer_fn(ctx, k)
+                verdicts.append(verdict)
+                last_verdict = verdict
+
+                # Convergence Check (Freeze Invariant)
+                if verdict.is_qualified:
+                    terminal_status = "SUCCEEDED"
+                    exit_code = 0
+                    break
+
+                # Exhaustion Gate
+                if k == self.max_iterations:
+                    triage_path = ctx.worktree_path / ".tmp" / "exhaustion-triage.json"
+                    triage_path.parent.mkdir(parents=True, exist_ok=True)
+                    triage_data = {
+                        "task_ids": list(ctx.track.task_ids),
+                        "iterations_used": k,
+                        "remaining_blockers": verdict.effective_blockers,
+                        "divergence_flag": verdict.divergence_flag,
+                        "recommended_action": self.on_exhaustion,
+                        "split_candidates": list(verdict.split_candidates),
+                    }
+                    triage_path.write_text(
+                        json.dumps(triage_data, indent=2, ensure_ascii=False) + "\n",
+                        encoding="utf-8",
+                    )
+                    if self.on_exhaustion == "propose_split":
+                        terminal_status = "EXHAUSTED_NEEDS_SPLIT"
+                    elif self.on_exhaustion == "defer_wave":
+                        terminal_status = "ESCALATED_DEFERRED"
+                    else:
+                        terminal_status = "FAILED"
+                    exit_code = 1
+                    break
 
         t1 = datetime.now(UTC)
         duration = round((t1 - t0).total_seconds(), 2)
@@ -514,6 +614,10 @@ class WaveRunSummary:
     auto_merged: bool = False
     manifest_path: str | None = None
     error_message: str | None = None
+    partial_merge_used: bool = False
+    merged_tracks: list[str] = field(default_factory=list)
+    rejected_tracks: list[str] = field(default_factory=list)
+    backup_branches: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -526,7 +630,33 @@ class WaveRunSummary:
             "auto_merged": self.auto_merged,
             "manifest_path": self.manifest_path,
             "error_message": self.error_message,
+            "partial_merge_used": self.partial_merge_used,
+            "merged_tracks": list(self.merged_tracks),
+            "rejected_tracks": list(self.rejected_tracks),
+            "backup_branches": dict(self.backup_branches),
         }
+
+
+def _extract_merged_track_ids(
+    branches: Sequence[str],
+    tracks: Sequence[WaveTrack],
+) -> list[str]:
+    """Map merged git branch names back to canonical WaveTrack IDs."""
+    resolved: list[str] = []
+    for branch in branches:
+        matched = next(
+            (
+                trk.track_id
+                for trk in tracks
+                if branch == trk.track_id
+                or branch.endswith(f"/{trk.track_id}")
+                or branch.endswith(f"-{trk.track_id}")
+            ),
+            branch,
+        )
+        if matched not in resolved:
+            resolved.append(matched)
+    return resolved
 
 
 class WaveRunner:
@@ -655,6 +785,10 @@ class WaveRunner:
         # 5. Auto-Merge Barrier (if requested)
         auto_merged = False
         error_msg: str | None = None
+        partial_merge_used = False
+        merged_tracks: list[str] = []
+        rejected_tracks: list[str] = []
+        backup_branches: dict[str, str] = {}
         if auto_merge:
             if all_succeeded:
                 from sdd_parallel.worktree import WorktreeManager
@@ -666,16 +800,53 @@ class WaveRunner:
                     error_msg = f"Auto-merge blocked: Scope Guard violations detected: {violations}"
                 else:
                     try:
-                        wm.merge_wave(
+                        merged_res = wm.merge_wave(
                             plan,
                             wave_number,
                             run_quality_gates=True,
                             cleanup_worktrees=False,
                             partial_merge=partial_merge,
                         )
-                        auto_merged = True
+                        outcome = getattr(wm, "last_merge_outcome", None)
+                        if outcome is not None:
+                            merged_tracks = _extract_merged_track_ids(
+                                outcome.merged_branches, target_wave.tracks
+                            )
+                            if outcome.rejected_tracks:
+                                partial_merge_used = True
+                                rejected_tracks = list(outcome.rejected_tracks.keys())
+                                backup_branches = dict(outcome.backup_branches)
+                                auto_merged = False
+                                error_msg = (
+                                    f"Partial auto-merge: merged {merged_tracks}, "
+                                    f"rejected {rejected_tracks} (rescheduled to next wave)."
+                                )
+                            else:
+                                auto_merged = True
+                                if not merged_tracks:
+                                    merged_tracks = (
+                                        _extract_merged_track_ids(merged_res, target_wave.tracks)
+                                        if merged_res
+                                        else [t.track_id for t in target_wave.tracks]
+                                    )
+                        else:
+                            auto_merged = True
+                            merged_tracks = (
+                                _extract_merged_track_ids(merged_res, target_wave.tracks)
+                                if merged_res
+                                else [t.track_id for t in target_wave.tracks]
+                            )
                     except Exception as merge_exc:
+                        auto_merged = False
                         error_msg = f"Auto-merge failed during git merge/gates: {merge_exc}"
+                        outcome = getattr(wm, "last_merge_outcome", None)
+                        if outcome is not None and outcome.rejected_tracks:
+                            partial_merge_used = True
+                            merged_tracks = _extract_merged_track_ids(
+                                outcome.merged_branches, target_wave.tracks
+                            )
+                            rejected_tracks = list(outcome.rejected_tracks.keys())
+                            backup_branches = dict(outcome.backup_branches)
             else:
                 error_msg = f"Auto-merge blocked: {failed} tracks failed or incomplete."
 
@@ -689,4 +860,8 @@ class WaveRunner:
             auto_merged=auto_merged,
             manifest_path=manifest_path,
             error_message=error_msg,
+            partial_merge_used=partial_merge_used,
+            merged_tracks=merged_tracks,
+            rejected_tracks=rejected_tracks,
+            backup_branches=backup_branches,
         )

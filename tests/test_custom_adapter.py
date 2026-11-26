@@ -238,12 +238,17 @@ def test_claude_code_hardening_env_vars_in_invoker(tmp_path: Path, monkeypatch: 
 
     import subprocess
 
-    def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        env = kwargs.get("env") or {}
-        invoked_env.update(env)
-        return subprocess.CompletedProcess(cmd, returncode=0, stdout='{"session_id": "s-123"}')
+    def fake_run_harness(
+        argv: list[str],
+        cwd: Path,
+        env: dict[str, str] | None,
+        timeout_seconds: float,
+    ) -> subprocess.CompletedProcess[str]:
+        if env:
+            invoked_env.update(env)
+        return subprocess.CompletedProcess(argv, returncode=0, stdout='{"session_id": "s-123"}')
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("sdd_parallel.runner._run_harness_subprocess", fake_run_harness)
 
     invoker = _create_default_invoker(
         harness="claude-code",
