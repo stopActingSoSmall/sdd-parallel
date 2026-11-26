@@ -13,8 +13,8 @@ reviews:
   auto_review:
     enabled: true
     auto_incremental_review: true
-    auto_pause_after_reviewed_commits: 3
-    drafts: false
+    auto_pause_after_reviewed_commits: 1
+    drafts: true
     base_branches:
       - "master"
   path_filters:
@@ -28,6 +28,21 @@ reviews:
     - "!.tmp/**"
     - "!.parallel/**"
   path_instructions:
+    - path: "src/sdd_parallel/ast_scanner.py"
+      instructions: |
+        RETRO AUDIT LENS 2 (Graph Determinism & Fail-Closed AST Boundaries): Report ONLY Critical/High bugs in nondeterministic set iteration order, DAG cycle detection gaps, false fail-open paths in AST collision detection, unclosed SQLite connections in CRGSidecarAdapter, or invariant violations.
+    - path: "src/sdd_parallel/ast_diff_gate.py"
+      instructions: |
+        RETRO AUDIT LENS 2 (Graph Determinism & Fail-Closed AST Boundaries): Report ONLY Critical/High bugs in nondeterministic set iteration order, DAG cycle detection gaps, false fail-open paths in AST collision detection, unclosed SQLite connections in CRGSidecarAdapter, or invariant violations.
+    - path: "src/sdd_parallel/crg_sidecar.py"
+      instructions: |
+        RETRO AUDIT LENS 2 (Graph Determinism & Fail-Closed AST Boundaries): Report ONLY Critical/High bugs in nondeterministic set iteration order, DAG cycle detection gaps, false fail-open paths in AST collision detection, unclosed SQLite connections in CRGSidecarAdapter, or invariant violations.
+    - path: "src/sdd_parallel/scheduler.py"
+      instructions: |
+        RETRO AUDIT LENS 2 (Graph Determinism & Fail-Closed AST Boundaries): Report ONLY Critical/High bugs in nondeterministic set iteration order, DAG cycle detection gaps, false fail-open paths in AST collision detection, unclosed SQLite connections in CRGSidecarAdapter, or invariant violations.
+    - path: "src/sdd_parallel/models.py"
+      instructions: |
+        RETRO AUDIT LENS 2 (Graph Determinism & Fail-Closed AST Boundaries): Report ONLY Critical/High bugs in nondeterministic set iteration order, DAG cycle detection gaps, false fail-open paths in AST collision detection, unclosed SQLite connections in CRGSidecarAdapter, or invariant violations.
     - path: "src/sdd_parallel/**/*.py"
       instructions: |
         Enforce strict architectural invariants from AGENTS.md and ADR-0009:
