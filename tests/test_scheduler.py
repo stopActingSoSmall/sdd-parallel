@@ -215,3 +215,83 @@ def test_eight_class_collision_suite_remains_clean() -> None:
     results = run_eight_class_collision_suite()
     assert set(results.keys()) == {"A", "B", "C", "D", "E", "F", "G", "H"}
     assert all(results.values()), f"Failed classes: {results}"
+
+
+def test_scheduler_canonicalizes_dot_slash_paths(tmp_path: Path) -> None:
+    """Paths like ./src/models.py and src/models.py share identity for SPINE_ORDER and scopes."""
+    t1 = TaskNode(id="T1", title="Edit models with ./", write_files=["./src/models.py"])
+    t2 = TaskNode(id="T2", title="Edit models canon", write_files=["src/models.py"])
+
+    scheduler = BSPWaveScheduler(max_tracks=3)
+    plan = scheduler.schedule([t1, t2])
+
+    assert len(plan.waves) == 2
+    assert any(
+        e.conflict_type == ConflictType.SPINE_ORDER
+        and e.shared_files == ("src/models.py",)
+        for e in plan.edges
+    )
+
+    # Also verify shared_function_notes lookup across ./src/module.py vs src/module.py
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "module.py").write_text(
+        "def fn_a() -> int:\n    return 1\n\ndef fn_b() -> int:\n    return 2\n",
+        encoding="utf-8",
+    )
+    scanner = ASTHotspotScanner(tmp_path)
+    scanner.scan()
+    scoped_scheduler = BSPWaveScheduler(max_tracks=2, ast_scanner=scanner)
+    s1 = TaskNode(
+        id="S1",
+        title="Scope A",
+        write_files=["./src/module.py"],
+        shared_function_notes={"./src/module.py": "fn_a"},
+    )
+    s2 = TaskNode(
+        id="S2",
+        title="Scope B",
+        write_files=["src/module.py"],
+        shared_function_notes={"src/module.py": "fn_b"},
+    )
+    scoped_plan = scoped_scheduler.schedule([s1, s2])
+    assert len(scoped_plan.waves) == 1
+    assert set(scoped_plan.waves[0].all_task_ids) == {"S1", "S2"}
+
+
+def test_reschedule_preserves_completed_wave_spine_direction() -> None:
+    """Rescheduling preserves completed -> remaining SPINE_ORDER regardless of task order."""
+    task_b = TaskNode(
+        id="B",
+        title="Consumer feature",
+        write_files=["src/feature_b.py"],
+        depends_on=["P"],
+    )
+    task_a = TaskNode(
+        id="A",
+        title="Completed spine change",
+        write_files=["src/models.py"],
+    )
+    task_p = TaskNode(
+        id="P",
+        title="Prerequisite",
+        write_files=["src/prereq.py"],
+    )
+
+    scheduler = BSPWaveScheduler(max_tracks=3)
+    initial_plan = scheduler.schedule([task_b, task_a, task_p])
+    assert set(initial_plan.waves[0].all_task_ids) == {"A", "P"}
+    assert initial_plan.waves[1].all_task_ids == ["B"]
+
+    replanned = scheduler.reschedule_remaining_waves(
+        initial_plan,
+        current_wave=1,
+        deferred_task_ids=[],
+        enriched_writes={"B": ["src/models.py"]},
+    )
+
+    spine_edges = [
+        e for e in replanned.edges if e.conflict_type == ConflictType.SPINE_ORDER
+    ]
+    assert any(e.source == "A" and e.target == "B" for e in spine_edges)
+    assert not any(e.source == "B" and e.target == "A" for e in spine_edges)

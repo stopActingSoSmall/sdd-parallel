@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from sdd_parallel.ast_diff_gate import check_virtual_import_cycles
 from sdd_parallel.ast_scanner import ASTHotspotScanner
-from sdd_parallel.models import FileRole, TaskNode, extract_spine_bucket
+from sdd_parallel.models import (
+    FileRole,
+    TaskNode,
+    extract_spine_bucket,
+    matches_path_pattern,
+    normalize_rel_path,
+)
 
 
 def test_extract_spine_bucket() -> None:
@@ -291,3 +298,77 @@ def test_are_functions_isolated_handles_subscript_callee_and_inheritance(tmp_pat
     assert not scanner.are_functions_isolated("src/inh.py", "Child.run", "Base.step")
     assert scanner.are_functions_isolated("src/inh.py", "Child.run", "Base.solo")
     assert scanner.are_functions_isolated("src/inh.py", "other", "helper")
+
+
+def test_matches_path_pattern_zero_and_multi_segments() -> None:
+    """Verify normalize_rel_path and 0/1/N directory matching for /**/ glob patterns."""
+    assert normalize_rel_path("./pkg//sub/./models.py") == "pkg/sub/models.py"
+    assert matches_path_pattern("pkg/contracts/service.py", "pkg/contracts/**/service.py") is True
+    assert (
+        matches_path_pattern(
+            "pkg/contracts/v1/deep/service.py",
+            "pkg/contracts/**/service.py",
+        )
+        is True
+    )
+    assert matches_path_pattern("_bmad-output/stories.yaml", "_bmad-output/**/stories.yaml") is True
+    assert matches_path_pattern("pkg/contracts/other.py", "pkg/contracts/**/service.py") is False
+    assert matches_path_pattern("pkg/service.py", "pkg/contracts/**/service.py") is False
+
+
+def test_ast_scanner_resolves_relative_imports_and_virtual_cycles(tmp_path: Path) -> None:
+    """Unchanged relative ImportFrom edges participate in get_importers and virtual cycle checks."""
+    repo = tmp_path / "repo"
+    (repo / "src" / "pkg").mkdir(parents=True)
+    (repo / "src" / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "src" / "pkg" / "a.py").write_text("VAL_A = 1\n", encoding="utf-8")
+    (repo / "src" / "pkg" / "b.py").write_text(
+        "from . import c\n\nVAL_B = c.VAL_C + 1\n",
+        encoding="utf-8",
+    )
+    (repo / "src" / "pkg" / "c.py").write_text("VAL_C = 3\n", encoding="utf-8")
+
+    scanner = ASTHotspotScanner(repo)
+    scanner.scan()
+
+    assert scanner.get_importers("src/pkg/c.py") == {"src/pkg/b.py"}
+    assert scanner.get_importers("./src/pkg/c.py") == {"src/pkg/b.py"}
+
+    wt_a = tmp_path / "wt_a"
+    (wt_a / "src" / "pkg").mkdir(parents=True)
+    (wt_a / "src" / "pkg" / "a.py").write_text(
+        "from . import b\n\nVAL_A = b.VAL_B + 1\n",
+        encoding="utf-8",
+    )
+
+    wt_b = tmp_path / "wt_b"
+    (wt_b / "src" / "pkg").mkdir(parents=True)
+    (wt_b / "src" / "pkg" / "c.py").write_text(
+        "from . import a\n\nVAL_C = a.VAL_A + 1\n",
+        encoding="utf-8",
+    )
+
+    findings = check_virtual_import_cycles(
+        repo_root=repo,
+        base_scanner=scanner,
+        track_worktrees={"track-a": wt_a, "track-b": wt_b},
+        track_changed_files={
+            "track-a": ["src/pkg/a.py"],
+            "track-b": ["src/pkg/c.py"],
+        },
+    )
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.category == "IMPORT_CYCLE"
+    assert set(finding.tracks) == {"track-a", "track-b"}
+    assert set(finding.files) == {"src/pkg/a.py", "src/pkg/b.py", "src/pkg/c.py"}
+
+
+def test_extract_namespace_tokens_short_cli_flags() -> None:
+    """Short 2-char long CLI flags like --id and --db are captured; --, ---, --help ignored."""
+    text = (
+        "Add --id and --db flags to query command. "
+        "Pass -- separator and --- divider, ignore --help and --version."
+    )
+    tokens = ASTHotspotScanner.extract_namespace_tokens(text)
+    assert tokens == {"ns:CLI:--id", "ns:CLI:--db"}

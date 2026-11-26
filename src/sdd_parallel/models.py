@@ -26,12 +26,19 @@ DEFAULT_SPINE_BUCKET_GLOBS: tuple[str, ...] = (
 )
 
 
+def normalize_rel_path(path: str) -> str:
+    """Canonicalize a relative path to POSIX form without leading './', '/', or '/./' segments."""
+    raw = path.strip().replace("\\", "/")
+    parts = [p for p in raw.split("/") if p and p != "."]
+    return "/".join(parts)
+
+
 def extract_spine_bucket(
     path: str,
     bucket_globs: Sequence[str] | None = None,
 ) -> str | None:
     """Return normalized parent directory bucket if path belongs to a sequential spine dir."""
-    norm = path.replace("\\", "/").strip("/")
+    norm = normalize_rel_path(path)
     if not norm or "/" not in norm:
         return None
     globs = bucket_globs if bucket_globs is not None else DEFAULT_SPINE_BUCKET_GLOBS
@@ -46,33 +53,41 @@ def extract_spine_bucket(
     return norm.rsplit("/", 1)[0]
 
 
+def _match_path_segments(path_parts: Sequence[str], pat_parts: Sequence[str]) -> bool:
+    """Recursively match path segments where '**' matches 0 or more segments."""
+    if not pat_parts:
+        return not path_parts
+    if pat_parts[0] == "**":
+        next_idx = 1
+        while next_idx < len(pat_parts) and pat_parts[next_idx] == "**":
+            next_idx += 1
+        rest_pat = pat_parts[next_idx:]
+        if _match_path_segments(path_parts, rest_pat):
+            return True
+        return bool(path_parts) and _match_path_segments(path_parts[1:], pat_parts)
+    if not path_parts:
+        return False
+    if fnmatch.fnmatch(path_parts[0], pat_parts[0]):
+        return _match_path_segments(path_parts[1:], pat_parts[1:])
+    return False
+
+
 def matches_path_pattern(path: str, pattern: str) -> bool:
-    """Match relative posix path against glob pattern with recursive directory support."""
-    norm_path = path.replace("\\", "/").strip("/")
-    norm_pat = pattern.replace("\\", "/").strip("/")
+    """Match relative posix path against glob pattern with 0+ segment '**' support."""
+    norm_path = normalize_rel_path(path)
+    norm_pat = normalize_rel_path(pattern)
+    if not norm_path or not norm_pat:
+        return False
 
-    if norm_pat.startswith("**/"):
-        inner = norm_pat[3:]
-        if matches_path_pattern(norm_path, inner):
-            return True
-        if fnmatch.fnmatch(norm_path, f"*/{inner}"):
-            return True
-        if fnmatch.fnmatch(norm_path, f"*/**/{inner}"):
-            return True
+    path_parts = norm_path.split("/")
+    pat_parts = norm_pat.split("/")
 
-    if norm_pat.endswith("/**"):
-        prefix = norm_pat[:-3]
-        parts = norm_path.split("/")
-        if prefix in parts:
-            return True
-
-    if fnmatch.fnmatch(norm_path, norm_pat) or fnmatch.fnmatch(norm_path, f"*/{norm_pat}"):
+    if _match_path_segments(path_parts, pat_parts):
         return True
-
-    fname = norm_path.split("/")[-1] if "/" in norm_path else norm_path
-    if fnmatch.fnmatch(fname, norm_pat):
+    if _match_path_segments(path_parts, ["*", *pat_parts]):
         return True
-
+    if "/" not in norm_pat and fnmatch.fnmatch(path_parts[-1], norm_pat):
+        return True
     return False
 
 

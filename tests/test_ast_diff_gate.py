@@ -373,3 +373,66 @@ def test_verify_wave_blocks_on_ast_diff_gate(tmp_path: Path) -> None:
     violations = wm.verify_wave(plan, wave_number=1)
     assert any("[IMPORT_CYCLE]" in v for v in violations)
     assert any("[DIVERGENT_HELPER]" in v for v in violations)
+
+
+def test_ast_diff_gate_flags_deleted_module_imported_by_sibling(tmp_path: Path) -> None:
+    """Deleting an entire .py module in one track triggers SIGNATURE_DEFAULT_DRIFT for sibling."""
+    repo = tmp_path / "repo"
+    (repo / "src" / "pkg").mkdir(parents=True)
+    _init_git_repo(repo)
+    (repo / "src" / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "src" / "pkg" / "api.py").write_text(
+        "def fetch_user(uid: int) -> str:\n"
+        "    return str(uid)\n",
+        encoding="utf-8",
+    )
+    (repo / "src" / "pkg" / "client.py").write_text(
+        "from pkg.api import fetch_user\n\n"
+        "def render_user(uid: int) -> str:\n"
+        "    return fetch_user(uid)\n",
+        encoding="utf-8",
+    )
+    base_sha = _git_commit_all(repo, "seed api and client")
+
+    wt_a = tmp_path / "wt_a"
+    (wt_a / "src" / "pkg").mkdir(parents=True)
+    (wt_a / "src" / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    # src/pkg/api.py is deleted in track-a
+
+    wt_b = tmp_path / "wt_b"
+    (wt_b / "src" / "pkg").mkdir(parents=True)
+    (wt_b / "src" / "pkg" / "client.py").write_text(
+        "from pkg.api import fetch_user\n\n"
+        "def render_user(uid: int) -> str:\n"
+        "    return fetch_user(uid).upper()\n",
+        encoding="utf-8",
+    )
+
+    tracks = [
+        WaveTrack(track_id="track-a", task_ids=["T1"], effort=EffortTier.LOW),
+        WaveTrack(track_id="track-b", task_ids=["T2"], effort=EffortTier.LOW),
+    ]
+    tasks_by_id = {
+        "T1": TaskNode(id="T1", title="Remove legacy api", write_files=["src/pkg/api.py"]),
+        "T2": TaskNode(id="T2", title="Update client", write_files=["src/pkg/client.py"]),
+    }
+
+    findings = check_signature_and_default_drift(
+        repo_root=repo,
+        merge_base_map={"track-a": base_sha, "track-b": base_sha},
+        tracks=tracks,
+        track_worktrees={"track-a": wt_a, "track-b": wt_b},
+        track_changed_files={
+            "track-a": ["src/pkg/api.py"],
+            "track-b": ["src/pkg/client.py"],
+        },
+        tasks_by_id=tasks_by_id,
+    )
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.category == "SIGNATURE_DEFAULT_DRIFT"
+    assert finding.severity == "ERROR"
+    assert finding.tracks == ("track-a", "track-b")
+    assert finding.files == ("src/pkg/api.py",)
+    assert "fetch_user" in finding.symbols

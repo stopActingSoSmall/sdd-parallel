@@ -20,6 +20,7 @@ from sdd_parallel.models import (
     WaveTrack,
     extract_spine_bucket,
     is_contract_file,
+    normalize_rel_path,
 )
 
 
@@ -46,7 +47,11 @@ class BSPWaveScheduler:
         if max_tracks < 1:
             raise ValueError("max_tracks must be >= 1")
         self.max_tracks = max_tracks
-        self.file_roles: dict[str, FileRole] = dict(file_roles or {})
+        self.file_roles: dict[str, FileRole] = {
+            normalize_rel_path(k): v
+            for k, v in (file_roles or {}).items()
+            if normalize_rel_path(k)
+        }
         self.ast_scanner = ast_scanner
         self.contract_globs = (
             tuple(contract_globs) if contract_globs is not None else DEFAULT_CONTRACT_GLOBS
@@ -63,8 +68,8 @@ class BSPWaveScheduler:
         )
 
     def get_file_role(self, path: str) -> FileRole:
-        normalized = path.replace("\\", "/").lstrip("./")
-        parts = normalized.strip("/").split("/")
+        normalized = normalize_rel_path(path)
+        parts = normalized.split("/") if normalized else []
         filename = parts[-1] if parts else ""
         if "tests" in parts or filename.startswith("test_") or filename.endswith("_test.py"):
             return FileRole.STANDARD
@@ -92,17 +97,30 @@ class BSPWaveScheduler:
                     queue.append(nxt)
         return False
 
-    def build_edges(self, tasks: Sequence[TaskNode]) -> list[ConflictEdge]:
+    def build_edges(
+        self,
+        tasks: Sequence[TaskNode],
+        completed_wave_of: Mapping[str, int] | None = None,
+    ) -> list[ConflictEdge]:
         """Construct directed dependencies and undirected collision edges across tasks."""
         if self.ast_scanner is not None:
             linked_map = self.ast_scanner.link_tasks(tasks)
             if isinstance(linked_map, dict) and linked_map:
                 for task in tasks:
                     if linked_map.get(task.id):
-                        importers: set[str] = set(task.impact_files)
-                        for wf in task.write_files:
-                            importers.update(self.ast_scanner.get_importers(wf))
-                        importers.difference_update(task.write_files)
+                        importers: set[str] = {
+                            norm for f in task.impact_files if (norm := normalize_rel_path(f))
+                        }
+                        write_set = {
+                            norm for wf in task.write_files if (norm := normalize_rel_path(wf))
+                        }
+                        for wf in write_set:
+                            importers.update(
+                                norm
+                                for imp in self.ast_scanner.get_importers(wf)
+                                if (norm := normalize_rel_path(imp))
+                            )
+                        importers.difference_update(write_set)
                         task.impact_files = sorted(importers)
 
         edges: list[ConflictEdge] = []
@@ -126,11 +144,11 @@ class BSPWaveScheduler:
 
         # 2. Pairwise file & semantic blast-radius analysis
         for i, task_a in enumerate(tasks):
-            write_a = {f.replace("\\", "/") for f in task_a.write_files}
-            impact_a = {f.replace("\\", "/") for f in task_a.impact_files}
+            write_a = {norm for f in task_a.write_files if (norm := normalize_rel_path(f))}
+            impact_a = {norm for f in task_a.impact_files if (norm := normalize_rel_path(f))}
             for task_b in tasks[i + 1 :]:
-                write_b = {f.replace("\\", "/") for f in task_b.write_files}
-                impact_b = {f.replace("\\", "/") for f in task_b.impact_files}
+                write_b = {norm for f in task_b.write_files if (norm := normalize_rel_path(f))}
+                impact_b = {norm for f in task_b.impact_files if (norm := normalize_rel_path(f))}
 
                 shared_writes = sorted(write_a & write_b)
                 spine_shared = [f for f in shared_writes if self.get_file_role(f) == FileRole.SPINE]
@@ -153,11 +171,24 @@ class BSPWaveScheduler:
                 ]
 
                 if spine_shared or shared_buckets:
-                    # Respect existing explicit dependency direction
+                    # Respect existing explicit dependency direction and completed-wave order
                     if self._can_reach(task_b.id, task_a.id, explicit_adj):
                         src_id, dst_id = task_b.id, task_a.id
                     elif self._can_reach(task_a.id, task_b.id, explicit_adj):
                         src_id, dst_id = task_a.id, task_b.id
+                    elif completed_wave_of is not None:
+                        w_a = completed_wave_of.get(task_a.id)
+                        w_b = completed_wave_of.get(task_b.id)
+                        if w_a is not None and w_b is None:
+                            src_id, dst_id = task_a.id, task_b.id
+                        elif w_b is not None and w_a is None:
+                            src_id, dst_id = task_b.id, task_a.id
+                        elif w_a is not None and w_b is not None and w_a != w_b:
+                            src_id, dst_id = (
+                                (task_a.id, task_b.id) if w_a < w_b else (task_b.id, task_a.id)
+                            )
+                        else:
+                            src_id, dst_id = task_a.id, task_b.id
                     else:
                         src_id, dst_id = task_a.id, task_b.id
                     if not self._can_reach(dst_id, src_id, explicit_adj):
@@ -235,6 +266,15 @@ class BSPWaveScheduler:
 
         return edges
 
+    @staticmethod
+    def _lookup_function_scope(notes: Mapping[str, str], norm_path: str) -> str:
+        if norm_path in notes:
+            return notes[norm_path].strip()
+        for raw_key, value in notes.items():
+            if normalize_rel_path(raw_key) == norm_path:
+                return value.strip()
+        return ""
+
     def _has_isolated_function_scope(
         self,
         task_a: TaskNode,
@@ -242,12 +282,13 @@ class BSPWaveScheduler:
         file_path: str,
     ) -> bool:
         """Return True if tasks touch distinct, AST-verified non-interacting functions."""
-        scope_a = task_a.shared_function_notes.get(file_path, "").strip()
-        scope_b = task_b.shared_function_notes.get(file_path, "").strip()
+        norm_path = normalize_rel_path(file_path)
+        scope_a = self._lookup_function_scope(task_a.shared_function_notes, norm_path)
+        scope_b = self._lookup_function_scope(task_b.shared_function_notes, norm_path)
         if not scope_a or not scope_b or scope_a == scope_b:
             return False
         if self.ast_scanner is not None:
-            return bool(self.ast_scanner.are_functions_isolated(file_path, scope_a, scope_b))
+            return bool(self.ast_scanner.are_functions_isolated(norm_path, scope_a, scope_b))
         return True
 
     def compute_structural_signals(
@@ -256,15 +297,16 @@ class BSPWaveScheduler:
         edges: Sequence[ConflictEdge],
     ) -> TaskStructuralSignals:
         """Compute deterministic AST & conflict-graph structural metrics for task."""
+        norm_writes = [norm for f in task.write_files if (norm := normalize_rel_path(f))]
         files_count = len(task.write_files)
         max_fan_in = 0
-        if self.ast_scanner is not None and task.write_files:
+        if self.ast_scanner is not None and norm_writes:
             max_fan_in = max(
-                (len(self.ast_scanner.get_importers(f)) for f in task.write_files),
+                (len(self.ast_scanner.get_importers(f)) for f in norm_writes),
                 default=0,
             )
         touches_spine = any(
-            self.get_file_role(f) == FileRole.SPINE for f in task.write_files
+            self.get_file_role(f) == FileRole.SPINE for f in norm_writes
         )
 
         base_dir: Path | None = self.repo_root
@@ -275,7 +317,7 @@ class BSPWaveScheduler:
         for f in task.write_files:
             f_path = Path(f)
             if base_dir is not None and not f_path.is_absolute():
-                p = (base_dir / f).resolve()
+                p = (base_dir / normalize_rel_path(f)).resolve()
             else:
                 p = f_path.resolve()
             if p.is_file():
@@ -370,7 +412,9 @@ class BSPWaveScheduler:
                 exclusive_files: list[str] = []
                 additive_files: list[str] = []
                 for f in t_node.write_files:
-                    norm_f = f.replace("\\", "/")
+                    norm_f = normalize_rel_path(f)
+                    if not norm_f:
+                        continue
                     if self.get_file_role(norm_f) == FileRole.ADDITIVE_REGISTRY:
                         additive_files.append(norm_f)
                     else:
@@ -383,7 +427,10 @@ class BSPWaveScheduler:
                         effort=t_node.effort,
                         exclusive_write_files=exclusive_files,
                         additive_shared_files=additive_files,
-                        function_scope_notes=dict(t_node.shared_function_notes),
+                        function_scope_notes={
+                            (normalize_rel_path(k) or k): v
+                            for k, v in t_node.shared_function_notes.items()
+                        },
                     )
                 )
                 unscheduled.remove(tid)
@@ -415,18 +462,19 @@ class BSPWaveScheduler:
         """Collect sorted SPINE and ADDITIVE_REGISTRY write files across tasks."""
         spine_files = sorted(
             {
-                f.replace("\\", "/")
+                norm
                 for t in tasks
                 for f in t.write_files
-                if self.get_file_role(f) == FileRole.SPINE
+                if (norm := normalize_rel_path(f)) and self.get_file_role(norm) == FileRole.SPINE
             }
         )
         additive_registries = sorted(
             {
-                f.replace("\\", "/")
+                norm
                 for t in tasks
                 for f in t.write_files
-                if self.get_file_role(f) == FileRole.ADDITIVE_REGISTRY
+                if (norm := normalize_rel_path(f))
+                and self.get_file_role(norm) == FileRole.ADDITIVE_REGISTRY
             }
         )
         return spine_files, additive_registries
@@ -483,16 +531,29 @@ class BSPWaveScheduler:
 
         if enriched_writes:
             for t in remaining_tasks:
+                existing_writes = {
+                    n for wf in t.write_files if (n := normalize_rel_path(wf))
+                }
                 for raw_path in enriched_writes.get(t.id, ()):
-                    norm = raw_path.replace("\\", "/")
-                    if norm not in t.write_files:
+                    norm = normalize_rel_path(raw_path)
+                    if norm and norm not in existing_writes:
                         t.write_files.append(norm)
+                        existing_writes.add(norm)
 
         all_tasks = list(plan.tasks)
         spine_files, additive_registries = self._collect_role_files(all_tasks)
+        completed_wave_of: dict[str, int] = {
+            tid: w.wave_number
+            for w in prefix_waves
+            for tid in w.all_task_ids
+        }
 
         if not remaining_tasks:
-            edges = self.build_edges(all_tasks) if all_tasks else []
+            edges = (
+                self.build_edges(all_tasks, completed_wave_of=completed_wave_of)
+                if all_tasks
+                else []
+            )
             return WavePlan(
                 sdd_kit=plan.sdd_kit,
                 waves=prefix_waves,
@@ -520,7 +581,7 @@ class BSPWaveScheduler:
         ]
 
         all_waves = prefix_waves + shifted_waves
-        edges = self.build_edges(all_tasks)
+        edges = self.build_edges(all_tasks, completed_wave_of=completed_wave_of)
         new_plan = WavePlan(
             sdd_kit=plan.sdd_kit,
             waves=all_waves,
