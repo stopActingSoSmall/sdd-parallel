@@ -1,0 +1,2803 @@
+"""Git worktree provisioner, non-invasive BMAD context boundary injector, and Merge Gate."""
+
+from __future__ import annotations
+
+import json
+import os
+import shlex
+import shutil
+import stat
+import subprocess
+import sys
+import tomllib
+from collections.abc import Collection, Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from sdd_parallel.adapters import SDDAdapterProtocol, get_adapter
+from sdd_parallel.ast_diff_gate import ASTGateFinding, run_pre_merge_ast_diff_gate
+from sdd_parallel.ast_scanner import ASTHotspotScanner
+from sdd_parallel.hooks.blast_radius_guard import _matches_any_glob
+from sdd_parallel.models import (
+    BarrierFeedback,
+    EffortTier,
+    LockManifest,
+    TaskNode,
+    TaskStatus,
+    Wave,
+    WavePlan,
+    WaveTrack,
+)
+from sdd_parallel.plugin_installer import configure_claude_settings
+from sdd_parallel.registry_merger import (
+    is_python_registry_candidate,
+    merge_python_additive_registry,
+)
+from sdd_parallel.scheduler import BSPWaveScheduler
+from sdd_parallel.status_merger import get_status_merger
+
+_DEFAULT_SHARED_DIRS = (".venv", "node_modules", ".cache")
+_DEFAULT_SHARED_FILES = (".env", ".env.local")
+
+_IGNORED_WORKTREE_PREFIXES = (
+    ".tmp/",
+    ".parallel/",
+    ".worktrees/",
+    "_bmad/custom/",
+    ".pytest_cache/",
+    "__pycache__/",
+    ".venv/",
+    "node_modules/",
+    ".cache/",
+)
+
+_IGNORED_WORKTREE_EXACT = {
+    ".worktrees",
+    ".worktrees/",
+    ".parallel",
+    ".parallel/",
+    ".parallel-lock.json",
+    "ACTIVE_TRACK.md",
+    ".env",
+    ".env.local",
+    ".venv",
+    "node_modules",
+    ".cache",
+}
+
+
+def _is_ignored_worktree_artifact(norm_path: str) -> bool:
+    return (
+        norm_path.startswith(_IGNORED_WORKTREE_PREFIXES)
+        or norm_path in _IGNORED_WORKTREE_EXACT
+    )
+
+_EXCLUDE_ENTRIES = (
+    "_bmad/custom/bmad-build.user.toml",
+    "_bmad/custom/bmad-build-auto.user.toml",
+    "_bmad/custom/bmad-build.toml",
+    "_bmad/custom/bmad-build-auto.toml",
+    ".parallel/",
+    ".worktrees/",
+    ".parallel-lock.json",
+    ".tmp/",
+    "ACTIVE_TRACK.md",
+    ".claude/",
+    ".claude/settings.local.json",
+    ".venv",
+    ".venv/",
+    "node_modules",
+    "node_modules/",
+    ".cache",
+    ".cache/",
+    ".env",
+    ".env.local",
+)
+
+
+def default_antigravity_worktrees_dir(project_name: str) -> Path:
+    """Return default root directory for Antigravity worktrees:
+    ~/.gemini/antigravity/worktrees/<ProjectName>.
+    """
+    return Path.home() / ".gemini" / "antigravity" / "worktrees" / project_name
+
+
+def load_parallel_config(repo_root: Path) -> dict[str, Any]:
+    """Load configuration from pyproject.toml [tool.sdd-parallel] and .parallel-config.json."""
+    config: dict[str, Any] = {}
+
+    # Priority 2: [tool.sdd-parallel] in pyproject.toml
+    pyproject_file = repo_root / "pyproject.toml"
+    if pyproject_file.is_file():
+        try:
+            data = tomllib.loads(pyproject_file.read_text(encoding="utf-8-sig"))
+            sdd_conf = data.get("tool", {}).get("sdd-parallel", {})
+            if isinstance(sdd_conf, dict):
+                config.update(sdd_conf)
+        except Exception:
+            pass
+
+    # Priority 1: .parallel-config.json (overrides pyproject.toml)
+    cfg_file = repo_root / ".parallel-config.json"
+    if cfg_file.is_file():
+        try:
+            data = json.loads(cfg_file.read_text(encoding="utf-8-sig"))
+            if isinstance(data, dict):
+                for k, v in data.items():
+                    curr_hooks = config.get("hooks")
+                    if k == "hooks" and isinstance(v, dict) and isinstance(curr_hooks, dict):
+                        config["hooks"] = {**curr_hooks, **v}
+                    else:
+                        config[k] = v
+        except Exception:
+            pass
+
+    return config
+
+
+def compute_track_port(
+    track_id: str,
+    track_index: int = 1,
+    base_port: int = 8100,
+) -> int:
+    """Compute non-overlapping port for parallel track slot."""
+    norm = track_id.lower().strip()
+    if norm.startswith("track-"):
+        suffix = norm[6:]
+        if len(suffix) == 1 and suffix.isalpha():
+            offset = ord(suffix) - ord("a") + 1
+            return base_port + offset
+        if suffix.isdigit():
+            return base_port + int(suffix)
+    if track_index > 0:
+        return base_port + track_index
+    return base_port + 1
+
+
+def run_lifecycle_hook(
+    hook_name: str,
+    command: str,
+    cwd: Path,
+    env_vars: Mapping[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Execute a lifecycle hook command inside cwd with isolated env vars."""
+    env = os.environ.copy()
+    if env_vars:
+        env.update(env_vars)
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        env=env,
+        shell=True,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def resolve_checkpoint_gates(repo_root: Path) -> list[str]:
+    """Resolve stack-agnostic checkpoint quality gates for repo_root."""
+    cfg = load_parallel_config(repo_root)
+    gates = cfg.get("checkpoint_gates")
+    if isinstance(gates, list) and gates:
+        return [str(g) for g in gates]
+
+    # Priority 3: Polymorphic autodetect by stack markers
+    # Python (pyproject.toml or pytest.ini)
+    pyproject_file = repo_root / "pyproject.toml"
+    pyproject_data: dict[str, Any] = {}
+    if pyproject_file.is_file():
+        try:
+            pyproject_data = tomllib.loads(pyproject_file.read_text(encoding="utf-8-sig"))
+        except Exception:
+            pass
+
+    pytest_ini = repo_root / "pytest.ini"
+    if pyproject_file.is_file() or pytest_ini.is_file():
+        tests_dir = repo_root / "tests"
+        has_tests = False
+        if tests_dir.is_dir() and any(tests_dir.rglob("*.py")):
+            has_tests = True
+        else:
+            for _ in repo_root.glob("test_*.py"):
+                has_tests = True
+                break
+            if not has_tests:
+                for _ in repo_root.glob("*_test.py"):
+                    has_tests = True
+                    break
+
+        if has_tests:
+            py_gates: list[str] = ["uv run pytest"]
+            tool_dict = pyproject_data.get("tool", {}) if isinstance(pyproject_data, dict) else {}
+            if isinstance(tool_dict, dict):
+                if "ruff" in tool_dict:
+                    py_gates.append("uv run ruff check src/ tests/")
+                if "mypy" in tool_dict:
+                    py_gates.append("uv run mypy --strict src")
+            return py_gates
+
+    # Node.js / TypeScript (package.json)
+    package_json = repo_root / "package.json"
+    if package_json.is_file():
+        try:
+            pkg_data = json.loads(package_json.read_text(encoding="utf-8-sig"))
+            test_script = str(pkg_data.get("scripts", {}).get("test", ""))
+            if test_script and 'echo "Error: no test specified" && exit 1' not in test_script:
+                return ["npm test"]
+        except Exception:
+            pass
+
+    # Rust (Cargo.toml)
+    if (repo_root / "Cargo.toml").is_file():
+        return ["cargo test"]
+
+    # Go (go.mod)
+    if (repo_root / "go.mod").is_file():
+        return ["go test ./..."]
+
+    # Fallback for Python / greenfield sandboxes
+    return ["uv run pytest"]
+
+
+def _is_no_tests_collected(gate_cmd: str, returncode: int, stdout: str, stderr: str) -> bool:
+    """Return True if a test runner exited non-zero solely because no test files exist yet."""
+    combined = f"{stdout}\n{stderr}".lower()
+    if "pytest" in gate_cmd and returncode == 5:
+        return True
+    no_test_markers = (
+        "collected 0 items",
+        "no tests ran",
+        "no test files found",
+        "no tests found",
+        "no specs found",
+    )
+    return any(marker in combined for marker in no_test_markers)
+
+
+def create_directory_link(target: Path, link: Path) -> None:
+    """Create a directory junction on Windows or a relative directory symlink on POSIX."""
+    target = target.resolve()
+    link = link.resolve()
+    link.parent.mkdir(parents=True, exist_ok=True)
+    is_junc = hasattr(link, "is_junction") and link.is_junction()
+    is_sym = link.is_symlink()
+    if is_junc or is_sym:
+        remove_directory_link(link)
+    elif link.is_dir():
+        try:
+            link.rmdir()
+        except OSError:
+            return
+
+    if sys.platform == "win32":
+        try:
+            import _winapi
+
+            getattr(_winapi, "CreateJunction")(str(target), str(link))
+        except Exception:
+            res = subprocess.run(
+                ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if res.returncode != 0:
+                raise OSError(f"Failed to create junction from {target} to {link}: {res.stderr}")
+    else:
+        try:
+            rel_target = os.path.relpath(target, link.parent)
+            os.symlink(rel_target, str(link), target_is_directory=True)
+        except (ValueError, OSError):
+            os.symlink(str(target), str(link), target_is_directory=True)
+
+
+def remove_directory_link(link: Path) -> None:
+    """Safely remove a directory junction on Windows or symlink on POSIX.
+
+    Does nothing if link is a regular directory or does not exist.
+    """
+    is_junc = hasattr(link, "is_junction") and link.is_junction()
+    is_sym = link.is_symlink()
+    if not (is_junc or is_sym):
+        return
+
+    if os.name == "nt":
+        if is_junc:
+            try:
+                os.rmdir(link)
+                return
+            except OSError:
+                pass
+        if is_sym:
+            try:
+                link.unlink()
+                return
+            except OSError:
+                pass
+            try:
+                os.rmdir(link)
+                return
+            except OSError:
+                pass
+    else:
+        if is_sym:
+            link.unlink()
+
+
+def sync_environment_file(target: Path, link: Path) -> None:
+    """Copy or symlink environment file (.env, .env.local) into worktree slot."""
+    target = target.resolve()
+    link = link.resolve()
+    if not target.is_file():
+        return
+    link.parent.mkdir(parents=True, exist_ok=True)
+    if link.is_symlink() or link.is_file():
+        try:
+            link.unlink()
+        except OSError:
+            pass
+    if sys.platform == "win32":
+        shutil.copy2(target, link)
+    else:
+        try:
+            rel_target = os.path.relpath(target, link.parent)
+            os.symlink(rel_target, str(link))
+        except (ValueError, OSError):
+            shutil.copy2(target, link)
+
+
+def sync_environment(
+    repo_root: Path,
+    worktree_path: Path,
+    config: Mapping[str, Any] | None = None,
+) -> list[str]:
+    """Sync dependencies (.venv, node_modules, .cache) and environment files into slot.
+
+    Returns list of relative paths that were synchronized.
+    """
+    root = repo_root.resolve()
+    wt = worktree_path.resolve()
+    if root == wt:
+        return []
+
+    cfg = dict(config or {})
+    shared_dirs = list(cfg.get("shared_dirs", _DEFAULT_SHARED_DIRS))
+    shared_files = list(cfg.get("shared_files", _DEFAULT_SHARED_FILES))
+
+    synced: list[str] = []
+
+    for d_name in shared_dirs:
+        norm_d = str(d_name).strip()
+        src_dir = root / norm_d
+        dst_dir = wt / norm_d
+        if src_dir.is_dir():
+            create_directory_link(src_dir, dst_dir)
+            synced.append(norm_d)
+
+    for f_name in shared_files:
+        norm_f = str(f_name).strip()
+        src_file = root / norm_f
+        dst_file = wt / norm_f
+        if src_file.is_file():
+            sync_environment_file(src_file, dst_file)
+            synced.append(norm_f)
+
+    return synced
+
+
+class LIFORollbackViolationError(RuntimeError):
+    """Raised when an attempt is made to rollback a wave violating LIFO order."""
+
+
+def read_parallel_state(repo_root: Path) -> dict[str, Any]:
+    """Read .parallel/state.json containing monotonic wave history."""
+    state_file = repo_root.resolve() / ".parallel" / "state.json"
+    if state_file.is_file():
+        try:
+            data = json.loads(state_file.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except (OSError, json.JSONDecodeError):
+            pass
+    return {"last_merged_wave_id": None, "run_counter": 0, "history": []}
+
+
+def write_parallel_state(repo_root: Path, state: dict[str, Any]) -> None:
+    """Save state dict to .parallel/state.json."""
+    state_file = repo_root.resolve() / ".parallel" / "state.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _configure_worktree_filemode(worktree_path: Path) -> None:
+    """Configure core.fileMode false in worktree so chmod a-w does not pollute git status."""
+    subprocess.run(
+        ["git", "config", "core.fileMode", "false"],
+        cwd=worktree_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    subprocess.run(
+        ["git", "config", "--worktree", "core.fileMode", "false"],
+        cwd=worktree_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _apply_os_readonly_locks(worktree_path: Path, lock: LockManifest) -> list[str]:
+    """Apply OS read-only file attribute (chmod a-w) to forbidden files inside the worktree."""
+    locked: list[str] = []
+    wt = worktree_path.resolve()
+    for rel_path in lock.forbidden_files:
+        norm = rel_path.replace("\\", "/")
+        target = (wt / norm).resolve()
+        if target.is_file():
+            try:
+                mode = os.stat(target).st_mode
+                os.chmod(target, mode & ~stat.S_IWRITE & ~stat.S_IWGRP & ~stat.S_IWOTH)
+                locked.append(norm)
+            except OSError:
+                pass
+    return locked
+
+
+def _restore_os_writable(worktree_path: Path, rel_paths: Iterable[str] | None = None) -> None:
+    """Restore OS write permissions (chmod u+w) for specified files or all files in worktree."""
+    wt = worktree_path.resolve()
+    if rel_paths is not None:
+        for rel_path in rel_paths:
+            norm = rel_path.replace("\\", "/")
+            target = (wt / norm).resolve()
+            if target.is_file():
+                try:
+                    mode = os.stat(target).st_mode
+                    os.chmod(target, mode | stat.S_IWRITE)
+                except OSError:
+                    pass
+    else:
+        for root, _, files in os.walk(wt):
+            for f in files:
+                p = Path(root) / f
+                try:
+                    mode = os.stat(p).st_mode
+                    if not (mode & stat.S_IWRITE):
+                        os.chmod(p, mode | stat.S_IWRITE)
+                except OSError:
+                    pass
+
+
+@dataclass(frozen=True)
+class PartialMergeOutcome:
+    """Result of a wave barrier merge (including partial commit and culprit isolation)."""
+
+    merged_branches: list[str]
+    rejected_tracks: dict[str, BarrierFeedback]
+    backup_branches: dict[str, str]
+    rescheduled_plan_path: Path | None = None
+
+
+def _save_barrier_feedback(
+    repo_root: Path,
+    worktree_path: Path | None,
+    feedback: BarrierFeedback,
+) -> list[Path]:
+    """Persist BarrierFeedback to .parallel/barrier-feedback-<story_id>.json and worktree .tmp."""
+    saved: list[Path] = []
+    parallel_dir = repo_root.resolve() / ".parallel"
+    parallel_dir.mkdir(parents=True, exist_ok=True)
+    fb_dict = feedback.to_dict()
+    payload_text = json.dumps(fb_dict, indent=2, ensure_ascii=False) + "\n"
+    for story_id in feedback.story_ids:
+        sid = story_id.strip()
+        if not sid:
+            continue
+        p = parallel_dir / f"barrier-feedback-{sid}.json"
+        p.write_text(payload_text, encoding="utf-8")
+        saved.append(p)
+    if worktree_path is not None and worktree_path.is_dir():
+        tmp_dir = worktree_path.resolve() / ".tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        wt_fb = tmp_dir / "barrier-feedback.json"
+        wt_payload = dict(fb_dict)
+        wt_payload["all_feedbacks"] = [fb_dict]
+        wt_fb.write_text(
+            json.dumps(wt_payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        saved.append(wt_fb)
+    return saved
+
+
+def load_barrier_feedback(
+    repo_root: Path,
+    story_ids: Sequence[str],
+) -> list[BarrierFeedback]:
+    """Load existing .parallel/barrier-feedback-<story_id>.json payloads for story_ids."""
+    parallel_dir = repo_root.resolve() / ".parallel"
+    result: list[BarrierFeedback] = []
+    seen: set[tuple[int, str, str, tuple[str, ...]]] = set()
+    for story_id in story_ids:
+        sid = story_id.strip()
+        if not sid:
+            continue
+        p = parallel_dir / f"barrier-feedback-{sid}.json"
+        if not p.is_file():
+            continue
+        try:
+            raw = json.loads(p.read_text(encoding="utf-8-sig"))
+            if isinstance(raw, dict):
+                fb = BarrierFeedback.from_dict(raw)
+                key = (fb.wave_number, fb.track_id, fb.failed_stage, fb.story_ids)
+                if key not in seen:
+                    seen.add(key)
+                    result.append(fb)
+        except Exception:
+            continue
+    return result
+
+
+def _clear_barrier_feedback(repo_root: Path, story_ids: Sequence[str]) -> None:
+    """Remove .parallel/barrier-feedback-<story_id>.json after stories merge cleanly."""
+    parallel_dir = repo_root.resolve() / ".parallel"
+    for story_id in story_ids:
+        sid = story_id.strip()
+        if not sid:
+            continue
+        p = parallel_dir / f"barrier-feedback-{sid}.json"
+        if p.is_file():
+            try:
+                p.unlink()
+            except OSError:
+                pass
+
+
+def clear_all_barrier_feedback(repo_root: Path) -> int:
+    """Delete all .parallel/barrier-feedback-*.json files on fresh plan/abort/rollback."""
+    parallel_dir = repo_root.resolve() / ".parallel"
+    if not parallel_dir.is_dir():
+        return 0
+    removed = 0
+    for p in parallel_dir.glob("barrier-feedback-*.json"):
+        try:
+            p.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def _ensure_plan_tasks_populated(
+    plan: WavePlan,
+    deferred_ids: Sequence[str] = (),
+    default_effort: EffortTier = EffortTier.MEDIUM,
+) -> None:
+    """Ensure plan.tasks contains TaskNode entries for all scheduled and deferred tasks."""
+    existing_by_id = {t.id: t for t in plan.tasks}
+    for w in plan.waves:
+        for trk in w.tracks:
+            trk_writes: list[str] = []
+            for f in (*trk.exclusive_write_files, *trk.additive_shared_files):
+                norm_f = f.replace("\\", "/")
+                if norm_f not in trk_writes:
+                    trk_writes.append(norm_f)
+            for tid in trk.task_ids:
+                if tid not in existing_by_id:
+                    node = TaskNode(
+                        id=tid,
+                        title=tid,
+                        write_files=list(trk_writes),
+                        effort=trk.effort,
+                        shared_function_notes=dict(trk.function_scope_notes),
+                    )
+                    plan.tasks.append(node)
+                    existing_by_id[tid] = node
+                elif not existing_by_id[tid].write_files and len(trk.task_ids) == 1 and trk_writes:
+                    existing_by_id[tid].write_files = list(trk_writes)
+
+    for did in deferred_ids:
+        if did and did not in existing_by_id:
+            node = TaskNode(
+                id=did,
+                title=did,
+                write_files=[],
+                effort=default_effort,
+            )
+            plan.tasks.append(node)
+            existing_by_id[did] = node
+
+    deferred_set = {did for did in deferred_ids if did}
+    if deferred_set:
+        plan.tasks = [t for t in plan.tasks if t.id not in deferred_set] + [
+            t for t in plan.tasks if t.id in deferred_set
+        ]
+
+
+class WorktreeManager:
+    """Manages isolated git worktrees, context boundary files, and barrier checkpoint merges."""
+
+    def __init__(
+        self,
+        repo_root: Path,
+        layout: str = "local",
+        worktrees_dir: Path | None = None,
+        fixed_slots: bool = True,
+    ) -> None:
+        self.repo_root = repo_root.resolve()
+        self.layout = layout
+        self.fixed_slots = fixed_slots
+        if worktrees_dir is not None:
+            self.worktrees_dir = worktrees_dir.resolve()
+        elif layout == "antigravity":
+            self.worktrees_dir = default_antigravity_worktrees_dir(self.repo_root.name).resolve()
+        else:
+            self.worktrees_dir = (self.repo_root / ".worktrees").resolve()
+        self._config: dict[str, Any] | None = None
+        self.last_escalations: list[dict[str, Any]] = []
+        self.last_merge_outcome: PartialMergeOutcome | None = None
+
+    def get_config(self) -> dict[str, Any]:
+        """Return cached parallel configuration for repo_root."""
+        if self._config is None:
+            self._config = load_parallel_config(self.repo_root)
+        return self._config
+
+    def sync_environment(self, worktree_path: Path) -> list[str]:
+        """Synchronize repository dependencies and environment into the given worktree."""
+        return sync_environment(self.repo_root, worktree_path, self.get_config())
+
+    def worktree_path_for_track(self, wave_number: int, track_id: str) -> Path:
+        """Resolve filesystem path for track worktree according to fixed_slots mode."""
+        if self.fixed_slots:
+            return self.worktrees_dir / track_id
+        return self.worktrees_dir / f"wave-{wave_number}-{track_id}"
+
+    def branch_name_for_track(self, wave_number: int, track_id: str) -> str:
+        """Resolve git branch name according to fixed_slots mode."""
+        if self.fixed_slots:
+            return f"parallel/{track_id}"
+        return f"parallel/wave-{wave_number}-{track_id}"
+
+    def local_link_for_track(self, wave_number: int, track_id: str) -> Path:
+        """Resolve junction/symlink path under repo_root / .worktrees."""
+        local_dir = self.repo_root / ".worktrees"
+        if self.fixed_slots:
+            return local_dir / track_id
+        return local_dir / f"wave-{wave_number}-{track_id}"
+
+    def _resolve_repo_head(self, ref: str = "HEAD") -> str:
+        """Resolve a git ref against repo_root so worktree cwd never shadows main HEAD."""
+        proc = subprocess.run(
+            ["git", "rev-parse", "--verify", ref],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+        return ref
+
+    def _rollback_merge_to_head(self, pre_merge_head: str) -> None:
+        """Abort active merge state and hard-reset repo_root back to pre_merge_head."""
+        merge_head = self.repo_root / ".git" / "MERGE_HEAD"
+        if merge_head.exists():
+            subprocess.run(
+                ["git", "merge", "--abort"],
+                cwd=self.repo_root,
+                capture_output=True,
+                check=False,
+            )
+        if pre_merge_head:
+            subprocess.run(
+                ["git", "reset", "--hard", pre_merge_head],
+                cwd=self.repo_root,
+                capture_output=True,
+                check=False,
+            )
+
+    def _reset_worktree_slot(self, wt_path: Path, branch_name: str, target_ref: str) -> None:
+        """Unlock OS read-only files, reset slot branch to target_ref, and clean temp artifacts."""
+        _restore_os_writable(wt_path)
+        subprocess.run(
+            ["git", "checkout", "-B", branch_name, target_ref],
+            cwd=wt_path,
+            capture_output=True,
+            check=False,
+        )
+        subprocess.run(
+            ["git", "clean", "-fd"],
+            cwd=wt_path,
+            capture_output=True,
+            check=False,
+        )
+        for f_tmp in (
+            ".parallel-lock.json",
+            ".tmp/track-context.md",
+            "ACTIVE_TRACK.md",
+            ".tmp/scope-escalation.json",
+            ".tmp/barrier-feedback.json",
+        ):
+            p_tmp = wt_path / f_tmp
+            if p_tmp.is_file():
+                try:
+                    p_tmp.unlink()
+                except OSError:
+                    pass
+
+    def build_lock_manifest(
+        self,
+        wave: Wave,
+        track: WaveTrack,
+        worktree_path: Path | None = None,
+        all_spine_files: Iterable[str] = (),
+        extra_forbidden_files: Mapping[str, str] | None = None,
+        adapter: SDDAdapterProtocol | None = None,
+    ) -> LockManifest:
+        """Build .parallel-lock.json manifest for a specific track in a wave."""
+        wt_resolved = (
+            worktree_path.resolve()
+            if worktree_path is not None
+            else self.worktree_path_for_track(wave.wave_number, track.track_id).resolve()
+        )
+        forbidden: dict[str, str] = {}
+
+        # Lock files owned exclusively by sibling tracks in the same wave
+        for sibling in wave.tracks:
+            if sibling.track_id == track.track_id:
+                continue
+            sibling_stories = ", ".join(sibling.task_ids)
+            for excl_file in sibling.exclusive_write_files:
+                if excl_file not in track.exclusive_write_files:
+                    forbidden[excl_file] = (
+                        f"Locked by sibling {sibling.track_id} (story {sibling_stories})"
+                    )
+
+        # Lock Spine files not assigned to this track
+        for spine_file in all_spine_files:
+            norm_spine = spine_file.replace("\\", "/")
+            if norm_spine not in track.exclusive_write_files and norm_spine not in forbidden:
+                forbidden[norm_spine] = "Locked by Spine Chain invariant"
+
+        if adapter is None:
+            _, adapter = get_adapter(self.repo_root)
+
+        # Lock kit-specific files via polymorphic adapter
+        for f_path, reason in adapter.get_forbidden_files(wave, track).items():
+            norm_f = f_path.replace("\\", "/")
+            if norm_f not in forbidden:
+                forbidden[norm_f] = reason
+
+        # Lock kit-specific global state files passed explicitly
+        if extra_forbidden_files:
+            for extra_file, reason in extra_forbidden_files.items():
+                norm_extra = extra_file.replace("\\", "/")
+                if norm_extra not in forbidden:
+                    forbidden[norm_extra] = reason
+
+        allowed_globs = [
+            *track.exclusive_write_files,
+            *track.additive_shared_files,
+            "tests/**",
+            ".tmp/**",
+            *adapter.get_allowed_write_globs(track),
+        ]
+
+        env_vars = adapter.get_track_env_vars(track)
+
+        # Dynamic port isolation
+        cfg = self.get_config()
+        base_port = int(cfg.get("base_port", 8100))
+        track_idx = 1
+        try:
+            track_idx = wave.tracks.index(track) + 1
+        except (ValueError, AttributeError):
+            pass
+        port = compute_track_port(track.track_id, track_index=track_idx, base_port=base_port)
+        if "PORT" not in env_vars:
+            env_vars["PORT"] = str(port)
+
+        return LockManifest(
+            wave_id=wave.wave_number,
+            track_id=track.track_id,
+            stories=list(track.task_ids),
+            repo_root=self.repo_root.as_posix(),
+            worktree_root=wt_resolved.as_posix(),
+            allowed_write_globs=allowed_globs,
+            additive_shared_files=list(track.additive_shared_files),
+            forbidden_files=forbidden,
+            env_vars=env_vars,
+        )
+
+    @staticmethod
+    def _render_barrier_feedback_lines(feedbacks: Sequence[BarrierFeedback]) -> list[str]:
+        """Render PREVIOUS WAVE BARRIER NACK section lines for track context/HUD."""
+        lines: list[str] = [
+            "",
+            "## ⚠️ PREVIOUS WAVE BARRIER NACK (ADAPT TO UPDATED MASTER)",
+        ]
+        for fb in feedbacks:
+            tail_lines = fb.diagnostic_output.strip().splitlines()[-30:]
+            diag_tail = "\n".join(tail_lines) if tail_lines else "(no diagnostic output)"
+            backup_ref = fb.prior_branch_ref or "HEAD"
+            siblings = ", ".join(f"`{c}`" for c in fb.merged_sibling_commits) or "*(none)*"
+            confl = ", ".join(f"`{f}`" for f in fb.conflicting_files) or "*(none)*"
+            cmd_str = fb.failed_command or fb.failed_stage
+            lines.extend(
+                [
+                    f"- **Failed Stage:** `{fb.failed_stage}` | **Wave:** {fb.wave_number} | "
+                    f"**Track:** `{fb.track_id}`",
+                    f"- **Command:** `{cmd_str}`",
+                    f"- **Prior Code Backup Branch:** `{backup_ref}` "
+                    f"(inspect `git diff HEAD...{backup_ref}`)",
+                    f"- **Merged Sibling Commits:** {siblings}",
+                    f"- **Conflicting / Affected Files:** {confl}",
+                    "- **Diagnostic Tail:**",
+                    "```text",
+                    diag_tail,
+                    "```",
+                ]
+            )
+        return lines
+
+    def render_track_context_md(
+        self,
+        wave: Wave,
+        track: WaveTrack,
+        lock: LockManifest,
+        headless: bool = False,
+        feedbacks: Sequence[BarrierFeedback] | None = None,
+    ) -> str:
+        """Render .tmp/track-context.md injected into bmad-build / bmad-build-auto."""
+        stories_str = ", ".join(track.task_ids)
+        lines: list[str] = [
+            "# PARALLEL TRACK CONTEXT BOUNDARY (ENFORCED)",
+            f"- **Wave:** {wave.wave_number} | **Track:** `{track.track_id}` | "
+            f"**Assigned Stories:** `{stories_str}`",
+            f"- **Recommended Model Effort:** `{track.effort.value}`",
+            "",
+            "## 1. Allowed Exclusive Write Scope",
+        ]
+        if track.exclusive_write_files:
+            for f in track.exclusive_write_files:
+                note = track.function_scope_notes.get(f)
+                suffix = f" *(Scope: {note})*" if note else ""
+                lines.append(f"- `{f}`{suffix}")
+        else:
+            lines.append("- *(New module files and story spec files)*")
+
+        lines.extend(["", "## 2. Shared Additive Registries (Append-Only)"])
+        if track.additive_shared_files:
+            for f in track.additive_shared_files:
+                note = track.function_scope_notes.get(f, "Additive registration only")
+                lines.append(f"- `{f}` — {note}")
+        else:
+            lines.append("- *(None)*")
+
+        lines.extend(["", "## 3. Forbidden Files (Locked by Sibling Tracks / Spine)"])
+        if lock.forbidden_files:
+            for f, reason in sorted(lock.forbidden_files.items()):
+                lines.append(f"- `{f}` — **{reason}**")
+        else:
+            lines.append("- *(None)*")
+
+        if lock.env_vars:
+            lines.extend(["", "## Required SDD Environment Variables"])
+            for k, v in sorted(lock.env_vars.items()):
+                lines.append(f"- `export {k}={v}` (Bash) / `$env:{k}=\"{v}\"` (PowerShell)")
+
+        lines.extend(
+            [
+                "",
+                "## Context & Token Hygiene (Read Cache Protection)",
+                "- Do NOT repeatedly re-read unchanged contract, spec, or context "
+                "files already loaded in the session.",
+            ]
+        )
+
+        loaded_feedbacks = (
+            list(feedbacks)
+            if feedbacks is not None
+            else load_barrier_feedback(self.repo_root, track.task_ids)
+        )
+        if loaded_feedbacks:
+            lines.extend(self._render_barrier_feedback_lines(loaded_feedbacks))
+
+        if headless:
+            lines.extend(
+                [
+                    "",
+                    "## 4. HEADLESS WORKTREE MODE (Silent File-State Handoff)",
+                    "- Do NOT output verbose human walkthroughs in chat.",
+                    "- Write full implementation & review records into the story spec file "
+                    "(`## Auto Run Result`).",
+                    "- End your response with a single compact JSON status line: "
+                    '`{"story": "<id>", "status": "done|blocked", "commit": "<sha>"}`.',
+                ]
+            )
+
+        return "\n".join(lines) + "\n"
+
+    def inject_track_boundary(
+        self,
+        worktree_path: Path,
+        wave: Wave,
+        track: WaveTrack,
+        lock: LockManifest,
+        headless: bool = False,
+        extra_exclude_entries: Iterable[str] | None = None,
+    ) -> None:
+        """Write .tmp/track-context.md, .parallel-lock.json, BMAD overrides, and git exclude."""
+        wt = worktree_path.resolve()
+        tmp_dir = wt / ".tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Write .tmp/track-context.md (and .tmp/barrier-feedback.json if NACK exists)
+        feedbacks = load_barrier_feedback(self.repo_root, track.task_ids)
+        context_md = self.render_track_context_md(
+            wave, track, lock, headless=headless, feedbacks=feedbacks
+        )
+        (tmp_dir / "track-context.md").write_text(context_md, encoding="utf-8")
+        wt_fb_file = tmp_dir / "barrier-feedback.json"
+        if feedbacks:
+            wt_fb_payload = feedbacks[0].to_dict()
+            wt_fb_payload["all_feedbacks"] = [fb.to_dict() for fb in feedbacks]
+            wt_fb_file.write_text(
+                json.dumps(wt_fb_payload, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+        elif wt_fb_file.is_file():
+            try:
+                wt_fb_file.unlink()
+            except OSError:
+                pass
+
+        # 2. Write .parallel-lock.json
+        (wt / ".parallel-lock.json").write_text(
+            json.dumps(lock.to_dict(), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        # 3. Polymorphic adapter overlay
+        _, adapter = get_adapter(self.repo_root)
+        adapter.prepare_worktree_overlay(wt, track)
+
+        # 4. Write ACTIVE_TRACK.md HUD for visible operator guidance in IDE
+        assigned_desc = ", ".join(f"`{t_id}`" for t_id in track.task_ids)
+        excl_desc = ", ".join(f"`{f}`" for f in track.exclusive_write_files) or "*(None)*"
+        shared_desc = ", ".join(f"`{f}`" for f in track.additive_shared_files) or "*(None)*"
+        forbid_lines = [f"- `{f}` — {reason}" for f, reason in lock.forbidden_files.items()]
+        forbid_desc = "\n".join(forbid_lines) or "- *(None)*"
+        worker_cmd = adapter.render_worker_command(track).strip("`")
+        hud_lines = [
+            f"# 🎯 ACTIVE WORKTREE: Wave {wave.wave_number} — Track {track.track_id.upper()}",
+            f"> **Назначенные задачи:** {assigned_desc}",
+            f"> **Разрешённые файлы (Exclusive):** {excl_desc}",
+            f"> **Разрешённые файлы (Shared Additive):** {shared_desc}",
+            "",
+            "## 🛑 Запрещённые файлы (Spine / Чужие треки):",
+            forbid_desc,
+            "",
+            "## 🚀 Команда запуска:",
+            "Просто отправьте в чат:",
+            "```text",
+            worker_cmd,
+            "```",
+            f"({adapter.kit_id.upper()} автоматически выберет назначенную задачу).",
+            "",
+        ]
+        if lock.env_vars:
+            hud_lines.extend(
+                [
+                    "## 🔑 Required Environment Variables:",
+                    *[f"- `{k}={v}`" for k, v in sorted(lock.env_vars.items())],
+                    "",
+                ]
+            )
+        if feedbacks:
+            hud_lines.extend(self._render_barrier_feedback_lines(feedbacks))
+        (wt / "ACTIVE_TRACK.md").write_text("\n".join(hud_lines), encoding="utf-8")
+
+        # 5. Configure Claude Code sandbox (permissions.blockWritesOutsideWorkingDirectories)
+        configure_claude_settings(wt)
+
+        # 6. Register injected files in git info/exclude so `git status --porcelain` stays empty
+        self._update_git_exclude(wt, extra_entries=extra_exclude_entries)
+
+    def _update_git_exclude(
+        self, worktree_path: Path, extra_entries: Iterable[str] | None = None
+    ) -> None:
+        """Append injected and synced filenames to git info/exclude targets."""
+        candidates = list(_EXCLUDE_ENTRIES)
+        if extra_entries:
+            for entry in extra_entries:
+                if entry not in candidates:
+                    candidates.append(entry)
+                if (
+                    not entry.endswith("/")
+                    and not entry.endswith(".md")
+                    and not entry.endswith(".json")
+                    and not entry.endswith(".toml")
+                ):
+                    slash_variant = f"{entry}/"
+                    if slash_variant not in candidates:
+                        candidates.append(slash_variant)
+
+        target_exclude_files: list[Path] = []
+        try:
+            proc = subprocess.run(
+                ["git", "rev-parse", "--git-path", "info/exclude"],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                raw_path = Path(proc.stdout.strip())
+                exclude_path = raw_path if raw_path.is_absolute() else (worktree_path / raw_path)
+                target_exclude_files.append(exclude_path)
+        except OSError:
+            pass
+
+        try:
+            git_file_or_dir = worktree_path / ".git"
+            if git_file_or_dir.is_file():
+                content = git_file_or_dir.read_text(encoding="utf-8").strip()
+                if content.startswith("gitdir:"):
+                    raw_gitdir = content.split("gitdir:", 1)[1].strip()
+                    p_gitdir = Path(raw_gitdir)
+                    if not p_gitdir.is_absolute():
+                        p_gitdir = (worktree_path / p_gitdir).resolve()
+                    target_exclude_files.append(p_gitdir / "info" / "exclude")
+        except OSError:
+            pass
+
+        for ex_path in target_exclude_files:
+            try:
+                ex_path.parent.mkdir(parents=True, exist_ok=True)
+                existing = (
+                    ex_path.read_text(encoding="utf-8") if ex_path.is_file() else ""
+                )
+                lines = set(existing.splitlines())
+                appended = [entry for entry in candidates if entry not in lines]
+                if appended:
+                    with ex_path.open("a", encoding="utf-8") as fh:
+                        if existing and not existing.endswith("\n"):
+                            fh.write("\n")
+                        for entry in appended:
+                            fh.write(f"{entry}\n")
+            except OSError:
+                pass
+
+    def prepare_wave(
+        self,
+        plan: WavePlan,
+        wave_number: int,
+        base_branch: str = "HEAD",
+        headless: bool = False,
+        dry_run: bool = False,
+        extra_forbidden_files: Mapping[str, str] | None = None,
+    ) -> list[Path]:
+        """Provision git worktrees and inject boundary contracts for all tracks in `wave_number`."""
+        target_wave = next((w for w in plan.waves if w.wave_number == wave_number), None)
+        if target_wave is None:
+            raise ValueError(f"Wave {wave_number} not found in plan")
+
+        _, adapter = get_adapter(self.repo_root, kit=plan.sdd_kit)
+        extra_forbid = dict(extra_forbidden_files or {})
+
+        created_paths: list[Path] = []
+        for track in target_wave.tracks:
+            branch_name = self.branch_name_for_track(wave_number, track.track_id)
+            wt_path = self.worktree_path_for_track(wave_number, track.track_id)
+            created_paths.append(wt_path)
+            if dry_run:
+                continue
+
+            wt_path.parent.mkdir(parents=True, exist_ok=True)
+            if self.fixed_slots and wt_path.exists() and (wt_path / ".git").exists():
+                # Step 1: Unlock previous wave locks before reset
+                _restore_os_writable(wt_path)
+                # Step 2: In-place branch reset against repo_root ref
+                _configure_worktree_filemode(wt_path)
+                resolved_base = self._resolve_repo_head(base_branch)
+                subprocess.run(
+                    ["git", "checkout", "-B", branch_name, resolved_base],
+                    cwd=wt_path,
+                    check=True,
+                    capture_output=True,
+                )
+                subprocess.run(
+                    ["git", "clean", "-fd"],
+                    cwd=wt_path,
+                    check=True,
+                    capture_output=True,
+                )
+            else:
+                if not wt_path.exists():
+                    subprocess.run(
+                        [
+                            "git",
+                            "-c",
+                            "worktree.useRelativePaths=false",
+                            "worktree",
+                            "add",
+                            "-B",
+                            branch_name,
+                            str(wt_path.resolve()),
+                            base_branch,
+                        ],
+                        cwd=self.repo_root,
+                        capture_output=True,
+                        check=True,
+                    )
+                _configure_worktree_filemode(wt_path)
+
+            if self.layout == "antigravity":
+                local_link = self.local_link_for_track(wave_number, track.track_id)
+                if local_link.resolve() != wt_path.resolve():
+                    create_directory_link(target=wt_path, link=local_link)
+
+            # Synchronize virtual environment, node_modules, and .env into slot
+            synced_items = self.sync_environment(wt_path)
+
+            lock = self.build_lock_manifest(
+                wave=target_wave,
+                track=track,
+                worktree_path=wt_path,
+                all_spine_files=plan.spine_files,
+                extra_forbidden_files=extra_forbid,
+                adapter=adapter,
+            )
+            self.inject_track_boundary(
+                worktree_path=wt_path,
+                wave=target_wave,
+                track=track,
+                lock=lock,
+                headless=headless,
+                extra_exclude_entries=synced_items,
+            )
+
+            # Lifecycle hook: post_provision
+            cfg = self.get_config()
+            hooks = cfg.get("hooks", {})
+            post_provision_cmd = str(hooks.get("post_provision", "")).strip()
+            if post_provision_cmd:
+                hook_res = run_lifecycle_hook(
+                    hook_name="post_provision",
+                    command=post_provision_cmd,
+                    cwd=wt_path,
+                    env_vars=lock.env_vars,
+                )
+                if hook_res.returncode != 0:
+                    err_out = (hook_res.stderr or hook_res.stdout).strip()
+                    raise RuntimeError(
+                        f"Lifecycle hook 'post_provision' failed in track '{track.track_id}' "
+                        f"with exit code {hook_res.returncode}:\n{err_out}"
+                    )
+
+            _apply_os_readonly_locks(wt_path, lock)
+        return created_paths
+
+    def cleanup_wave(
+        self,
+        plan_or_wave: WavePlan | int,
+        wave_number: int | None = None,
+        force: bool = True,
+        remove_directories: bool | None = None,
+    ) -> list[Path]:
+        """Clean up worktrees, directory links, and temporary state for a specific wave."""
+        if isinstance(plan_or_wave, WavePlan):
+            plan = plan_or_wave
+            wave_num = wave_number if wave_number is not None else 1
+            target_wave = next((w for w in plan.waves if w.wave_number == wave_num), None)
+            track_ids = [t.track_id for t in target_wave.tracks] if target_wave else []
+        else:
+            wave_num = plan_or_wave
+            track_ids = []
+
+        should_remove = (
+            remove_directories if remove_directories is not None else (not self.fixed_slots)
+        )
+
+        cleaned: list[Path] = []
+        candidate_paths: list[Path] = []
+        if track_ids:
+            for tid in track_ids:
+                if self.fixed_slots:
+                    candidate_paths.append(self.worktrees_dir / tid)
+                    candidate_paths.append(self.repo_root / ".worktrees" / tid)
+                candidate_paths.append(self.worktrees_dir / f"wave-{wave_num}-{tid}")
+                candidate_paths.append(self.repo_root / ".worktrees" / f"wave-{wave_num}-{tid}")
+        else:
+            prefix = f"wave-{wave_num}-"
+            for base_dir in (self.worktrees_dir, self.repo_root / ".worktrees"):
+                if base_dir.is_dir():
+                    for entry in base_dir.iterdir():
+                        if entry.name.startswith(prefix) or (
+                            self.fixed_slots and entry.name.startswith("track-")
+                        ):
+                            candidate_paths.append(entry)
+
+        repo_head = self._resolve_repo_head("HEAD")
+        seen: set[str] = set()
+        for p in candidate_paths:
+            is_junc = hasattr(p, "is_junction") and p.is_junction()
+            if is_junc or p.is_symlink():
+                remove_directory_link(p)
+                cleaned.append(p)
+                continue
+
+            if not p.exists():
+                continue
+
+            resolved_str = str(p.resolve())
+            if resolved_str in seen:
+                continue
+            seen.add(resolved_str)
+
+            is_fixed_slot_entry = p.name.startswith("track-") and self.fixed_slots
+            if not should_remove and is_fixed_slot_entry and (p / ".git").exists():
+                self._reset_worktree_slot(p, f"parallel/{p.name}", repo_head)
+                cleaned.append(p)
+            else:
+                _restore_os_writable(p)
+                for shared_d in _DEFAULT_SHARED_DIRS:
+                    inner_link = p / shared_d
+                    if (
+                        hasattr(inner_link, "is_junction") and inner_link.is_junction()
+                    ) or inner_link.is_symlink():
+                        remove_directory_link(inner_link)
+                cmd = ["git", "worktree", "remove"]
+                if force:
+                    cmd.append("--force")
+                cmd.append(str(p))
+                subprocess.run(cmd, cwd=self.repo_root, capture_output=True, text=True, check=False)
+
+                if p.exists() and p.is_dir() and p != self.repo_root:
+                    try:
+                        shutil.rmtree(p)
+                    except OSError:
+                        pass
+
+                cleaned.append(p)
+
+        subprocess.run(
+            ["git", "worktree", "prune"], cwd=self.repo_root, capture_output=True, check=False
+        )
+        return cleaned
+
+    def claim_track(
+        self,
+        plan: WavePlan,
+        wave_number: int,
+        track_id: str,
+        worktree_path: Path,
+        headless: bool = False,
+    ) -> LockManifest:
+        """Attach boundary locks to an already created worktree (e.g. Antigravity UI worktree)."""
+        target_wave = next((w for w in plan.waves if w.wave_number == wave_number), None)
+        if target_wave is None:
+            raise ValueError(f"Wave {wave_number} not found in plan")
+        target_track = next((t for t in target_wave.tracks if t.track_id == track_id), None)
+        if target_track is None:
+            raise ValueError(f"Track '{track_id}' not found in Wave {wave_number}")
+
+        wt_resolved = worktree_path.resolve()
+        synced_items = self.sync_environment(wt_resolved)
+
+        _, adapter = get_adapter(self.repo_root, kit=plan.sdd_kit)
+        lock = self.build_lock_manifest(
+            wave=target_wave,
+            track=target_track,
+            worktree_path=wt_resolved,
+            all_spine_files=plan.spine_files,
+            adapter=adapter,
+        )
+        self.inject_track_boundary(
+            worktree_path=wt_resolved,
+            wave=target_wave,
+            track=target_track,
+            lock=lock,
+            headless=headless,
+            extra_exclude_entries=synced_items,
+        )
+        return lock
+
+    def check_scope_escalations(
+        self,
+        wave_number: int,
+        plan: WavePlan | None = None,
+    ) -> list[dict[str, Any]]:
+        """Collect pending scope escalation requests (.tmp/scope-escalation.json) for wave."""
+        escalations: list[dict[str, Any]] = []
+        target_wave = None
+        if plan is not None:
+            target_wave = next((w for w in plan.waves if w.wave_number == wave_number), None)
+
+        paths_to_check: list[Path] = [self.repo_root / ".tmp" / "scope-escalation.json"]
+        if target_wave is not None:
+            for track in target_wave.tracks:
+                paths_to_check.append(
+                    self.worktree_path_for_track(wave_number, track.track_id)
+                    / ".tmp"
+                    / "scope-escalation.json"
+                )
+                paths_to_check.append(
+                    self.worktrees_dir
+                    / f"wave-{wave_number}-{track.track_id}"
+                    / ".tmp"
+                    / "scope-escalation.json"
+                )
+
+        seen: set[tuple[str, str]] = set()
+        for esc_path in paths_to_check:
+            if not esc_path.is_file():
+                continue
+            try:
+                raw = json.loads(esc_path.read_text(encoding="utf-8"))
+                items = raw if isinstance(raw, list) else [raw]
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    sid = str(item.get("story_id", "")).strip()
+                    req_file = str(item.get("requested_file", "")).replace("\\", "/").strip()
+                    if (sid, req_file) not in seen and (sid or req_file):
+                        seen.add((sid, req_file))
+                        escalations.append(item)
+            except Exception:
+                continue
+
+        return escalations
+
+    def defer_escalated_task(
+        self,
+        plan: WavePlan,
+        story_id: str,
+        requested_file: str,
+        current_wave: int,
+        extra_files: Sequence[str] = (),
+    ) -> WavePlan:
+        """Defer an escalated task via BSPWaveScheduler.reschedule_remaining_waves()."""
+        norm_file = requested_file.replace("\\", "/").strip()
+        all_req_files: list[str] = []
+        for raw_f in (norm_file, *extra_files):
+            nf = raw_f.replace("\\", "/").strip()
+            if nf and nf not in all_req_files:
+                all_req_files.append(nf)
+        curr_wave = next((w for w in plan.waves if w.wave_number == current_wave), None)
+        effort = EffortTier.MEDIUM
+        escalated_track: WaveTrack | None = None
+        track_emptied = False
+
+        if curr_wave is not None:
+            for trk in curr_wave.tracks:
+                if story_id in trk.task_ids:
+                    effort = trk.effort
+                    escalated_track = trk
+                    break
+
+        deferred_ids = [story_id] if story_id else []
+        _ensure_plan_tasks_populated(plan, deferred_ids=deferred_ids, default_effort=effort)
+
+        if escalated_track is not None:
+            escalated_track.task_ids.remove(story_id)
+            if not escalated_track.task_ids:
+                escalated_track.exclusive_write_files.clear()
+                escalated_track.additive_shared_files.clear()
+                track_emptied = True
+
+        scanner = ASTHotspotScanner(self.repo_root)
+        meta_map = scanner.scan()
+        file_roles = {rel: meta.role for rel, meta in meta_map.items()}
+        max_tracks = max(3, len(curr_wave.tracks) if curr_wave else 3)
+        scheduler = BSPWaveScheduler(
+            max_tracks=max_tracks,
+            file_roles=file_roles,
+            ast_scanner=scanner,
+            repo_root=self.repo_root,
+        )
+        rescheduled = scheduler.reschedule_remaining_waves(
+            plan=plan,
+            current_wave=current_wave,
+            deferred_task_ids=deferred_ids,
+            enriched_writes={story_id: all_req_files} if (story_id and all_req_files) else None,
+        )
+        plan.waves = [
+            curr_wave if (curr_wave is not None and w.wave_number == current_wave) else w
+            for w in rescheduled.waves
+        ]
+        plan.edges = rescheduled.edges
+        plan.tasks = rescheduled.tasks
+        plan.spine_files = rescheduled.spine_files
+        plan.additive_registries = rescheduled.additive_registries
+
+        repo_esc = self.repo_root / ".tmp" / "scope-escalation.json"
+        if repo_esc.is_file():
+            try:
+                repo_esc.unlink()
+            except OSError:
+                pass
+
+        if escalated_track is not None:
+            repo_head = self._resolve_repo_head("HEAD") if track_emptied else ""
+            candidates = [
+                (
+                    self.worktree_path_for_track(current_wave, escalated_track.track_id),
+                    self.branch_name_for_track(current_wave, escalated_track.track_id),
+                ),
+                (
+                    self.worktrees_dir / f"wave-{current_wave}-{escalated_track.track_id}",
+                    f"parallel/wave-{current_wave}-{escalated_track.track_id}",
+                ),
+            ]
+            seen_wt: set[Path] = set()
+            for wt_cand, branch_cand in candidates:
+                resolved_wt = wt_cand.resolve() if wt_cand.exists() else wt_cand
+                if resolved_wt in seen_wt:
+                    continue
+                seen_wt.add(resolved_wt)
+                esc_file = wt_cand / ".tmp" / "scope-escalation.json"
+                if esc_file.is_file():
+                    try:
+                        esc_file.unlink()
+                    except OSError:
+                        pass
+                if track_emptied and wt_cand.is_dir() and (wt_cand / ".git").exists():
+                    self._reset_worktree_slot(wt_cand, branch_cand, repo_head)
+
+        p_file = self.repo_root / ".parallel" / "wave-plan.json"
+        p_file.parent.mkdir(parents=True, exist_ok=True)
+        p_file.write_text(
+            json.dumps(plan.to_dict(), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        return plan
+
+    def verify_wave(
+        self,
+        plan: WavePlan,
+        wave_number: int,
+        defer_ast_violations: bool = False,
+    ) -> list[str]:
+        """Verify that generated story specs and worktree files do not violate locks."""
+        target_wave = next((w for w in plan.waves if w.wave_number == wave_number), None)
+        if target_wave is None:
+            raise ValueError(f"Wave {wave_number} not found in plan")
+
+        self.last_escalations = []
+        escalations = self.check_scope_escalations(wave_number, plan)
+        escalated_stories: set[str] = set()
+        escalated_files: set[str] = set()
+
+        if escalations:
+            for esc in escalations:
+                sid = str(esc.get("story_id", "")).strip()
+                req_file = str(esc.get("requested_file", "")).replace("\\", "/").strip()
+                if sid:
+                    escalated_stories.add(sid)
+                if req_file:
+                    escalated_files.add(req_file)
+                self.defer_escalated_task(
+                    plan=plan,
+                    story_id=sid,
+                    requested_file=req_file,
+                    current_wave=wave_number,
+                )
+                deferred_target_wave = next(
+                    (
+                        w.wave_number
+                        for w in plan.waves
+                        if w.wave_number > wave_number and sid in w.all_task_ids
+                    ),
+                    wave_number + 1,
+                )
+                self.last_escalations.append(
+                    {
+                        "story_id": sid,
+                        "requested_file": req_file,
+                        "status": TaskStatus.ESCALATED_DEFERRED.value,
+                        "deferred_to_wave": deferred_target_wave,
+                    }
+                )
+            if self.last_escalations:
+                esc_hist = self.repo_root / ".parallel" / "escalations.json"
+                esc_hist.parent.mkdir(parents=True, exist_ok=True)
+                esc_hist.write_text(
+                    json.dumps(self.last_escalations, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+
+        violations: list[str] = []
+        cfg = self.get_config()
+        hooks = cfg.get("hooks", {})
+        pre_verify_cmd = str(hooks.get("pre_verify", "")).strip()
+
+        active_wt_tracks: list[WaveTrack] = []
+        track_worktrees: dict[str, Path] = {}
+        track_changed_files: dict[str, list[str]] = {}
+        merge_base_map: dict[str, str] = {}
+
+        for track in target_wave.tracks:
+            if not track.task_ids:
+                continue
+            candidate_path = self.worktree_path_for_track(wave_number, track.track_id)
+            if not candidate_path.is_dir():
+                dyn_path = self.worktrees_dir / f"wave-{wave_number}-{track.track_id}"
+                candidate_path = dyn_path if dyn_path.is_dir() else self.repo_root
+            probe_root = candidate_path
+
+            _, adapter = get_adapter(self.repo_root, kit=plan.sdd_kit)
+            lock = self.build_lock_manifest(
+                wave=target_wave,
+                track=track,
+                worktree_path=probe_root,
+                all_spine_files=plan.spine_files,
+                adapter=adapter,
+            )
+
+            # 0. Lifecycle hook: pre_verify
+            if pre_verify_cmd and probe_root.is_dir():
+                hook_res = run_lifecycle_hook(
+                    hook_name="pre_verify",
+                    command=pre_verify_cmd,
+                    cwd=probe_root,
+                    env_vars=lock.env_vars,
+                )
+                if hook_res.returncode != 0:
+                    err_out = (hook_res.stderr or hook_res.stdout).strip()
+                    violations.append(
+                        f"Wave {wave_number} / {track.track_id}: lifecycle hook 'pre_verify' "
+                        f"failed with exit code {hook_res.returncode}:\n{err_out}"
+                    )
+
+            # 1. Spec code-map / task check
+            violations.extend(
+                adapter.verify_track_spec_scope(
+                    worktree_path=probe_root,
+                    track=track,
+                    forbidden_files=lock.forbidden_files,
+                )
+            )
+
+            changed_for_track: set[str] = set()
+            mb_sha = "HEAD"
+
+            # 2. Defense-in-Depth Scope Guard: Working tree audit (git status --porcelain)
+            if probe_root.is_dir() and (probe_root / ".git").exists():
+                st_proc = subprocess.run(
+                    ["git", "status", "--porcelain"],
+                    cwd=probe_root,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if st_proc.returncode == 0 and st_proc.stdout.strip():
+                    for line in st_proc.stdout.splitlines():
+                        raw_file = line[3:].strip()
+                        if " -> " in raw_file:
+                            raw_file = raw_file.split(" -> ")[1].strip()
+                        norm_f = raw_file.replace("\\", "/")
+                        if _is_ignored_worktree_artifact(norm_f):
+                            continue
+                        candidate_abs = probe_root / norm_f.rstrip("/")
+                        if candidate_abs.is_dir():
+                            for sub in sorted(candidate_abs.rglob("*")):
+                                if sub.is_file():
+                                    rel_sub = sub.relative_to(probe_root).as_posix()
+                                    if not _is_ignored_worktree_artifact(rel_sub):
+                                        changed_for_track.add(rel_sub)
+                        else:
+                            changed_for_track.add(norm_f)
+                        if norm_f in lock.forbidden_files:
+                            violations.append(
+                                f"Wave {wave_number} / {track.track_id}: working tree has modified "
+                                f"forbidden file '{norm_f}': {lock.forbidden_files[norm_f]}"
+                            )
+                        elif (
+                            lock.allowed_write_globs
+                            and not _matches_any_glob(norm_f, lock.allowed_write_globs)
+                            and norm_f not in lock.additive_shared_files
+                        ):
+                            violations.append(
+                                f"Wave {wave_number} / {track.track_id}: working tree "
+                                f"file '{norm_f}' is outside declared Allowed Write Scope"
+                            )
+
+                # 3. Defense-in-Depth Scope Guard: Committed diff audit against merge-base
+                base_rev_proc = subprocess.run(
+                    ["git", "rev-parse", "--verify", "HEAD"],
+                    cwd=self.repo_root,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                diff_range = "HEAD~1...HEAD"
+                if base_rev_proc.returncode == 0 and base_rev_proc.stdout.strip():
+                    main_head_sha = base_rev_proc.stdout.strip()
+                    mb_proc = subprocess.run(
+                        ["git", "merge-base", main_head_sha, "HEAD"],
+                        cwd=probe_root,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if mb_proc.returncode == 0 and mb_proc.stdout.strip():
+                        mb_sha = mb_proc.stdout.strip()
+                        diff_range = f"{mb_sha}...HEAD"
+
+                diff_proc = subprocess.run(
+                    ["git", "diff", "--name-only", diff_range],
+                    cwd=probe_root,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if diff_proc.returncode == 0 and diff_proc.stdout.strip():
+                    for raw_diff in diff_proc.stdout.splitlines():
+                        norm_d = raw_diff.replace("\\", "/").strip()
+                        if not norm_d:
+                            continue
+                        if _is_ignored_worktree_artifact(norm_d):
+                            continue
+                        changed_for_track.add(norm_d)
+                        if norm_d in lock.forbidden_files:
+                            violations.append(
+                                f"Wave {wave_number} / {track.track_id}: committed changes "
+                                f"in forbidden file '{norm_d}': {lock.forbidden_files[norm_d]}"
+                            )
+                        elif (
+                            lock.allowed_write_globs
+                            and not _matches_any_glob(norm_d, lock.allowed_write_globs)
+                            and norm_d not in lock.additive_shared_files
+                        ):
+                            violations.append(
+                                f"Wave {wave_number} / {track.track_id}: committed file '{norm_d}' "
+                                "is outside declared Allowed Write Scope"
+                            )
+
+            if probe_root.is_dir() and probe_root.resolve() != self.repo_root.resolve():
+                active_wt_tracks.append(track)
+                track_worktrees[track.track_id] = probe_root
+                track_changed_files[track.track_id] = sorted(changed_for_track)
+                merge_base_map[track.track_id] = mb_sha
+
+        # 4. Pre-Merge AST Diff Gate across active worktree tracks (Classes B, F, G, H)
+        if len(track_worktrees) >= 2 and any(track_changed_files.values()):
+            tasks_by_id = {t.id: t for t in plan.tasks}
+            ast_findings = run_pre_merge_ast_diff_gate(
+                repo_root=self.repo_root,
+                tracks=active_wt_tracks,
+                track_worktrees=track_worktrees,
+                track_changed_files=track_changed_files,
+                merge_base_map=merge_base_map,
+                tasks_by_id=tasks_by_id,
+            )
+            error_findings = [f for f in ast_findings if f.severity == "ERROR"]
+            for finding in error_findings:
+                violations.append(finding.to_violation_str(wave_number))
+            if error_findings:
+                findings_by_track: dict[str, list[ASTGateFinding]] = {}
+                for finding in error_findings:
+                    target_tids = (
+                        finding.tracks[1:] if len(finding.tracks) > 1 else finding.tracks
+                    )
+                    for tid in target_tids:
+                        findings_by_track.setdefault(tid, []).append(finding)
+                active_by_id = {t.track_id: t for t in active_wt_tracks}
+                deferred_ast_violations: set[str] = set()
+                for tid, trk_findings in findings_by_track.items():
+                    trk_obj = active_by_id.get(tid)
+                    if trk_obj is None or not trk_obj.task_ids:
+                        continue
+                    branch_cand = self.branch_name_for_track(wave_number, trk_obj.track_id)
+                    chk_branch = subprocess.run(
+                        ["git", "rev-parse", "--verify", branch_cand],
+                        cwd=self.repo_root,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if chk_branch.returncode != 0:
+                        dyn_cand = f"parallel/wave-{wave_number}-{trk_obj.track_id}"
+                        chk_dyn = subprocess.run(
+                            ["git", "rev-parse", "--verify", dyn_cand],
+                            cwd=self.repo_root,
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        )
+                        if chk_dyn.returncode == 0:
+                            branch_cand = dyn_cand
+                    fb, backup_branch = self._record_track_barrier_nack(
+                        wave_number=wave_number,
+                        track=trk_obj,
+                        branch_name=branch_cand,
+                        failed_stage="ast_diff_gate",
+                        failed_command=",".join(dict.fromkeys(f.category for f in trk_findings)),
+                        diagnostic_output="\n".join(
+                            f.to_violation_str(wave_number) for f in trk_findings
+                        ),
+                        conflicting_files=[fp for f in trk_findings for fp in f.files],
+                        merged_sibling_commits=(),
+                    )
+                    if defer_ast_violations:
+                        story_ids_to_defer = list(trk_obj.task_ids)
+                        conflicting_files = list(fb.conflicting_files)
+                        primary_file = conflicting_files[0] if conflicting_files else ""
+                        extra_files = conflicting_files[1:]
+                        for sid in story_ids_to_defer:
+                            self.defer_escalated_task(
+                                plan=plan,
+                                story_id=sid,
+                                requested_file=primary_file,
+                                current_wave=wave_number,
+                                extra_files=extra_files,
+                            )
+                            deferred_target_wave = next(
+                                (
+                                    w.wave_number
+                                    for w in plan.waves
+                                    if w.wave_number > wave_number and sid in w.all_task_ids
+                                ),
+                                wave_number + 1,
+                            )
+                            self.last_escalations.append(
+                                {
+                                    "story_id": sid,
+                                    "track_id": trk_obj.track_id,
+                                    "requested_file": primary_file,
+                                    "conflicting_files": conflicting_files,
+                                    "backup_branch": backup_branch,
+                                    "status": "ast_deferred",
+                                    "deferred_to_wave": deferred_target_wave,
+                                }
+                            )
+                        for f in trk_findings:
+                            deferred_ast_violations.add(f.to_violation_str(wave_number))
+                if deferred_ast_violations:
+                    violations = [v for v in violations if v not in deferred_ast_violations]
+                    if self.last_escalations:
+                        esc_hist = self.repo_root / ".parallel" / "escalations.json"
+                        esc_hist.parent.mkdir(parents=True, exist_ok=True)
+                        esc_hist.write_text(
+                            json.dumps(self.last_escalations, indent=2, ensure_ascii=False)
+                            + "\n",
+                            encoding="utf-8",
+                        )
+
+        if escalated_files or escalated_stories:
+            filtered_violations: list[str] = []
+            for v in violations:
+                is_esc = any(
+                    f"'{ef}'" in v or f" {ef}" in v or v.endswith(f"/{ef}")
+                    for ef in escalated_files
+                ) or any(
+                    f"story {es}" in v or f"'{es}'" in v
+                    for es in escalated_stories
+                )
+                if not is_esc:
+                    filtered_violations.append(v)
+            violations = filtered_violations
+
+        return violations
+
+    def _resolve_existing_track_worktree(self, wave_number: int, track_id: str) -> Path | None:
+        """Return an existing filesystem directory for track worktree if present."""
+        for cand in (
+            self.worktree_path_for_track(wave_number, track_id),
+            self.worktrees_dir / f"wave-{wave_number}-{track_id}",
+        ):
+            if cand.is_dir():
+                return cand
+        return None
+
+    def _preserve_failed_track_branch(
+        self,
+        wave_number: int,
+        track_id: str,
+        branch_name: str,
+    ) -> str:
+        """Create backup branch preserving failed track commits before reset/reschedule."""
+        ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        backup_branch = f"backup/wave-{wave_number}-{track_id}-failed-{ts}"
+        subprocess.run(
+            ["git", "branch", "-f", backup_branch, branch_name],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return backup_branch
+
+    def _record_track_barrier_nack(
+        self,
+        *,
+        wave_number: int,
+        track: WaveTrack,
+        branch_name: str,
+        failed_stage: str,
+        failed_command: str,
+        diagnostic_output: str,
+        conflicting_files: Sequence[str],
+        merged_sibling_commits: Sequence[str] = (),
+        persist_to_disk: bool = True,
+    ) -> tuple[BarrierFeedback, str]:
+        """Preserve failed branch into backup/*, build BarrierFeedback, and optionally save."""
+        backup_branch = self._preserve_failed_track_branch(
+            wave_number=wave_number,
+            track_id=track.track_id,
+            branch_name=branch_name,
+        )
+        fb = BarrierFeedback(
+            story_ids=tuple(track.task_ids),
+            wave_number=wave_number,
+            track_id=track.track_id,
+            failed_stage=failed_stage,
+            failed_command=failed_command,
+            diagnostic_output=diagnostic_output.strip()[-4000:],
+            conflicting_files=tuple(dict.fromkeys(conflicting_files)),
+            merged_sibling_commits=tuple(merged_sibling_commits),
+            prior_branch_ref=backup_branch,
+            timestamp=datetime.now(UTC).isoformat(),
+        )
+        if persist_to_disk:
+            _save_barrier_feedback(
+                self.repo_root,
+                self._resolve_existing_track_worktree(wave_number, track.track_id),
+                fb,
+            )
+        return fb, backup_branch
+
+    def _merge_single_track_branch(
+        self,
+        wave_number: int,
+        track: WaveTrack,
+        branch_name: str,
+        adapter: SDDAdapterProtocol,
+        additive_registry_files: Collection[str] = (),
+    ) -> tuple[bool, str, str, tuple[str, ...], list[str]]:
+        """Merge a single track branch into current repo HEAD with 3-way status merge."""
+        mb_proc = subprocess.run(
+            ["git", "merge-base", "HEAD", branch_name],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        mb_sha = mb_proc.stdout.strip() if mb_proc.returncode == 0 else ""
+
+        diff_args = (
+            ["git", "diff", "--name-only", f"{mb_sha}...{branch_name}"]
+            if mb_sha
+            else ["git", "diff", "--name-only", f"HEAD...{branch_name}"]
+        )
+        diff_proc = subprocess.run(
+            diff_args,
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        branch_changed = (
+            [
+                line.strip().replace("\\", "/")
+                for line in diff_proc.stdout.splitlines()
+                if line.strip()
+            ]
+            if diff_proc.returncode == 0
+            else []
+        )
+
+        candidate_status_files = set(branch_changed)
+        for st_rel in adapter.get_status_files():
+            if (self.repo_root / st_rel).is_file():
+                candidate_status_files.add(st_rel)
+
+        resolved_status_files: dict[str, str] = {}
+        for rel in sorted(candidate_status_files):
+            merger_fn = get_status_merger(rel)
+            if merger_fn is not None:
+                main_file = self.repo_root / rel
+                if main_file.is_file():
+                    ours_text = main_file.read_text(encoding="utf-8")
+                    theirs_proc = subprocess.run(
+                        ["git", "show", f"{branch_name}:{rel}"],
+                        cwd=self.repo_root,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if theirs_proc.returncode == 0 and theirs_proc.stdout:
+                        theirs_text = theirs_proc.stdout
+                        base_text = ours_text
+                        if mb_sha:
+                            b_proc = subprocess.run(
+                                ["git", "show", f"{mb_sha}:{rel}"],
+                                cwd=self.repo_root,
+                                capture_output=True,
+                                text=True,
+                                check=False,
+                            )
+                            if b_proc.returncode == 0 and b_proc.stdout:
+                                base_text = b_proc.stdout
+                        resolved_status_files[rel] = merger_fn(
+                            base_text, ours_text, theirs_text
+                        )
+
+        effective_additive = {
+            f.replace("\\", "/").strip("/")
+            for f in (*additive_registry_files, *track.additive_shared_files)
+            if f.strip()
+        }
+        resolved_registry_files: dict[str, str] = {}
+        if mb_sha:
+            for rel in sorted(set(branch_changed)):
+                if rel in resolved_status_files:
+                    continue
+                if not is_python_registry_candidate(rel, effective_additive or None):
+                    continue
+                main_file = self.repo_root / rel
+                if not main_file.is_file():
+                    continue
+                b_proc = subprocess.run(
+                    ["git", "show", f"{mb_sha}:{rel}"],
+                    cwd=self.repo_root,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                )
+                theirs_proc = subprocess.run(
+                    ["git", "show", f"{branch_name}:{rel}"],
+                    cwd=self.repo_root,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                )
+                if b_proc.returncode == 0 and theirs_proc.returncode == 0:
+                    base_text = b_proc.stdout
+                    try:
+                        ours_text = main_file.read_text(encoding="utf-8")
+                    except UnicodeDecodeError:
+                        continue
+                    theirs_text = theirs_proc.stdout
+                    if ours_text != base_text and theirs_text != base_text:
+                        merged_py = merge_python_additive_registry(
+                            base_text, ours_text, theirs_text
+                        )
+                        if merged_py is not None:
+                            resolved_registry_files[rel] = merged_py
+
+        merge_proc = subprocess.run(
+            ["git", "merge", "--no-ff", "--no-commit", branch_name],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        for rel, resolved_text in resolved_status_files.items():
+            p = self.repo_root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(resolved_text, encoding="utf-8")
+            subprocess.run(
+                ["git", "add", rel],
+                cwd=self.repo_root,
+                capture_output=True,
+                check=True,
+            )
+        for rel, resolved_text in resolved_registry_files.items():
+            p = self.repo_root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(resolved_text, encoding="utf-8")
+            subprocess.run(
+                ["git", "add", rel],
+                cwd=self.repo_root,
+                capture_output=True,
+                check=True,
+            )
+
+        unmerged_proc = subprocess.run(
+            ["git", "diff", "--name-only", "--diff-filter=U"],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if unmerged_proc.stdout.strip():
+            conflicted = tuple(unmerged_proc.stdout.strip().splitlines())
+            detail = f"Merge conflict while merging {branch_name}: {list(conflicted)}"
+            return False, "conflict", detail, conflicted, branch_changed
+
+        merge_head = self.repo_root / ".git" / "MERGE_HEAD"
+        status_chk = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if merge_head.exists() or status_chk.stdout.strip():
+            msg = (
+                f"merge(wave-{wave_number}): integrate {track.track_id} "
+                f"({', '.join(track.task_ids)})"
+            )
+            commit_proc = subprocess.run(
+                ["git", "commit", "--no-edit", "-m", msg],
+                cwd=self.repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if commit_proc.returncode != 0:
+                return (
+                    False,
+                    "commit",
+                    commit_proc.stderr.strip(),
+                    tuple(branch_changed),
+                    branch_changed,
+                )
+        elif merge_proc.returncode != 0:
+            return (
+                False,
+                "merge",
+                merge_proc.stderr.strip(),
+                tuple(branch_changed),
+                branch_changed,
+            )
+
+        return True, "", "", (), branch_changed
+
+    def _run_checkpoint_gates(
+        self,
+        gates: Sequence[str],
+        strict_gates: bool,
+    ) -> tuple[bool, str, str]:
+        """Run checkpoint quality gates on current repo HEAD."""
+        for gate_cmd in gates:
+            cmd_parts = shlex.split(gate_cmd.replace("\\", "/"))
+            gate_proc = subprocess.run(
+                cmd_parts,
+                cwd=self.repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if gate_proc.returncode != 0:
+                if not strict_gates and _is_no_tests_collected(
+                    gate_cmd, gate_proc.returncode, gate_proc.stdout, gate_proc.stderr
+                ):
+                    continue
+                return False, gate_cmd, f"{gate_proc.stdout}\n{gate_proc.stderr}"
+        return True, "", ""
+
+    def _isolate_culprit_tracks_by_bisection(
+        self,
+        wave_number: int,
+        pre_merge_head: str,
+        merged_pairs: Sequence[tuple[WaveTrack, str]],
+        gates: Sequence[str],
+        failed_gate_cmd: str,
+        strict_gates: bool,
+        adapter: SDDAdapterProtocol,
+        track_changed_map: Mapping[str, list[str]],
+        rejected_tracks: dict[str, BarrierFeedback],
+        backup_branches: dict[str, str],
+        additive_registry_files: Collection[str] = (),
+    ) -> tuple[list[tuple[WaveTrack, str]], list[str]]:
+        """Re-apply merged tracks incrementally to isolate culprit tracks breaking gates."""
+        self._rollback_merge_to_head(pre_merge_head)
+        ordered_gates = [failed_gate_cmd] + [g for g in gates if g != failed_gate_cmd]
+        healthy_pairs: list[tuple[WaveTrack, str]] = []
+        healthy_commits: list[str] = []
+
+        for track, branch_name in merged_pairs:
+            step_head = self._resolve_repo_head("HEAD")
+            ok, err_kind, err_detail, conflicted, changed = self._merge_single_track_branch(
+                wave_number=wave_number,
+                track=track,
+                branch_name=branch_name,
+                adapter=adapter,
+                additive_registry_files=additive_registry_files,
+            )
+            if not ok:
+                self._rollback_merge_to_head(step_head)
+                fb, backup_branch = self._record_track_barrier_nack(
+                    wave_number=wave_number,
+                    track=track,
+                    branch_name=branch_name,
+                    failed_stage="git_merge",
+                    failed_command=(
+                        "git commit" if err_kind == "commit" else "git merge --no-ff --no-commit"
+                    ),
+                    diagnostic_output=err_detail,
+                    conflicting_files=conflicted,
+                    merged_sibling_commits=healthy_commits,
+                )
+                rejected_tracks[track.track_id] = fb
+                backup_branches[track.track_id] = backup_branch
+                continue
+
+            gates_ok, gate_cmd_fail, gate_output = self._run_checkpoint_gates(
+                ordered_gates, strict_gates=strict_gates
+            )
+            if gates_ok:
+                healthy_pairs.append((track, branch_name))
+                healthy_commits.append(self._resolve_repo_head("HEAD"))
+            else:
+                self._rollback_merge_to_head(step_head)
+                affected_files = track_changed_map.get(track.track_id, changed)
+                fb, backup_branch = self._record_track_barrier_nack(
+                    wave_number=wave_number,
+                    track=track,
+                    branch_name=branch_name,
+                    failed_stage="checkpoint_gate",
+                    failed_command=gate_cmd_fail,
+                    diagnostic_output=gate_output,
+                    conflicting_files=affected_files,
+                    merged_sibling_commits=healthy_commits,
+                )
+                rejected_tracks[track.track_id] = fb
+                backup_branches[track.track_id] = backup_branch
+
+        return healthy_pairs, healthy_commits
+
+    def _apply_adapter_state_on_merge(
+        self,
+        adapter: SDDAdapterProtocol,
+        wave_number: int,
+        merged_task_ids: list[str],
+        pre_merge_head: str,
+        reset_task_ids: Sequence[str] = (),
+    ) -> None:
+        """Persist adapter state update commit after merging healthy tracks."""
+        try:
+            if reset_task_ids:
+                adapter.reset_tasks_status(list(reset_task_ids), target_status="ready-for-dev")
+            updated_state = adapter.update_state_on_merge(
+                wave_number=wave_number,
+                merged_task_ids=merged_task_ids,
+            )
+            files_to_stage: list[str] = []
+            if updated_state and updated_state.is_file():
+                files_to_stage.append(updated_state.resolve().relative_to(self.repo_root).as_posix())
+            status_file_set = {
+                st.replace("\\", "/").strip()
+                for st in adapter.get_status_files()
+                if st.strip()
+            }
+            if status_file_set:
+                st_proc = subprocess.run(
+                    ["git", "status", "--porcelain"],
+                    cwd=self.repo_root,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if st_proc.returncode == 0 and st_proc.stdout.strip():
+                    for line in st_proc.stdout.splitlines():
+                        raw_file = line[3:].strip().strip('"')
+                        if " -> " in raw_file:
+                            raw_file = raw_file.split(" -> ")[1].strip().strip('"')
+                        norm_f = raw_file.replace("\\", "/")
+                        if norm_f in status_file_set and norm_f not in files_to_stage:
+                            files_to_stage.append(norm_f)
+            if files_to_stage:
+                subprocess.run(
+                    ["git", "add", "--", *files_to_stage],
+                    cwd=self.repo_root,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                diff_chk = subprocess.run(
+                    ["git", "diff", "--cached", "--quiet"],
+                    cwd=self.repo_root,
+                    capture_output=True,
+                    check=False,
+                )
+                if diff_chk.returncode != 0:
+                    msg = (
+                        f"chore({adapter.kit_id}): update state after Wave {wave_number} "
+                        "checkpoint merge"
+                    )
+                    subprocess.run(
+                        ["git", "commit", "-m", msg],
+                        cwd=self.repo_root,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+        except Exception as exc:
+            self._rollback_merge_to_head(pre_merge_head)
+            rb_suffix = (
+                f" (transactional auto-rollback to {pre_merge_head[:7]} completed)"
+                if pre_merge_head
+                else ""
+            )
+            raise RuntimeError(
+                f"Post-merge state update failed for Wave {wave_number}{rb_suffix}: {exc}"
+            ) from exc
+
+    def merge_wave(
+        self,
+        plan: WavePlan,
+        wave_number: int,
+        run_quality_gates: bool = True,
+        cleanup_worktrees: bool = False,
+        dry_run: bool = False,
+        strict_gates: bool = False,
+        adapter: SDDAdapterProtocol | None = None,
+        partial_merge: bool = False,
+    ) -> list[str]:
+        """Merge track branches in `wave_number`, resolve status files, and run gates."""
+        self.last_merge_outcome = None
+        if adapter is None:
+            kit_name = getattr(plan, "sdd_kit", "auto") or "auto"
+            try:
+                adapter = get_adapter(self.repo_root, kit=kit_name)[1]
+            except Exception:
+                adapter = get_adapter(self.repo_root)[1]
+
+        target_wave = next((w for w in plan.waves if w.wave_number == wave_number), None)
+        if target_wave is None:
+            raise ValueError(f"Wave {wave_number} not found in plan")
+
+        tasks_by_id = {t.id: t for t in plan.tasks}
+
+        def _track_merge_priority(trk: WaveTrack) -> tuple[int, int, int, str]:
+            touches_spine = 0
+            max_fan_in = 0
+            conflict_deg = 0
+            for tid in trk.task_ids:
+                t_obj = tasks_by_id.get(tid)
+                if t_obj is not None and t_obj.structural_signals is not None:
+                    sig = t_obj.structural_signals
+                    touches_spine = max(touches_spine, int(sig.touches_spine))
+                    max_fan_in = max(max_fan_in, sig.max_fan_in)
+                    conflict_deg = max(conflict_deg, sig.conflict_degree)
+            return (-touches_spine, -max_fan_in, -conflict_deg, trk.track_id)
+
+        active_tracks = sorted(
+            [t for t in target_wave.tracks if t.task_ids],
+            key=_track_merge_priority,
+        )
+        additive_registry_files = tuple(
+            dict.fromkeys(
+                [
+                    *getattr(plan, "additive_registries", ()),
+                    *(f for trk in target_wave.tracks for f in trk.additive_shared_files),
+                ]
+            )
+        )
+        branch_names: list[str] = []
+        for track in active_tracks:
+            candidate = self.branch_name_for_track(wave_number, track.track_id)
+            chk = subprocess.run(
+                ["git", "rev-parse", "--verify", candidate],
+                cwd=self.repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if chk.returncode != 0:
+                dyn_candidate = f"parallel/wave-{wave_number}-{track.track_id}"
+                chk_dyn = subprocess.run(
+                    ["git", "rev-parse", "--verify", dyn_candidate],
+                    cwd=self.repo_root,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if chk_dyn.returncode == 0:
+                    candidate = dyn_candidate
+            branch_names.append(candidate)
+
+        if dry_run:
+            return branch_names
+
+        pre_merge_head = ""
+        head_rev = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if head_rev.returncode == 0:
+            pre_merge_head = head_rev.stdout.strip()
+
+        merged_branches: list[str] = []
+        merged_pairs: list[tuple[WaveTrack, str]] = []
+        merged_commits: list[str] = []
+        track_changed_map: dict[str, list[str]] = {}
+        rejected_tracks: dict[str, BarrierFeedback] = {}
+        backup_branches: dict[str, str] = {}
+
+        for track, branch_name in zip(active_tracks, branch_names, strict=True):
+            chk = subprocess.run(
+                ["git", "rev-parse", "--verify", branch_name],
+                cwd=self.repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if chk.returncode != 0:
+                continue
+
+            track_pre_head = self._resolve_repo_head("HEAD")
+            ok, err_kind, err_detail, conflicted, branch_changed = (
+                self._merge_single_track_branch(
+                    wave_number=wave_number,
+                    track=track,
+                    branch_name=branch_name,
+                    adapter=adapter,
+                    additive_registry_files=additive_registry_files,
+                )
+            )
+            track_changed_map[track.track_id] = branch_changed
+
+            if not ok:
+                if not partial_merge:
+                    self._rollback_merge_to_head(pre_merge_head)
+                    self._record_track_barrier_nack(
+                        wave_number=wave_number,
+                        track=track,
+                        branch_name=branch_name,
+                        failed_stage="git_merge",
+                        failed_command=(
+                            "git commit"
+                            if err_kind == "commit"
+                            else "git merge --no-ff --no-commit"
+                        ),
+                        diagnostic_output=err_detail,
+                        conflicting_files=conflicted,
+                        merged_sibling_commits=merged_commits,
+                    )
+                    rb_suffix = (
+                        f" (transactional auto-rollback to {pre_merge_head[:7]} completed)"
+                        if pre_merge_head
+                        else ""
+                    )
+                    if err_kind == "conflict":
+                        raise RuntimeError(
+                            f"Merge conflict while merging {branch_name}: "
+                            f"{list(conflicted)}{rb_suffix}"
+                        )
+                    if err_kind == "commit":
+                        raise RuntimeError(
+                            f"git commit failed while merging {branch_name}{rb_suffix}: "
+                            f"{err_detail}"
+                        )
+                    raise RuntimeError(
+                        f"git merge failed for {branch_name}{rb_suffix}: {err_detail}"
+                    )
+
+                self._rollback_merge_to_head(track_pre_head)
+                fb, backup_branch = self._record_track_barrier_nack(
+                    wave_number=wave_number,
+                    track=track,
+                    branch_name=branch_name,
+                    failed_stage="git_merge",
+                    failed_command=(
+                        "git commit"
+                        if err_kind == "commit"
+                        else "git merge --no-ff --no-commit"
+                    ),
+                    diagnostic_output=err_detail,
+                    conflicting_files=conflicted,
+                    merged_sibling_commits=merged_commits,
+                )
+                rejected_tracks[track.track_id] = fb
+                backup_branches[track.track_id] = backup_branch
+                continue
+
+            merged_branches.append(branch_name)
+            merged_pairs.append((track, branch_name))
+            merged_commits.append(self._resolve_repo_head("HEAD"))
+
+        active_task_ids = [tid for t in active_tracks for tid in t.task_ids]
+        gates = (
+            target_wave.checkpoint_gates
+            if target_wave.checkpoint_gates
+            else resolve_checkpoint_gates(self.repo_root)
+        )
+
+        if not partial_merge:
+            if merged_branches:
+                self._apply_adapter_state_on_merge(
+                    adapter=adapter,
+                    wave_number=wave_number,
+                    merged_task_ids=active_task_ids,
+                    pre_merge_head=pre_merge_head,
+                )
+            if run_quality_gates and merged_branches:
+                gates_ok, gate_cmd, gate_out = self._run_checkpoint_gates(
+                    gates, strict_gates=strict_gates
+                )
+                if not gates_ok:
+                    self._rollback_merge_to_head(pre_merge_head)
+                    unisolated_prefix = (
+                        "[UNISOLATED ATOMIC ROLLBACK — run with --partial-merge "
+                        "to isolate culprit]\n"
+                    )
+                    for trk, b_name in merged_pairs:
+                        if len(merged_pairs) == 1:
+                            diag_text = gate_out
+                        else:
+                            max_tail = max(0, 4000 - len(unisolated_prefix))
+                            diag_text = unisolated_prefix + gate_out.strip()[-max_tail:]
+                        self._record_track_barrier_nack(
+                            wave_number=wave_number,
+                            track=trk,
+                            branch_name=b_name,
+                            failed_stage="checkpoint_gate",
+                            failed_command=gate_cmd,
+                            diagnostic_output=diag_text,
+                            conflicting_files=track_changed_map.get(trk.track_id, ()),
+                            merged_sibling_commits=(),
+                        )
+                    rb_msg = (
+                        f"Checkpoint quality gate '{gate_cmd}' failed after merging Wave "
+                        f"{wave_number} (transactional auto-rollback to {pre_merge_head[:7]} "
+                        f"completed):\n{gate_out}"
+                    )
+                    raise RuntimeError(rb_msg)
+            healthy_task_ids = active_task_ids
+            rescheduled_plan_path: Path | None = None
+        else:
+            if run_quality_gates and merged_pairs:
+                gates_ok, failed_gate_cmd, _gate_out = self._run_checkpoint_gates(
+                    gates, strict_gates=strict_gates
+                )
+                if not gates_ok:
+                    merged_pairs, merged_commits = self._isolate_culprit_tracks_by_bisection(
+                        wave_number=wave_number,
+                        pre_merge_head=pre_merge_head,
+                        merged_pairs=merged_pairs,
+                        gates=gates,
+                        failed_gate_cmd=failed_gate_cmd,
+                        strict_gates=strict_gates,
+                        adapter=adapter,
+                        track_changed_map=track_changed_map,
+                        rejected_tracks=rejected_tracks,
+                        backup_branches=backup_branches,
+                        additive_registry_files=additive_registry_files,
+                    )
+                    merged_branches = [b for _, b in merged_pairs]
+
+            healthy_task_ids = [tid for trk, _ in merged_pairs for tid in trk.task_ids]
+            failed_story_ids = [
+                sid for fb in rejected_tracks.values() for sid in fb.story_ids if sid
+            ]
+            if merged_branches:
+                _clear_barrier_feedback(self.repo_root, healthy_task_ids)
+                self._apply_adapter_state_on_merge(
+                    adapter=adapter,
+                    wave_number=wave_number,
+                    merged_task_ids=healthy_task_ids,
+                    pre_merge_head=pre_merge_head,
+                    reset_task_ids=failed_story_ids,
+                )
+
+            rescheduled_plan_path = None
+            if rejected_tracks:
+                for fb in rejected_tracks.values():
+                    _save_barrier_feedback(
+                        self.repo_root,
+                        self._resolve_existing_track_worktree(wave_number, fb.track_id),
+                        fb,
+                    )
+                if failed_story_ids:
+                    status_file_set = {
+                        st.replace("\\", "/") for st in adapter.get_status_files()
+                    }
+                    enriched_writes: dict[str, list[str]] = {}
+                    for trk_id, fb in rejected_tracks.items():
+                        raw_changed = track_changed_map.get(trk_id, [])
+                        filtered = [
+                            p
+                            for p in raw_changed
+                            if not _is_ignored_worktree_artifact(p)
+                            and p not in status_file_set
+                            and get_status_merger(p) is None
+                        ]
+                        for sid in fb.story_ids:
+                            if sid and filtered:
+                                enriched_writes[sid] = list(filtered)
+
+                    _ensure_plan_tasks_populated(plan, deferred_ids=failed_story_ids)
+                    for trk in target_wave.tracks:
+                        if any(sid in failed_story_ids for sid in trk.task_ids):
+                            trk.task_ids = [
+                                tid for tid in trk.task_ids if tid not in failed_story_ids
+                            ]
+                            if not trk.task_ids:
+                                trk.exclusive_write_files.clear()
+                                trk.additive_shared_files.clear()
+
+                    scanner = ASTHotspotScanner(self.repo_root)
+                    meta_map = scanner.scan()
+                    file_roles = {rel: meta.role for rel, meta in meta_map.items()}
+                    scheduler = BSPWaveScheduler(
+                        max_tracks=max(3, len(target_wave.tracks)),
+                        file_roles=file_roles,
+                        ast_scanner=scanner,
+                        repo_root=self.repo_root,
+                    )
+                    rescheduled = scheduler.reschedule_remaining_waves(
+                        plan=plan,
+                        current_wave=wave_number,
+                        deferred_task_ids=failed_story_ids,
+                        enriched_writes=enriched_writes or None,
+                    )
+                    plan.waves = [
+                        target_wave if w.wave_number == wave_number else w
+                        for w in rescheduled.waves
+                    ]
+                    plan.edges = rescheduled.edges
+                    plan.tasks = rescheduled.tasks
+                    plan.spine_files = rescheduled.spine_files
+                    plan.additive_registries = rescheduled.additive_registries
+
+                    p_file = self.repo_root / ".parallel" / "wave-plan.json"
+                    p_file.parent.mkdir(parents=True, exist_ok=True)
+                    p_file.write_text(
+                        json.dumps(plan.to_dict(), indent=2, ensure_ascii=False) + "\n",
+                        encoding="utf-8",
+                    )
+                    rescheduled_plan_path = p_file
+
+            self.last_merge_outcome = PartialMergeOutcome(
+                merged_branches=list(merged_branches),
+                rejected_tracks=dict(rejected_tracks),
+                backup_branches=dict(backup_branches),
+                rescheduled_plan_path=rescheduled_plan_path,
+            )
+            if not merged_branches and rejected_tracks:
+                self._rollback_merge_to_head(pre_merge_head)
+                raise RuntimeError(
+                    f"All tracks in Wave {wave_number} failed barrier merge or quality gates: "
+                    f"{sorted(rejected_tracks.keys())}"
+                )
+
+        if self.last_merge_outcome is None:
+            self.last_merge_outcome = PartialMergeOutcome(
+                merged_branches=list(merged_branches),
+                rejected_tracks=dict(rejected_tracks),
+                backup_branches=dict(backup_branches),
+                rescheduled_plan_path=rescheduled_plan_path,
+            )
+
+        if merged_branches:
+            _clear_barrier_feedback(self.repo_root, healthy_task_ids)
+            post_merge_head = ""
+            post_rev = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=self.repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if post_rev.returncode == 0:
+                post_merge_head = post_rev.stdout.strip()
+
+            state = read_parallel_state(self.repo_root)
+            state["last_merged_wave_id"] = wave_number
+            history: list[dict[str, Any]] = state.get("history", [])
+            history.append(
+                {
+                    "wave_number": wave_number,
+                    "pre_merge_commit": pre_merge_head,
+                    "post_merge_commit": post_merge_head,
+                    "task_ids": healthy_task_ids,
+                    "merged_branches": list(merged_branches),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
+            state["history"] = history
+            write_parallel_state(self.repo_root, state)
+
+        if cleanup_worktrees and merged_pairs:
+            cleanup_head = self._resolve_repo_head("HEAD")
+            for track, branch_name in merged_pairs:
+                wt_path = self.worktree_path_for_track(wave_number, track.track_id)
+                if not wt_path.exists():
+                    wt_path = self.worktrees_dir / f"wave-{wave_number}-{track.track_id}"
+
+                if self.fixed_slots and wt_path.exists() and (wt_path / ".git").exists():
+                    # Fixed slot hygiene: reset branch to post-merge repo HEAD, preserving directory
+                    self._reset_worktree_slot(wt_path, branch_name, cleanup_head)
+                elif not self.fixed_slots:
+                    if self.layout == "antigravity":
+                        local_link = (
+                            self.repo_root / ".worktrees" / f"wave-{wave_number}-{track.track_id}"
+                        )
+                        remove_directory_link(local_link)
+                    if wt_path.exists():
+                        for shared_d in _DEFAULT_SHARED_DIRS:
+                            inner_link = wt_path / shared_d
+                            if (
+                                hasattr(inner_link, "is_junction") and inner_link.is_junction()
+                            ) or inner_link.is_symlink():
+                                remove_directory_link(inner_link)
+                        subprocess.run(
+                            ["git", "worktree", "remove", "--force", str(wt_path)],
+                            cwd=self.repo_root,
+                            check=False,
+                        )
+
+        return merged_branches
+
+    def abort_wave(self, wave_id: int) -> list[str]:
+        """Abort wave before merge: remove worktrees, prune, delete parallel branches."""
+        return WorktreeRollbackManager(
+            self.repo_root,
+            fixed_slots=self.fixed_slots,
+        ).abort_wave(wave_id)
+
+    def rollback_wave(
+        self,
+        wave_id: int,
+        save_backup: bool = True,
+        to_commit: str | None = None,
+        kit: str = "auto",
+        task_ids: Sequence[str] | None = None,
+    ) -> str:
+        """Rollback latest merged wave in LIFO order with safety backup and SDD reset."""
+        return WorktreeRollbackManager(
+            self.repo_root,
+            fixed_slots=self.fixed_slots,
+        ).rollback_wave(
+            wave_id=wave_id,
+            save_backup=save_backup,
+            to_commit=to_commit,
+            kit=kit,
+            task_ids=task_ids,
+        )
+
+
+class WorktreeRollbackManager:
+    """Manages transactional wave rollback, LIFO invariants, and safety backups."""
+
+    def __init__(self, repo_root: Path, fixed_slots: bool = True) -> None:
+        self.repo_root = repo_root.resolve()
+        self.fixed_slots = fixed_slots
+        self.worktree_mgr = WorktreeManager(self.repo_root, fixed_slots=fixed_slots)
+
+    def abort_wave(self, wave_id: int) -> list[str]:
+        """Abort wave before merge: reset/remove worktrees, prune, clean branches and stale plan."""
+        # 1. Clean worktrees and junction links (resets fixed slots to repo_root HEAD)
+        cleaned_paths = self.worktree_mgr.cleanup_wave(wave_id, force=True)
+        # 2. Prune git worktrees
+        subprocess.run(
+            ["git", "worktree", "prune"],
+            cwd=self.repo_root,
+            capture_output=True,
+            check=False,
+        )
+        # 2b. Remove stale escalation-modified wave plan and barrier feedbacks if present
+        stale_plan = self.repo_root / ".parallel" / "wave-plan.json"
+        if stale_plan.is_file():
+            try:
+                stale_plan.unlink()
+            except OSError:
+                pass
+        clear_all_barrier_feedback(self.repo_root)
+        # 3. Report reset fixed-slot branches and delete any parallel/wave-{wave_id}-* branches
+        reported_branches: list[str] = []
+        if self.fixed_slots:
+            for p in cleaned_paths:
+                if p.name.startswith("track-"):
+                    b_name = f"parallel/{p.name}"
+                    chk = subprocess.run(
+                        ["git", "rev-parse", "--verify", b_name],
+                        cwd=self.repo_root,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if chk.returncode == 0 and b_name not in reported_branches:
+                        reported_branches.append(b_name)
+        branch_proc = subprocess.run(
+            ["git", "branch", "--list", f"parallel/wave-{wave_id}-*"],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        for raw_b in branch_proc.stdout.splitlines():
+            b_name = raw_b.strip().lstrip("*+ ").strip()
+            if b_name:
+                subprocess.run(
+                    ["git", "branch", "-D", b_name],
+                    cwd=self.repo_root,
+                    capture_output=True,
+                    check=False,
+                )
+                if b_name not in reported_branches:
+                    reported_branches.append(b_name)
+        return reported_branches
+
+    def rollback_wave(
+        self,
+        wave_id: int,
+        save_backup: bool = True,
+        to_commit: str | None = None,
+        kit: str = "auto",
+        task_ids: Sequence[str] | None = None,
+    ) -> str:
+        """Rollback latest merged wave in LIFO order with safety backup and SDD reset."""
+        state = read_parallel_state(self.repo_root)
+        last_merged = state.get("last_merged_wave_id")
+
+        if last_merged is not None and last_merged != wave_id:
+            raise LIFORollbackViolationError(
+                f"LIFO rollback order violation: cannot rollback Wave {wave_id} "
+                f"because latest merged wave is Wave {last_merged}."
+            )
+
+        history: list[dict[str, Any]] = state.get("history", [])
+        entry: dict[str, Any] | None = None
+        for h in reversed(history):
+            if h.get("wave_number") == wave_id:
+                entry = h
+                break
+
+        target_commit = to_commit
+        if not target_commit and entry:
+            target_commit = str(entry.get("pre_merge_commit", ""))
+
+        if not target_commit:
+            raise ValueError(
+                f"Cannot determine target commit to rollback Wave {wave_id}. "
+                "Specify target commit via --to-commit."
+            )
+
+        # Invariant: Safety backup branch
+        backup_branch = ""
+        if save_backup:
+            ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+            backup_branch = f"backup/wave-{wave_id}-before-rollback-{ts}"
+            subprocess.run(
+                ["git", "branch", backup_branch, "HEAD"],
+                cwd=self.repo_root,
+                check=True,
+            )
+
+        # Reset HEAD to target commit
+        subprocess.run(["git", "reset", "--hard", target_commit], cwd=self.repo_root, check=True)
+
+        # Polymorphic status reset
+        resolved_task_ids: list[str] = list(task_ids or [])
+        if not resolved_task_ids and entry:
+            raw_ids = entry.get("task_ids", [])
+            if isinstance(raw_ids, list):
+                resolved_task_ids = [str(x) for x in raw_ids]
+
+        _, adapter = get_adapter(self.repo_root, kit=kit)
+        if resolved_task_ids:
+            adapter.reset_tasks_status(resolved_task_ids, target_status="ready-for-dev")
+            adapter.cleanup_wave_artifacts(wave_id, resolved_task_ids)
+
+        # Clean leftover worktrees, barrier feedbacks, and parallel branches
+        clear_all_barrier_feedback(self.repo_root)
+        self.abort_wave(wave_id)
+
+        # Update state.json
+        if entry and entry in history:
+            history.remove(entry)
+        state["history"] = history
+        state["last_merged_wave_id"] = history[-1]["wave_number"] if history else None
+        write_parallel_state(self.repo_root, state)
+
+        return backup_branch
