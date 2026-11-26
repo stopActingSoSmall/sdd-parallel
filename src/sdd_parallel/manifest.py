@@ -7,7 +7,9 @@ and routing override contracts without LLM calls, USD calculations, or external 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -444,17 +446,26 @@ def save_wave_manifest(repo_root: Path, manifest: WaveRunManifest) -> Path:
 
     # 1. Save wave-<K>-manifest.json atomically
     wave_manifest_path = parallel_dir / f"wave-{manifest.wave_id}-manifest.json"
-    temp_wave_manifest = parallel_dir / f".tmp-wave-{manifest.wave_id}-manifest.json"
-    manifest_dict = manifest.to_dict()
-    temp_wave_manifest.write_text(
-        json.dumps(manifest_dict, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    temp_wave_manifest = (
+        parallel_dir
+        / f".tmp-{wave_manifest_path.name}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     )
-    temp_wave_manifest.replace(wave_manifest_path)
+    manifest_dict = manifest.to_dict()
+    try:
+        temp_wave_manifest.write_text(
+            json.dumps(manifest_dict, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temp_wave_manifest, wave_manifest_path)
+    finally:
+        temp_wave_manifest.unlink(missing_ok=True)
 
     # 2. Update summary run-manifest.json atomically
     run_manifest_path = parallel_dir / "run-manifest.json"
-    temp_run_manifest = parallel_dir / ".tmp-run-manifest.json"
+    temp_run_manifest = (
+        parallel_dir
+        / f".tmp-{run_manifest_path.name}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    )
     summary_data: dict[str, Any] = {
         "schema_version": "1.0",
         "waves": {},
@@ -470,10 +481,13 @@ def save_wave_manifest(repo_root: Path, manifest: WaveRunManifest) -> Path:
             pass
 
     summary_data["waves"][str(manifest.wave_id)] = manifest_dict
-    temp_run_manifest.write_text(
-        json.dumps(summary_data, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    temp_run_manifest.replace(run_manifest_path)
+    try:
+        temp_run_manifest.write_text(
+            json.dumps(summary_data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temp_run_manifest, run_manifest_path)
+    finally:
+        temp_run_manifest.unlink(missing_ok=True)
 
     return wave_manifest_path

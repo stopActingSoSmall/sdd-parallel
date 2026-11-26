@@ -5,7 +5,9 @@ Spec Kit/OpenSpec tasks.md, and Beads issues.jsonl.
 from __future__ import annotations
 
 import json
+import os
 import re
+import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,7 +21,13 @@ _LAST_UPDATED_RE = re.compile(r"^(last_updated:\s*).*$")
 _FM_STATUS_LINE_RE = re.compile(r"^(\s*status:\s*)([A-Za-z0-9_.-]+)(\s*(?:#.*)?)$", re.IGNORECASE)
 
 _CHECKLIST_LINE_RE = re.compile(r"^(\s*[-*]\s*\[)([ xX])(\]\s*)(.+)$")
-_CHECKLIST_KEY_RE = re.compile(r"^`?([A-Za-z]+[-_]?\d+|\d+[-_]\d+)`?\b", re.IGNORECASE)
+_CHECKLIST_ID_PATTERN = r"(?:[A-Za-z]+[-_]\d+|\d+(?:[-_.]\d+)+|[A-Za-z]+\d{3,})"
+_CHECKLIST_KEY_RE = re.compile(
+    rf"^`?(?:\[({_CHECKLIST_ID_PATTERN}|[A-Za-z]{{1,2}}\d+)\]|"
+    rf"({_CHECKLIST_ID_PATTERN})(?=`?(?:\b|[:\])]))|"
+    rf"([A-Za-z]{{1,2}}\d+)(?=`?\s*[:\])]))`?",
+    re.IGNORECASE,
+)
 
 
 def _extract_status_map(yaml_text: str) -> dict[str, str]:
@@ -48,8 +56,18 @@ def _pick_highest_status(val_a: str | None, val_b: str | None, val_c: str | None
     candidates = [v for v in (val_a, val_b, val_c) if v is not None]
     if not candidates:
         return TaskStatus.BACKLOG.value
-    best = max(candidates, key=lambda raw: TaskStatus.from_raw(raw).rank())
-    return best
+    top_rank = max(TaskStatus.from_raw(raw).rank() for raw in candidates)
+    for candidate in (val_b, val_c, val_a):
+        if (
+            candidate is not None
+            and TaskStatus.from_raw(candidate).rank() == top_rank
+            and candidate != val_a
+        ):
+            return candidate
+    for candidate in (val_b, val_c, val_a):
+        if candidate is not None and TaskStatus.from_raw(candidate).rank() == top_rank:
+            return candidate
+    return candidates[0]
 
 
 def merge_sprint_status_yaml(
@@ -141,7 +159,16 @@ def merge_sprint_status_files(
         theirs_text=theirs_path.read_text(encoding="utf-8-sig"),
         updated_at=updated_at,
     )
-    output_path.write_text(merged, encoding="utf-8")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = (
+        output_path.parent
+        / f".tmp-{output_path.name}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    )
+    try:
+        tmp_path.write_text(merged, encoding="utf-8")
+        os.replace(tmp_path, output_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def _extract_checklist_key(desc: str) -> str:
@@ -151,7 +178,8 @@ def _extract_checklist_key(desc: str) -> str:
     cleaned = re.sub(r"^(?:US\d+|Phase\s*\d+)\s*[:/-]\s*", "", cleaned, flags=re.IGNORECASE).strip()
     m = _CHECKLIST_KEY_RE.match(cleaned)
     if m:
-        return m.group(1).upper()
+        token = next(g for g in m.groups() if g is not None)
+        return token.upper()
     return " ".join(cleaned.split()).lower()
 
 
@@ -214,6 +242,22 @@ def merge_markdown_task_checklists(
     return "\n".join(output_lines) + "\n"
 
 
+def _beads_status_rank(raw: str) -> int:
+    """Return monotonic progress rank for Beads native and SDD statuses."""
+    norm = raw.strip().lower()
+    if norm in {"closed", "done", "resolved", "completed"}:
+        return 4
+    if norm in {"review", "in-review", "built"}:
+        return 3
+    if norm in {"in_progress", "in-progress", "started", "active", "wip", "hooked"}:
+        return 2
+    if norm in {"open", "ready", "ready-for-dev", "todo"}:
+        return 1
+    if norm in {"blocked", "deferred", "backlog", "escalated-deferred"}:
+        return 0
+    return TaskStatus.from_raw(raw).rank()
+
+
 def merge_beads_issues_jsonl(
     base_text: str,
     ours_text: str,
@@ -265,18 +309,27 @@ def merge_beads_issues_jsonl(
             merged_records.append(ours_obj)
             continue
         if ours_obj is not None and theirs_obj is not None:
-            rank_ours = TaskStatus.from_raw(str(ours_obj.get("status", "backlog"))).rank()
-            rank_theirs = TaskStatus.from_raw(str(theirs_obj.get("status", "backlog"))).rank()
-
-            if rank_theirs > rank_ours:
-                merged_records.append(theirs_obj)
-            elif rank_ours > rank_theirs:
-                merged_records.append(ours_obj)
-            else:
-                if theirs_obj != base_obj and ours_obj == base_obj:
-                    merged_records.append(theirs_obj)
-                else:
-                    merged_records.append(ours_obj)
+            candidates_with_ranks: list[tuple[dict[str, Any], int]] = [
+                (ours_obj, _beads_status_rank(str(ours_obj.get("status", "backlog")))),
+                (theirs_obj, _beads_status_rank(str(theirs_obj.get("status", "backlog")))),
+            ]
+            if base_obj is not None:
+                candidates_with_ranks.append(
+                    (base_obj, _beads_status_rank(str(base_obj.get("status", "backlog"))))
+                )
+            top_rank = max(r for _, r in candidates_with_ranks)
+            chosen: dict[str, Any] | None = None
+            for obj, r in candidates_with_ranks:
+                if r == top_rank and obj != base_obj:
+                    chosen = obj
+                    break
+            if chosen is None:
+                for obj, r in candidates_with_ranks:
+                    if r == top_rank:
+                        chosen = obj
+                        break
+            assert chosen is not None
+            merged_records.append(chosen)
 
     lines = [json.dumps(rec, ensure_ascii=False) for rec in merged_records]
     return "\n".join(lines) + ("\n" if lines else "")

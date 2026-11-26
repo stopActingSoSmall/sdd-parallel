@@ -14,10 +14,6 @@ _DEFAULT_REGISTRY_FILENAMES = frozenset(
     {
         "__init__.py",
         "cli.py",
-        "server.py",
-        "router.py",
-        "routes.py",
-        "registry.py",
     }
 )
 _MAX_LINE_LENGTH = 88
@@ -591,7 +587,9 @@ def _merge_dunder_all(
             merged_elems.append(e)
 
     force_multiline = ("\n" in o_stmt.raw_slice) or ("\n" in t_stmt.raw_slice)
-    if o_kind != t_kind and b_stmt is not None:
+    if o_kind != t_kind:
+        if b_stmt is None:
+            return _FAIL_SENTINEL
         b_kind = _extract_dunder_all_strings(b_stmt.stmt)
         if b_kind is not None and o_kind == b_kind[0]:
             o_kind = t_kind
@@ -692,6 +690,238 @@ def _new_bound_symbols(
     return symbols
 
 
+def _has_both_sides_new_stmt_of_kind(
+    kind: str,
+    base_mod: _ParsedModule,
+    ours_mod: _ParsedModule,
+    theirs_mod: _ParsedModule,
+) -> bool:
+    return (
+        kind in {"expr", "complex"}
+        and any(k[0] == kind and k not in base_mod.body_by_key for k in theirs_mod.body_by_key)
+        and any(k[0] == kind and k not in base_mod.body_by_key for k in ours_mod.body_by_key)
+    )
+
+
+def _is_literal_key(node: ast.expr) -> bool:
+    return isinstance(node, ast.Constant) and isinstance(node.value, (str, int, float, bool))
+
+
+def _extract_expr_registration_keys(stmt: ast.stmt) -> set[tuple[str, str]]:
+    """Extract (target_chain, literal_key) pairs from top-level registry calls."""
+    if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
+        return set()
+    call = stmt.value
+    if not isinstance(call.func, ast.Attribute):
+        return set()
+    target_chain = ast.dump(call.func.value, include_attributes=False)
+    method = call.func.attr
+    keys: set[tuple[str, str]] = set()
+
+    if method in {"register", "setdefault"}:
+        if call.args and _is_literal_key(call.args[0]):
+            assert isinstance(call.args[0], ast.Constant)
+            keys.add((target_chain, repr(call.args[0].value)))
+        elif method == "register":
+            for kw in call.keywords:
+                if kw.arg in {"name", "key"} and _is_literal_key(kw.value):
+                    assert isinstance(kw.value, ast.Constant)
+                    keys.add((target_chain, repr(kw.value.value)))
+    elif method == "add_command":
+        if len(call.args) >= 2 and _is_literal_key(call.args[1]):
+            assert isinstance(call.args[1], ast.Constant)
+            keys.add((target_chain, repr(call.args[1].value)))
+        for kw in call.keywords:
+            if kw.arg == "name" and _is_literal_key(kw.value):
+                assert isinstance(kw.value, ast.Constant)
+                keys.add((target_chain, repr(kw.value.value)))
+    elif method == "update":
+        for kw in call.keywords:
+            if kw.arg is not None:
+                keys.add((target_chain, repr(kw.arg)))
+        for arg in call.args:
+            if isinstance(arg, ast.Dict):
+                for k in arg.keys:
+                    if k is not None and _is_literal_key(k):
+                        assert isinstance(k, ast.Constant)
+                        keys.add((target_chain, repr(k.value)))
+    return keys
+
+
+def _collect_load_names(stmt: ast.stmt) -> set[str]:
+    return {
+        node.id
+        for node in ast.walk(stmt)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+    }
+
+
+def _extract_target_names(target: ast.AST) -> set[str]:
+    return {
+        node.id
+        for node in ast.walk(target)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
+    }
+
+
+def _extract_stmt_bound_names(stmt: ast.stmt) -> set[str]:
+    if isinstance(stmt, ast.Import):
+        return {alias.asname or alias.name.split(".", 1)[0] for alias in stmt.names}
+    if isinstance(stmt, ast.ImportFrom):
+        return {
+            alias.asname or alias.name
+            for alias in stmt.names
+            if alias.name != "*"
+        }
+    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return {stmt.name}
+    if isinstance(stmt, ast.Assign):
+        names: set[str] = set()
+        for tgt in stmt.targets:
+            names.update(_extract_target_names(tgt))
+        return names
+    if isinstance(stmt, ast.AnnAssign):
+        if stmt.value is not None and isinstance(stmt.target, ast.Name):
+            return {stmt.target.id}
+        return set()
+    if isinstance(stmt, (ast.For, ast.AsyncFor)):
+        return _extract_target_names(stmt.target)
+    if isinstance(stmt, (ast.With, ast.AsyncWith)):
+        names = set()
+        for item in stmt.items:
+            if item.optional_vars is not None:
+                names.update(_extract_target_names(item.optional_vars))
+        return names
+    if isinstance(stmt, ast.Try):
+        names = set()
+        for handler in stmt.handlers:
+            if handler.name is not None:
+                names.add(handler.name)
+        return names
+    return set()
+
+
+def _walk_eager_expr(
+    node: ast.AST,
+    out: set[str],
+    *,
+    has_future_annotations: bool,
+) -> None:
+    if isinstance(node, ast.Name):
+        if isinstance(node.ctx, ast.Load):
+            out.add(node.id)
+        return
+    if isinstance(node, ast.Lambda):
+        for d in node.args.defaults:
+            _walk_eager_expr(d, out, has_future_annotations=has_future_annotations)
+        for kd in node.args.kw_defaults:
+            if kd is not None:
+                _walk_eager_expr(kd, out, has_future_annotations=has_future_annotations)
+        return
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        for dec in node.decorator_list:
+            _walk_eager_expr(dec, out, has_future_annotations=has_future_annotations)
+        for d in node.args.defaults:
+            _walk_eager_expr(d, out, has_future_annotations=has_future_annotations)
+        for kd in node.args.kw_defaults:
+            if kd is not None:
+                _walk_eager_expr(kd, out, has_future_annotations=has_future_annotations)
+        if not has_future_annotations:
+            if node.returns is not None:
+                _walk_eager_expr(node.returns, out, has_future_annotations=has_future_annotations)
+            for arg in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs):
+                if arg.annotation is not None:
+                    _walk_eager_expr(
+                        arg.annotation, out, has_future_annotations=has_future_annotations
+                    )
+            if node.args.vararg is not None and node.args.vararg.annotation is not None:
+                _walk_eager_expr(
+                    node.args.vararg.annotation,
+                    out,
+                    has_future_annotations=has_future_annotations,
+                )
+            if node.args.kwarg is not None and node.args.kwarg.annotation is not None:
+                _walk_eager_expr(
+                    node.args.kwarg.annotation,
+                    out,
+                    has_future_annotations=has_future_annotations,
+                )
+        return
+    if isinstance(node, ast.ClassDef):
+        for dec in node.decorator_list:
+            _walk_eager_expr(dec, out, has_future_annotations=has_future_annotations)
+        for b in node.bases:
+            _walk_eager_expr(b, out, has_future_annotations=has_future_annotations)
+        for kw in node.keywords:
+            _walk_eager_expr(kw.value, out, has_future_annotations=has_future_annotations)
+        class_bound: set[str] = set()
+        for sub in node.body:
+            sub_reads: set[str] = set()
+            _walk_eager_expr(sub, sub_reads, has_future_annotations=has_future_annotations)
+            out.update(sub_reads - class_bound)
+            class_bound.update(_extract_stmt_bound_names(sub))
+        return
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+        comp_reads: set[str] = set()
+        comp_bound: set[str] = set()
+        for gen in node.generators:
+            gen_iter_reads: set[str] = set()
+            _walk_eager_expr(
+                gen.iter, gen_iter_reads, has_future_annotations=has_future_annotations
+            )
+            out.update(gen_iter_reads - comp_bound)
+            comp_bound.update(_extract_target_names(gen.target))
+            for cond in gen.ifs:
+                _walk_eager_expr(cond, comp_reads, has_future_annotations=has_future_annotations)
+        if isinstance(node, ast.DictComp):
+            _walk_eager_expr(node.key, comp_reads, has_future_annotations=has_future_annotations)
+            _walk_eager_expr(node.value, comp_reads, has_future_annotations=has_future_annotations)
+        else:
+            _walk_eager_expr(node.elt, comp_reads, has_future_annotations=has_future_annotations)
+        out.update(comp_reads - comp_bound)
+        return
+    for child in ast.iter_child_nodes(node):
+        _walk_eager_expr(child, out, has_future_annotations=has_future_annotations)
+
+
+def _collect_eager_load_names(stmt: ast.stmt, *, has_future_annotations: bool) -> set[str]:
+    reads: set[str] = set()
+    _walk_eager_expr(stmt, reads, has_future_annotations=has_future_annotations)
+    return reads
+
+
+def _find_top_level_forward_ref(
+    stmts: list[ast.stmt],
+    *,
+    initial_bound: set[str],
+    has_future_annotations: bool,
+) -> tuple[int, str] | None:
+    bound_per_stmt = [_extract_stmt_bound_names(s) for s in stmts]
+    later_bound: list[set[str]] = [set() for _ in stmts]
+    running: set[str] = set()
+    for idx in range(len(stmts) - 1, -1, -1):
+        later_bound[idx] = set(running)
+        running |= bound_per_stmt[idx]
+
+    bound_so_far = set(initial_bound)
+    for idx, stmt in enumerate(stmts):
+        eager_reads = _collect_eager_load_names(
+            stmt, has_future_annotations=has_future_annotations
+        )
+        missing = sorted((eager_reads - bound_so_far) & later_bound[idx])
+        if missing:
+            return idx, missing[0]
+        bound_so_far |= bound_per_stmt[idx]
+    return None
+
+
+@dataclass
+class _AssembledBlock:
+    kind: str
+    text: str
+    movable: bool = False
+
+
 def merge_python_additive_registry(
     base_text: str,
     ours_text: str,
@@ -722,6 +952,16 @@ def merge_python_additive_registry(
     if base_mod is None or ours_mod is None or theirs_mod is None:
         return None
 
+    # 5e-1: main_guard must be the last non-import statement if present.
+    for mod in (base_mod, ours_mod, theirs_mod):
+        mg_indices = [
+            idx
+            for idx, (item_type, item_key) in enumerate(mod.all_stmts_non_import_order)
+            if item_type == "body" and item_key == ("main_guard", "__main__")
+        ]
+        if mg_indices and mg_indices[-1] != len(mod.all_stmts_non_import_order) - 1:
+            return None
+
     merged_doc = _merge_docstring(base_mod, ours_mod, theirs_mod)
     if isinstance(merged_doc, _Sentinel):
         return None
@@ -743,17 +983,43 @@ def merge_python_additive_registry(
         if t_sig is not None and o_sig != t_sig:
             return None
 
-    # Validate newly added merged import names against newly added body defs/vars.
+    # Validate newly added merged import names against newly added body defs/vars,
+    # and protect existing base defs/vars/imports against cross-kind collisions (5b-1).
     base_import_set = set(base_mod.header_import_items)
+    ours_import_set = set(ours_mod.header_import_items)
+    theirs_import_set = set(theirs_mod.header_import_items)
+    merged_import_names = {
+        it.local_name for it in merged_import_set if it.local_name is not None
+    }
     new_merged_import_names = {
         it.local_name
         for it in (merged_import_set - base_import_set)
         if it.local_name is not None
     }
+    base_active_defs = {
+        k[1]
+        for k in base_mod.body_by_key
+        if k[0] == "def" and (k in ours_mod.body_by_key or k in theirs_mod.body_by_key)
+    }
+    base_active_vars = {
+        k[1]
+        for k in base_mod.body_by_key
+        if k[0] == "var" and (k in ours_mod.body_by_key or k in theirs_mod.body_by_key)
+    }
+
+    for new_imp_name in new_merged_import_names:
+        if new_imp_name in base_active_defs or new_imp_name in base_active_vars:
+            return None
+
     for branch_mod in (ours_mod, theirs_mod):
         for key, _ps in branch_mod.body_by_key.items():
             if key[0] in {"def", "var"} and key not in base_mod.body_by_key:
-                if key[1] in new_merged_import_names:
+                sym_name = key[1]
+                if sym_name in new_merged_import_names or sym_name in merged_import_names:
+                    return None
+                if key[0] == "def" and sym_name in base_active_vars:
+                    return None
+                if key[0] == "var" and sym_name in base_active_defs:
                     return None
 
     # Evaluate 3-way status of all base body keys.
@@ -766,19 +1032,15 @@ def merge_python_additive_registry(
 
         if o_dump == b_ps.ast_dump and t_dump != b_ps.ast_dump:
             if t_ps is None:
-                if key[0] in {"expr", "complex"} and any(
-                    k[0] == key[0] and k not in base_mod.body_by_key
-                    for k in theirs_mod.body_by_key
-                ) and any(
-                    k[0] == key[0] and k not in base_mod.body_by_key
-                    for k in ours_mod.body_by_key
-                ):
+                if _has_both_sides_new_stmt_of_kind(key[0], base_mod, ours_mod, theirs_mod):
                     return None
                 resolved_base_body[key] = None
             else:
                 resolved_base_body[key] = (_block_kind(t_ps.stmt), t_ps.raw_slice)
         elif t_dump == b_ps.ast_dump and o_dump != b_ps.ast_dump:
             if o_ps is None:
+                if _has_both_sides_new_stmt_of_kind(key[0], base_mod, ours_mod, theirs_mod):
+                    return None
                 resolved_base_body[key] = None
             else:
                 resolved_base_body[key] = (_block_kind(o_ps.stmt), o_ps.raw_slice)
@@ -817,32 +1079,71 @@ def merge_python_additive_registry(
             if ours_mod.body_by_key[k].ast_dump != theirs_mod.body_by_key[k].ast_dump:
                 return None
 
-    # Assemble blocks.
-    blocks: list[tuple[str, str]] = []
+    # 5d: Fail-closed on conflicting literal registration keys in newly added expr calls.
+    ours_reg_calls: dict[tuple[str, str], str] = {}
+    for k in ours_added_keys:
+        if k[0] != "expr":
+            continue
+        ps = ours_mod.body_by_key[k]
+        for reg_pair in _extract_expr_registration_keys(ps.stmt):
+            prev_dump = ours_reg_calls.get(reg_pair)
+            if prev_dump is not None and prev_dump != ps.ast_dump:
+                return None
+            ours_reg_calls[reg_pair] = ps.ast_dump
+    for k in theirs_added_keys:
+        if k[0] != "expr":
+            continue
+        ps = theirs_mod.body_by_key[k]
+        for reg_pair in _extract_expr_registration_keys(ps.stmt):
+            ours_dump = ours_reg_calls.get(reg_pair)
+            if ours_dump is not None and ours_dump != ps.ast_dump:
+                return None
+
+    # 5b-2: Fail-closed if a removed base import is still loaded by surviving/new nodes.
+    removed_ours_names = {
+        it.local_name
+        for it in (base_import_set - ours_import_set)
+        if it.local_name is not None
+    } - merged_import_names
+    removed_theirs_names = {
+        it.local_name
+        for it in (base_import_set - theirs_import_set)
+        if it.local_name is not None
+    } - merged_import_names
+    removed_import_names = removed_ours_names | removed_theirs_names
+
+    # Assemble header, body, and tail blocks.
+    header_blocks: list[tuple[str, str]] = []
     if ours_mod.leading_comments:
-        blocks.append(("header_comment", ours_mod.leading_comments))
+        header_blocks.append(("header_comment", ours_mod.leading_comments))
     elif theirs_mod.leading_comments:
-        blocks.append(("header_comment", theirs_mod.leading_comments))
+        header_blocks.append(("header_comment", theirs_mod.leading_comments))
 
     if merged_doc is not None:
-        blocks.append(("docstring", merged_doc))
+        header_blocks.append(("docstring", merged_doc))
     for fb in future_blocks:
-        blocks.append(("future_import", fb))
+        header_blocks.append(("future_import", fb))
     for rb in regular_import_blocks:
-        blocks.append(("import", rb))
+        header_blocks.append(("import", rb))
 
-    theirs_extra_non_main: list[tuple[str, str]] = []
+    theirs_extra_non_main: list[_AssembledBlock] = []
     theirs_extra_main: list[tuple[str, str]] = []
     for k in theirs_added_keys:
         if k in ours_added_set:
             continue
         ps = theirs_mod.body_by_key[k]
-        item_pair = (_block_kind(ps.stmt), ps.raw_slice)
         if k[0] == "main_guard":
-            theirs_extra_main.append(item_pair)
+            theirs_extra_main.append((_block_kind(ps.stmt), ps.raw_slice))
         else:
-            theirs_extra_non_main.append(item_pair)
+            theirs_extra_non_main.append(
+                _AssembledBlock(
+                    kind=_block_kind(ps.stmt),
+                    text=ps.raw_slice,
+                    movable=k[0] in {"def", "var"},
+                )
+            )
 
+    body_blocks: list[_AssembledBlock] = []
     emitted_all = False
     inserted_theirs_body = False
     main_guard_block: tuple[str, str] | None = None
@@ -851,7 +1152,7 @@ def merge_python_additive_registry(
         if item_type == "all":
             emitted_all = True
             if merged_all is not None:
-                blocks.append(("stmt", merged_all))
+                body_blocks.append(_AssembledBlock(kind="stmt", text=merged_all))
             continue
 
         assert item_key is not None
@@ -865,35 +1166,97 @@ def merge_python_additive_registry(
 
         if item_key[0] == "main_guard":
             if not inserted_theirs_body:
-                blocks.extend(theirs_extra_non_main)
+                body_blocks.extend(theirs_extra_non_main)
                 inserted_theirs_body = True
             main_guard_block = entry
         else:
-            blocks.append(entry)
+            body_blocks.append(_AssembledBlock(kind=entry[0], text=entry[1]))
 
     if not emitted_all and merged_all is not None:
-        insert_pos = len(blocks)
-        for idx, (b_kind, _) in enumerate(blocks):
-            if b_kind in {"def_or_class", "stmt", "call", "main_guard"}:
+        insert_pos = len(body_blocks)
+        for idx, blk in enumerate(body_blocks):
+            if blk.kind in {"def_or_class", "stmt", "call"}:
                 insert_pos = idx
                 break
-        blocks.insert(insert_pos, ("stmt", merged_all))
+        body_blocks.insert(insert_pos, _AssembledBlock(kind="stmt", text=merged_all))
 
     if not inserted_theirs_body:
-        blocks.extend(theirs_extra_non_main)
+        body_blocks.extend(theirs_extra_non_main)
 
+    tail_blocks: list[tuple[str, str]] = []
     if main_guard_block is not None:
-        blocks.append(main_guard_block)
+        tail_blocks.append(main_guard_block)
     elif theirs_extra_main:
-        blocks.extend(theirs_extra_main)
+        tail_blocks.extend(theirs_extra_main)
 
+    # Check 5b-2 against all surviving body & tail blocks.
+    if removed_import_names:
+        for text_block in [b.text for b in body_blocks] + [t[1] for t in tail_blocks]:
+            try:
+                parsed_blk = ast.parse(text_block)
+            except SyntaxError:
+                return None
+            for sub_stmt in parsed_blk.body:
+                if _collect_load_names(sub_stmt) & removed_import_names:
+                    return None
+
+    # 5e-2: Relocate movable defs/classes/vars from theirs before first dependent stmt.
+    has_future_annotations = any(
+        it.is_future and it.name == "annotations" for it in merged_import_set
+    )
+    for _ in range(len(body_blocks) + 1):
+        parsed_body_stmts: list[ast.stmt] = []
+        for blk in body_blocks:
+            try:
+                blk_tree = ast.parse(blk.text)
+            except SyntaxError:
+                return None
+            if len(blk_tree.body) != 1:
+                return None
+            parsed_body_stmts.append(blk_tree.body[0])
+
+        fwd_ref = _find_top_level_forward_ref(
+            parsed_body_stmts,
+            initial_bound=merged_import_names,
+            has_future_annotations=has_future_annotations,
+        )
+        if fwd_ref is None:
+            break
+        use_idx, needed_name = fwd_ref
+        move_idx: int | None = None
+        for cand_idx in range(use_idx + 1, len(body_blocks)):
+            if body_blocks[cand_idx].movable and needed_name in _extract_stmt_bound_names(
+                parsed_body_stmts[cand_idx]
+            ):
+                move_idx = cand_idx
+                break
+        if move_idx is None:
+            break
+        moved_block = body_blocks.pop(move_idx)
+        body_blocks.insert(use_idx, moved_block)
+
+    blocks: list[tuple[str, str]] = [
+        *header_blocks,
+        *((b.kind, b.text) for b in body_blocks),
+        *tail_blocks,
+    ]
     merged_text = _join_blocks(blocks)
     if merged_text and not merged_text.endswith("\n"):
         merged_text += "\n"
 
     try:
-        ast.parse(merged_text)
+        merged_tree = ast.parse(merged_text)
     except SyntaxError:
+        return None
+
+    if (
+        _find_top_level_forward_ref(
+            merged_tree.body,
+            initial_bound=set(),
+            has_future_annotations=has_future_annotations,
+        )
+        is not None
+    ):
         return None
 
     return merged_text
