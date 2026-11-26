@@ -400,6 +400,24 @@ def test_harvest_and_save_wave_manifest(tmp_path: Path) -> None:
     assert "1" in run_manifest["waves"]
     assert run_manifest["waves"]["1"]["tracks"][0]["session_id"] == "ses-9988"
 
+    # Task 54b: Verify atomic write cleans up temp files and preserves accumulated waves
+    manifest_w2 = harvest_wave_manifest(
+        repo_root=tmp_path,
+        plan=WavePlan(sdd_kit="bmad", waves=[Wave(wave_number=2, tracks=[track])], edges=[]),
+        wave_id=2,
+        sdd_kit="bmad",
+        fixed_slots=True,
+    )
+    save_wave_manifest(tmp_path, manifest_w2)
+    run_manifest_after = json.loads(
+        (tmp_path / ".parallel" / "run-manifest.json").read_text(encoding="utf-8")
+    )
+    assert set(run_manifest_after["waves"].keys()) == {"1", "2"}
+    leftover_tmps = [
+        p for p in (tmp_path / ".parallel").iterdir() if p.name.startswith(".tmp-")
+    ]
+    assert leftover_tmps == []
+
 
 def test_zero_finops_and_pricing_in_core() -> None:
     """Ensure no USD calculation, tariff pricing tables or OTel/Langfuse bloat in core."""

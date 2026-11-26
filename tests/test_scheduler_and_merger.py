@@ -1062,3 +1062,113 @@ def test_contract_globs_custom_override() -> None:
     custom_roles = {"src/schemas/user.py": FileRole.STANDARD}
     scheduler = BSPWaveScheduler(max_tracks=2, file_roles=custom_roles)
     assert scheduler.get_file_role("src/schemas/user.py") == FileRole.STANDARD
+
+
+def test_checklist_merge_does_not_collide_on_alphanumeric_words() -> None:
+    """Task 54b: S3/OAuth2/V2/Python3/P1 descriptions must not collide on prefix tokens."""
+    from sdd_parallel.status_merger import merge_markdown_task_checklists
+
+    base = (
+        "- [ ] S3 bucket setup\n"
+        "- [ ] OAuth2 login flow\n"
+        "- [ ] V2 schema migration\n"
+        "- [ ] T001: Setup\n"
+        "- [ ] T1: Init\n"
+        "- [ ] [T2] Bootstrap\n"
+    )
+    ours = (
+        "- [x] S3 bucket setup\n"
+        "- [x] OAuth2 login flow\n"
+        "- [ ] V2 schema migration\n"
+        "- [x] T001: Setup\n"
+        "- [x] T1: Init\n"
+        "- [ ] [T2] Bootstrap\n"
+    )
+    theirs = (
+        "- [ ] S3 bucket setup\n"
+        "- [ ] S3 lifecycle policy\n"
+        "- [ ] OAuth2 token refresh\n"
+        "- [x] V2 API docs\n"
+        "- [ ] T001: Setup\n"
+        "- [ ] T1: Init\n"
+        "- [x] [T2] Bootstrap\n"
+    )
+    merged = merge_markdown_task_checklists(base, ours, theirs)
+    lines = merged.splitlines()
+    assert "- [x] S3 bucket setup" in lines
+    assert "- [ ] S3 lifecycle policy" in lines
+    assert "- [x] OAuth2 login flow" in lines
+    assert "- [ ] OAuth2 token refresh" in lines
+    assert "- [ ] V2 schema migration" in lines
+    assert "- [x] V2 API docs" in lines
+    assert "- [x] T001: Setup" in lines
+    assert "- [x] T1: Init" in lines
+    assert "- [x] [T2] Bootstrap" in lines
+
+
+def test_status_tie_breaks_toward_changed_branch() -> None:
+    """Task 54b: _pick_highest_status prefers changed branches over unchanged base on rank ties."""
+    base_yaml = (
+        "development_status:\n"
+        "  1-1-a: backlog\n"
+        "  1-2-b: backlog\n"
+        "  1-3-c: review\n"
+    )
+    ours_yaml = (
+        "development_status:\n"
+        "  1-1-a: blocked\n"
+        "  1-2-b: backlog\n"
+        "  1-3-c: review\n"
+    )
+    theirs_yaml = (
+        "development_status:\n"
+        "  1-1-a: backlog\n"
+        "  1-2-b: escalated-deferred\n"
+        "  1-3-c: built\n"
+    )
+    merged = merge_sprint_status_yaml(base_yaml, ours_yaml, theirs_yaml)
+    assert "  1-1-a: blocked" in merged
+    assert "  1-2-b: escalated-deferred" in merged
+    assert "  1-3-c: built" in merged
+
+
+def test_beads_closed_status_outranks_in_progress() -> None:
+    """Task 54b: Beads closed/resolved statuses outrank in-progress and prevent regression."""
+    import json
+
+    from sdd_parallel.status_merger import merge_beads_issues_jsonl
+
+    base = json.dumps({"id": "bd-1", "status": "open"}) + "\n"
+    closed = json.dumps({"id": "bd-1", "status": "closed"}) + "\n"
+    in_prog = json.dumps({"id": "bd-1", "status": "in-progress"}) + "\n"
+
+    merged_ours_closed = merge_beads_issues_jsonl(base, closed, in_prog)
+    assert json.loads(merged_ours_closed.strip())["status"] == "closed"
+
+    merged_theirs_closed = merge_beads_issues_jsonl(base, in_prog, closed)
+    assert json.loads(merged_theirs_closed.strip())["status"] == "closed"
+
+    # Monotonicity guard when base was already closed and branches regressed
+    open_rec = json.dumps({"id": "bd-1", "status": "open"}) + "\n"
+    merged_no_regress = merge_beads_issues_jsonl(closed, open_rec, in_prog)
+    assert json.loads(merged_no_regress.strip())["status"] == "closed"
+
+
+def test_merge_sprint_status_files_atomic_write(tmp_path: Path) -> None:
+    """Task 54b: merge_sprint_status_files writes atomically without leaving temp files."""
+    from sdd_parallel.status_merger import merge_sprint_status_files
+
+    base_p = tmp_path / "base.yaml"
+    ours_p = tmp_path / "ours.yaml"
+    theirs_p = tmp_path / "theirs.yaml"
+    out_p = tmp_path / "out" / "sprint-status.yaml"
+
+    base_p.write_text("development_status:\n  1-1: backlog\n", encoding="utf-8")
+    ours_p.write_text("development_status:\n  1-1: in-progress\n", encoding="utf-8")
+    theirs_p.write_text("development_status:\n  1-1: done\n", encoding="utf-8")
+
+    merge_sprint_status_files(base_p, ours_p, theirs_p, out_p, updated_at="11-26-2026 12:00")
+    assert out_p.is_file()
+    assert "  1-1: done" in out_p.read_text(encoding="utf-8")
+    leftover_tmps = [p for p in out_p.parent.iterdir() if p.name.startswith(".tmp-")]
+    assert leftover_tmps == []

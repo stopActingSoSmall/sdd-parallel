@@ -38,6 +38,11 @@ def test_is_python_registry_candidate_filters_paths() -> None:
     assert is_python_registry_candidate("src/app/cli.py") is True
     assert is_python_registry_candidate("src/app/__init__.py") is True
     assert is_python_registry_candidate("pkg/mcp/server.py") is True
+    assert is_python_registry_candidate("src/service/server.py") is False
+    assert is_python_registry_candidate("src/service/router.py") is False
+    assert is_python_registry_candidate("src/service/routes.py") is False
+    assert is_python_registry_candidate("src/service/registry.py") is False
+    assert is_python_registry_candidate("src/app/cli.py", additive_files=set()) is False
     assert is_python_registry_candidate("src/app/utils.py") is False
     assert is_python_registry_candidate("README.md") is False
 
@@ -526,3 +531,215 @@ def test_worktree_merge_wave_falls_back_to_partial_merge_on_incompatible_edit(
     assert "track-b" in manager.last_merge_outcome.rejected_tracks
     assert manager.last_merge_outcome.rejected_tracks["track-b"].failed_stage == "git_merge"
     assert _git(repo, "status", "--porcelain") == ""
+
+
+def test_empty_additive_set_blocks_standard_server_py_registry_merge(
+    tmp_path: Path,
+) -> None:
+    """Task 54b: Empty effective_additive must NOT fall back to server.py basename matching."""
+    repo = tmp_path / "repo_std_server"
+    repo.mkdir()
+    _init_git_repo(repo)
+
+    (repo / "_bmad-output" / "implementation-artifacts").mkdir(parents=True)
+    (repo / "_bmad-output" / "implementation-artifacts" / "sprint-status.yaml").write_text(
+        "development_status:\n"
+        "  1-1-a: ready-for-dev\n"
+        "  1-2-b: ready-for-dev\n",
+        encoding="utf-8",
+    )
+    svc_dir = repo / "src" / "service"
+    svc_dir.mkdir(parents=True)
+    (svc_dir / "__init__.py").write_text("", encoding="utf-8")
+    (svc_dir / "server.py").write_text(
+        "def start() -> str:\n    return 'base'\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "chore: base repo")
+
+    plan = WavePlan(
+        sdd_kit="bmad",
+        additive_registries=[],
+        tasks=[
+            TaskNode(
+                id="1-1-a",
+                title="Edit server A",
+                write_files=["src/service/server.py"],
+                effort=EffortTier.LOW,
+            ),
+            TaskNode(
+                id="1-2-b",
+                title="Edit server B",
+                write_files=["src/service/server.py"],
+                effort=EffortTier.LOW,
+            ),
+        ],
+        waves=[
+            Wave(
+                wave_number=1,
+                tracks=[
+                    WaveTrack(
+                        track_id="track-a",
+                        task_ids=["1-1-a"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["src/service/server.py"],
+                        additive_shared_files=[],
+                    ),
+                    WaveTrack(
+                        track_id="track-b",
+                        task_ids=["1-2-b"],
+                        effort=EffortTier.LOW,
+                        exclusive_write_files=["src/service/server.py"],
+                        additive_shared_files=[],
+                    ),
+                ],
+            )
+        ],
+        edges=[],
+    )
+
+    manager = WorktreeManager(repo)
+    manager.prepare_wave(plan, 1)
+
+    wt_a = manager.worktree_path_for_track(1, "track-a")
+    wt_b = manager.worktree_path_for_track(1, "track-b")
+
+    (wt_a / "src" / "service" / "server.py").write_text(
+        "def start() -> str:\n    return 'base'\n\n\ndef extra_a() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    _git(wt_a, "add", "src/service/server.py")
+    _git(wt_a, "commit", "-m", "feat: add extra_a")
+
+    (wt_b / "src" / "service" / "server.py").write_text(
+        "def start() -> str:\n    return 'base'\n\n\ndef extra_b() -> int:\n    return 2\n",
+        encoding="utf-8",
+    )
+    _git(wt_b, "add", "src/service/server.py")
+    _git(wt_b, "commit", "-m", "feat: add extra_b")
+
+    merged = manager.merge_wave(
+        plan,
+        1,
+        run_quality_gates=False,
+        partial_merge=True,
+    )
+    assert merged == ["parallel/track-a"]
+    assert manager.last_merge_outcome is not None
+    assert "track-b" in manager.last_merge_outcome.rejected_tracks
+    assert manager.last_merge_outcome.rejected_tracks["track-b"].failed_stage == "git_merge"
+    assert _git(repo, "status", "--porcelain") == ""
+
+
+def test_registry_merger_expr_deletion_commutativity() -> None:
+    """Task 54b (5a): Deleting/replacing expr in ours vs adding expr in theirs is symmetric."""
+    base = 'register("init")\n'
+    branch_replaced = 'register("init_v2")\n'
+    branch_added = 'register("init")\nregister("extra")\n'
+
+    assert merge_python_additive_registry(base, branch_added, branch_replaced) is None
+    assert merge_python_additive_registry(base, branch_replaced, branch_added) is None
+
+
+def test_registry_merger_forbids_deleted_used_import_and_live_symbol_rebind() -> None:
+    """Task 54b (5b): Fail closed on deleted used import or cross-kind collision with base."""
+    # Case 1: ours deletes import used by theirs new function
+    base_imp = "from pkg import helper\n\ndef existing() -> int:\n    return 1\n"
+    ours_del_imp = "def existing() -> int:\n    return 1\n"
+    theirs_use_imp = (
+        "from pkg import helper\n\n"
+        "def existing() -> int:\n    return 1\n\n\n"
+        "def cmd_new() -> int:\n    return helper()\n"
+    )
+    assert merge_python_additive_registry(base_imp, ours_del_imp, theirs_use_imp) is None
+    assert merge_python_additive_registry(base_imp, theirs_use_imp, ours_del_imp) is None
+
+    # Case 2: var over live base def
+    base_def = "def handler() -> int:\n    return 1\n"
+    ours_edit_def = "def handler() -> int:\n    return 2\n"
+    theirs_var = "def handler() -> int:\n    return 1\n\nhandler = 42\n"
+    assert merge_python_additive_registry(base_def, ours_edit_def, theirs_var) is None
+
+    # Case 3: new import over live base def, and new def over live base import
+    theirs_imp = "from other import handler\n\ndef handler() -> int:\n    return 1\n"
+    assert merge_python_additive_registry(base_def, ours_edit_def, theirs_imp) is None
+    theirs_redef_imp = (
+        "from pkg import helper\n\n"
+        "def existing() -> int:\n    return 1\n\n\n"
+        "def helper() -> int:\n    return 99\n"
+    )
+    assert (
+        merge_python_additive_registry(base_imp, base_imp + "\nX = 1\n", theirs_redef_imp)
+        is None
+    )
+
+
+def test_registry_merger_dunder_all_type_mismatch_when_base_absent() -> None:
+    """Task 54b (5c): Fail closed when both introduce __all__ with mismatched list vs tuple."""
+    base = "A = 1\nB = 2\n"
+    ours = 'A = 1\nB = 2\n\n__all__ = ["A"]\n'
+    theirs = 'A = 1\nB = 2\n\n__all__ = ("B",)\n'
+    assert merge_python_additive_registry(base, ours, theirs) is None
+
+
+def test_registry_merger_registration_key_collisions() -> None:
+    """Task 54b (5d): Fail closed when new expr calls collide on literal registry keys."""
+    base = "COMMANDS = {}\n"
+    ours_upd = 'COMMANDS = {}\nCOMMANDS.update(run="a")\n'
+    theirs_upd = 'COMMANDS = {}\nCOMMANDS.update(run="b")\n'
+    assert merge_python_additive_registry(base, ours_upd, theirs_upd) is None
+
+    theirs_dict_upd = 'COMMANDS = {}\nCOMMANDS.update({"run": "b"})\n'
+    assert merge_python_additive_registry(base, ours_upd, theirs_dict_upd) is None
+
+    ours_reg = 'COMMANDS = {}\nCOMMANDS.register("run", fn_a)\n'
+    theirs_reg = 'COMMANDS = {}\nCOMMANDS.register("run", fn_b)\n'
+    assert merge_python_additive_registry(base, ours_reg, theirs_reg) is None
+
+    ours_sd = 'COMMANDS = {}\nCOMMANDS.setdefault("run", fn_a)\n'
+    theirs_sd = 'COMMANDS = {}\nCOMMANDS.setdefault("run", fn_b)\n'
+    assert merge_python_additive_registry(base, ours_sd, theirs_sd) is None
+
+    ours_cmd = 'COMMANDS = {}\ncli.add_command(cmd_a, name="run")\n'
+    theirs_cmd = 'COMMANDS = {}\ncli.add_command(cmd_b, name="run")\n'
+    assert merge_python_additive_registry(base, ours_cmd, theirs_cmd) is None
+
+    # Disjoint keys merge cleanly
+    theirs_other = 'COMMANDS = {}\nCOMMANDS.update(status="b")\n'
+    merged = merge_python_additive_registry(base, ours_upd, theirs_other)
+    assert merged is not None
+    assert 'COMMANDS.update(run="a")' in merged
+    assert 'COMMANDS.update(status="b")' in merged
+
+
+def test_registry_merger_top_level_definition_before_use_and_post_guard() -> None:
+    """Task 54b (5e): Relocate theirs defs before dependent vars; reject post-guard code."""
+    # Case 1: theirs adds def status above COMMANDS and updates COMMANDS -> must define before use
+    base = "def ping() -> str:\n    return 'ping'\n\n\nCOMMANDS = [ping]\n"
+    ours = (
+        "def ping() -> str:\n    return 'ping'\n\n\n"
+        "def pong() -> str:\n    return 'pong'\n\n\n"
+        "COMMANDS = [ping]\n"
+    )
+    theirs = (
+        "def ping() -> str:\n    return 'ping'\n\n\n"
+        "def status() -> str:\n    return 'ok'\n\n\n"
+        "COMMANDS = [ping, status]\n"
+    )
+    merged = merge_python_additive_registry(base, ours, theirs)
+    assert merged is not None
+    ast.parse(merged)
+    assert merged.index("def status()") < merged.index("COMMANDS = [ping, status]")
+
+    # Case 2: post-guard statements must fail closed
+    base_pg = 'if __name__ == "__main__":\n    run()\n\nTRAILING = 1\n'
+    ours_pg = 'if __name__ == "__main__":\n    run()\n\nTRAILING = 1\nEXTRA = 2\n'
+    theirs_pg = 'if __name__ == "__main__":\n    run()\n\nTRAILING = 1\nOTHER = 3\n'
+    assert merge_python_additive_registry(base_pg, ours_pg, theirs_pg) is None
+
+    # Case 3: unresolvable forward reference (cycle between ours and theirs vars) -> fail closed
+    base_fwd = "A = 1\nB = 1\n"
+    ours_fwd = "A = B_NEW\nB = 1\n"
+    theirs_fwd = "A = 1\nB = 1\nB_NEW = A\n"
+    assert merge_python_additive_registry(base_fwd, ours_fwd, theirs_fwd) is None

@@ -1941,7 +1941,7 @@ class WorktreeManager:
             for rel in sorted(set(branch_changed)):
                 if rel in resolved_status_files:
                     continue
-                if not is_python_registry_candidate(rel, effective_additive or None):
+                if not is_python_registry_candidate(rel, effective_additive):
                     continue
                 main_file = self.repo_root / rel
                 if not main_file.is_file():
