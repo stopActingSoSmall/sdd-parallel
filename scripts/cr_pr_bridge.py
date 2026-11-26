@@ -256,9 +256,14 @@ def parse_origin_repo(repo_root: Path) -> tuple[str, str]:
     return match.group("owner"), match.group("repo")
 
 
+_SEVERITY_WORD_RE = r"(?:Critical|Major|High|Minor|Medium|Trivial|Low|Nitpick)"
+_BADGE_WRAPPER_START = r"(?:_\*\*|\*\*_|[_*]{1,2})"
+_BADGE_WRAPPER_END = r"(?:\*\*_|_\*\*|[_*]{1,2})"
+_SEVERITY_EMOJI_PREFIX = r"(?:(?:🔴|🟠|🟡|🔵|⚠️|🧹)\s*)?"
 _SEVERITY_BADGE_LINE_RE = re.compile(
-    r"^(?:_⚠️\s*Potential issue_|_🧹\s*Nitpick_|"
-    r"\*\*(?:Critical|Major|High|Minor|Medium|Trivial|Low|Nitpick)\*\*\s*·)",
+    rf"^(?:{_BADGE_WRAPPER_START}\s*{_SEVERITY_EMOJI_PREFIX}"
+    rf"(?:Potential issue|{_SEVERITY_WORD_RE})\s*{_BADGE_WRAPPER_END}"
+    rf"(?:\s*[|·]\s*.*)?)$",
     re.IGNORECASE,
 )
 
@@ -266,46 +271,34 @@ _SEVERITY_BADGE_LINE_RE = re.compile(
 def _extract_header_severity(header_lines: Sequence[str]) -> str:
     """Parse severity strictly from the finding header line(s), never from body prose."""
     header = " ".join(header_lines[:2]).lower()
-    if (
-        "🔴 critical" in header
-        or "_critical_" in header
-        or "**critical**" in header
-        or "[blocker]" in header
-        or re.search(r"\bseverity\s*:\s*critical\b", header)
+    if re.search(
+        r"(?:[_*]{1,3}\s*(?:🔴\s*)?critical\s*[_*]{1,3}|🔴\s*critical|"
+        r"\[blocker\]|\bseverity\s*:\s*critical\b)",
+        header,
     ):
         return "CRITICAL"
-    if (
-        "🟠 major" in header
-        or "_major_" in header
-        or "**major**" in header
-        or "_high_" in header
-        or "**high**" in header
-        or re.search(r"\bseverity\s*:\s*(?:major|high)\b", header)
+    if re.search(
+        r"(?:[_*]{1,3}\s*(?:🟠\s*)?(?:major|high)\s*[_*]{1,3}|"
+        r"🟠\s*(?:major|high)|\bseverity\s*:\s*(?:major|high)\b)",
+        header,
     ):
         return "HIGH"
-    if (
-        "🧹 nitpick" in header
-        or "_nitpick_" in header
-        or "**nitpick**" in header
-        or re.search(r"\bseverity\s*:\s*nitpick\b", header)
+    if re.search(
+        r"(?:[_*]{1,3}\s*(?:🧹\s*)?nitpick\s*[_*]{1,3}|"
+        r"🧹\s*nitpick|\bseverity\s*:\s*nitpick\b)",
+        header,
     ):
         return "NITPICK"
-    if (
-        "🔵 trivial" in header
-        or "_trivial_" in header
-        or "**trivial**" in header
-        or "_low_" in header
-        or "**low**" in header
-        or re.search(r"\bseverity\s*:\s*(?:trivial|low)\b", header)
+    if re.search(
+        r"(?:[_*]{1,3}\s*(?:🔵\s*)?(?:trivial|low)\s*[_*]{1,3}|"
+        r"🔵\s*(?:trivial|low)|\bseverity\s*:\s*(?:trivial|low)\b)",
+        header,
     ):
         return "LOW"
-    if (
-        "🟡 minor" in header
-        or "_minor_" in header
-        or "**minor**" in header
-        or "_medium_" in header
-        or "**medium**" in header
-        or re.search(r"\bseverity\s*:\s*(?:minor|medium)\b", header)
+    if re.search(
+        r"(?:[_*]{1,3}\s*(?:🟡\s*)?(?:minor|medium)\s*[_*]{1,3}|"
+        r"🟡\s*(?:minor|medium)|\bseverity\s*:\s*(?:minor|medium)\b)",
+        header,
     ):
         return "MEDIUM"
     return "MEDIUM"

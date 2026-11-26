@@ -572,3 +572,126 @@ def test_cli_plan_cache_validation_and_inspector_priority(tmp_path: Path) -> Non
     assert recomputed_new.spine_files != ["src/runtime_rescheduled_marker.py"]
 
 
+def test_autopilot_auto_merge_exit_code_on_gate_failure_and_partial_merge(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """autopilot --execute --auto-merge returns 1 on gate/partial-merge and cyclic-review."""
+    from sdd_parallel.worktree import BarrierFeedback, PartialMergeOutcome
+
+    subprocess.run(["git", "init", "-b", "master"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test Runner"], cwd=tmp_path, check=True)
+
+    spec_dir = tmp_path / "specs" / "001-feat"
+    spec_dir.mkdir(parents=True)
+    (spec_dir / "tasks.md").write_text(
+        "- [ ] T001 [P] Alpha in `src/a.py`\n"
+        "- [ ] T002 [P] Beta in `src/b.py`\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("a = 1\n", encoding="utf-8")
+    (tmp_path / "src" / "b.py").write_text("b = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+
+    monkeypatch.setattr("shutil.which", lambda name: "/mock/bin/" + name)
+    monkeypatch.setattr(
+        "sdd_parallel.runner._create_default_invoker",
+        lambda harness, timeout, extra_env=None: (
+            lambda prompt, model, effort, cwd: subprocess.CompletedProcess(
+                args=["mock"],
+                returncode=0,
+                stdout=json.dumps({"session_id": f"sess-{cwd.name}"}),
+                stderr="",
+            )
+        ),
+    )
+
+    # 1. cyclic-review without CLI reviewer returns exit 1
+    buf_cyclic = io.StringIO()
+    with redirect_stdout(buf_cyclic):
+        rc_cyclic = main([
+            "autopilot",
+            "--repo", str(tmp_path),
+            "--kit", "spec-kit",
+            "--wave", "1",
+            "--execute",
+            "--policy", "cyclic-review",
+        ])
+    assert rc_cyclic == 1
+    cyclic_payload = json.loads(buf_cyclic.getvalue())
+    assert cyclic_payload["status"] == "error"
+
+    # 2. Scope Guard violation -> auto_merged=False -> CLI returns 1 even when all_succeeded=True
+    monkeypatch.setattr(
+        "sdd_parallel.worktree.WorktreeManager.verify_wave",
+        lambda self, plan, wave_number: ["track-b touched forbidden file"],
+    )
+    buf_sg = io.StringIO()
+    with redirect_stdout(buf_sg):
+        rc_sg = main([
+            "autopilot",
+            "--repo", str(tmp_path),
+            "--kit", "spec-kit",
+            "--wave", "1",
+            "--execute",
+            "--auto-merge",
+        ])
+    assert rc_sg == 1
+    sg_summary = json.loads(buf_sg.getvalue())
+    assert sg_summary["all_succeeded"] is True
+    assert sg_summary["auto_merged"] is False
+
+    # 3. PartialMergeOutcome with rejected_tracks -> CLI returns 1 and exposes merged/rejected
+    monkeypatch.setattr(
+        "sdd_parallel.worktree.WorktreeManager.verify_wave",
+        lambda self, plan, wave_number: [],
+    )
+
+    def fake_merge_wave(
+        self: Any,
+        plan: Any,
+        wave_number: int,
+        run_quality_gates: bool = True,
+        cleanup_worktrees: bool = False,
+        partial_merge: bool = True,
+    ) -> list[str]:
+        self.last_merge_outcome = PartialMergeOutcome(
+            merged_branches=["parallel/track-a"],
+            rejected_tracks={
+                "track-b": BarrierFeedback(
+                    story_ids=("T002",),
+                    wave_number=wave_number,
+                    track_id="track-b",
+                    failed_stage="checkpoint_gate",
+                    failed_command="pytest",
+                    diagnostic_output="AssertionError",
+                )
+            },
+            backup_branches={"track-b": "backup/wave-1-track-b-failed"},
+        )
+        return ["parallel/track-a"]
+
+    monkeypatch.setattr("sdd_parallel.worktree.WorktreeManager.merge_wave", fake_merge_wave)
+
+    buf_pm = io.StringIO()
+    with redirect_stdout(buf_pm):
+        rc_pm = main([
+            "autopilot",
+            "--repo", str(tmp_path),
+            "--kit", "spec-kit",
+            "--wave", "1",
+            "--execute",
+            "--auto-merge",
+        ])
+    assert rc_pm == 1
+    pm_summary = json.loads(buf_pm.getvalue())
+    assert pm_summary["all_succeeded"] is True
+    assert pm_summary["auto_merged"] is False
+    assert pm_summary["partial_merge_used"] is True
+    assert pm_summary["merged_tracks"] == ["track-a"]
+    assert pm_summary["rejected_tracks"] == ["track-b"]
+    assert pm_summary["backup_branches"] == {"track-b": "backup/wave-1-track-b-failed"}
+
+

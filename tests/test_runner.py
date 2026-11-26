@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import re
 import subprocess
+import sys
+import time
 from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
@@ -615,12 +619,18 @@ def test_default_invoker_codex_includes_trust_flag(
 
     captured: dict[str, Any] = {}
 
-    def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        captured["argv"] = argv
-        captured["cwd"] = kwargs.get("cwd")
+    def fake_run_harness(
+        argv: list[str],
+        cwd: Path,
+        env: Any,
+        timeout_seconds: float,
+    ) -> subprocess.CompletedProcess[str]:
+        captured["argv"] = list(argv)
+        captured["cwd"] = cwd
+        captured["timeout_seconds"] = timeout_seconds
         return subprocess.CompletedProcess(args=argv, returncode=0, stdout="{}", stderr="")
 
-    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("sdd_parallel.runner._run_harness_subprocess", fake_run_harness)
     invoker = _create_default_invoker("codex", timeout_seconds=30.0)
     invoker("do task", "codex-medium", EffortTier.MEDIUM, tmp_path)
 
@@ -634,5 +644,173 @@ def test_default_invoker_codex_includes_trust_flag(
         "codex-medium",
         "do task",
     ]
+
+
+def _is_pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        proc = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return bool(re.search(rf"\b{pid}\b", proc.stdout))
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def test_timeout_kills_descendant_process_holding_stdout_pipe(tmp_path: Path) -> None:
+    from sdd_parallel.runner import _run_harness_subprocess
+
+    wt_dir = tmp_path / "track-timeout"
+    wt_dir.mkdir(parents=True)
+    pid_file = tmp_path / "child.pid"
+    parent_code = (
+        "import pathlib, subprocess, sys, time; "
+        "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); "
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(p.pid), encoding='utf-8'); "
+        "time.sleep(30)"
+    )
+
+    def timeout_invoker(
+        prompt: str,
+        model: str | None,
+        effort: EffortTier | None,
+        cwd: Path,
+    ) -> subprocess.CompletedProcess[str]:
+        return _run_harness_subprocess(
+            [sys.executable, "-c", parent_code],
+            cwd=cwd,
+            env=None,
+            timeout_seconds=0.3,
+        )
+
+    track = WaveTrack(track_id="track-timeout", task_ids=["T-9"], effort=EffortTier.LOW)
+    ctx = TrackExecutionContext(
+        repo_root=tmp_path,
+        worktree_path=wt_dir,
+        wave_number=1,
+        track=track,
+        timeout_seconds=0.3,
+        invoker=timeout_invoker,
+    )
+
+    t0 = time.monotonic()
+    result = SingleShotExecutionPolicy().execute(ctx)
+    elapsed = time.monotonic() - t0
+
+    assert result.status == "TIMED_OUT"
+    assert result.exit_code == 124
+    assert elapsed < 5.0
+    if pid_file.is_file():
+        child_pid = int(pid_file.read_text(encoding="utf-8").strip())
+        assert not _is_pid_alive(child_pid)
+
+
+def test_cyclic_policy_rejects_missing_reviewer_nonzero_executor_and_exhausted_preflight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wt_dir = tmp_path / "track-fail-closed"
+    wt_dir.mkdir(parents=True)
+    track = WaveTrack(track_id="track-fc", task_ids=["T-10"], effort=EffortTier.MEDIUM)
+
+    # 1. Missing reviewer_fn -> immediate FAILED before running invoker
+    invoker_called = 0
+
+    def counting_ok_invoker(
+        prompt: str,
+        model: str | None,
+        effort: EffortTier | None,
+        cwd: Path,
+    ) -> subprocess.CompletedProcess[str]:
+        nonlocal invoker_called
+        invoker_called += 1
+        return subprocess.CompletedProcess(args=["mock"], returncode=0, stdout="{}", stderr="")
+
+    res_no_rev = BoundedCyclicReviewPolicy().execute(
+        TrackExecutionContext(
+            repo_root=tmp_path,
+            worktree_path=wt_dir,
+            wave_number=1,
+            track=track,
+            invoker=counting_ok_invoker,
+            reviewer_fn=None,
+        )
+    )
+    assert res_no_rev.status == "FAILED"
+    assert res_no_rev.exit_code == 1
+    assert res_no_rev.iterations_used == 0
+    assert invoker_called == 0
+    assert "requires a configured reviewer_fn" in (res_no_rev.error_message or "")
+
+    # 2. Non-zero executor returncode -> FAILED without invoking reviewer_fn
+    reviewer_calls = 0
+
+    def live_reviewer(ctx: TrackExecutionContext, iteration: int) -> ReviewVerdict:
+        nonlocal reviewer_calls
+        reviewer_calls += 1
+        return ReviewVerdict(iteration=iteration, critical_count=0, high_count=0)
+
+    def failing_invoker(
+        prompt: str,
+        model: str | None,
+        effort: EffortTier | None,
+        cwd: Path,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=["mock"], returncode=1, stdout="", stderr="executor crash"
+        )
+
+    res_exec_fail = BoundedCyclicReviewPolicy().execute(
+        TrackExecutionContext(
+            repo_root=tmp_path,
+            worktree_path=wt_dir,
+            wave_number=1,
+            track=track,
+            invoker=failing_invoker,
+            reviewer_fn=live_reviewer,
+        )
+    )
+    assert res_exec_fail.status == "FAILED"
+    assert res_exec_fail.exit_code == 1
+    assert reviewer_calls == 0
+
+    # 3. Exhausted preflight bounces -> FAILED without invoking reviewer_fn
+    real_run = subprocess.run
+
+    def always_fail_preflight(cmd: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if isinstance(cmd, list) and cmd[0] == "fake-pytest":
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout="", stderr="persistent test failure"
+            )
+        return real_run(cmd, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", always_fail_preflight)
+
+    res_pf_exhausted = BoundedCyclicReviewPolicy(
+        max_iterations=2,
+        max_preflight_bounces=2,
+        preflight_commands=(("fake-pytest",),),
+    ).execute(
+        TrackExecutionContext(
+            repo_root=tmp_path,
+            worktree_path=wt_dir,
+            wave_number=1,
+            track=track,
+            invoker=counting_ok_invoker,
+            reviewer_fn=live_reviewer,
+        )
+    )
+    assert res_pf_exhausted.status == "FAILED"
+    assert res_pf_exhausted.exit_code == 1
+    assert reviewer_calls == 0
+    assert "Preflight gate 'fake-pytest' failed after 2 retry bounce(s)" in (
+        res_pf_exhausted.error_message or ""
+    )
 
 

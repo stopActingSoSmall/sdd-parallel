@@ -988,7 +988,6 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         # Official Depth-0 Wave Runner execution
         from sdd_parallel.runner import (
-            BoundedCyclicReviewPolicy,
             SingleShotExecutionPolicy,
             TrackExecutionPolicy,
             WaveRunner,
@@ -996,12 +995,24 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         policy_obj: TrackExecutionPolicy
         if getattr(args, "policy", "single-shot") == "cyclic-review":
-            policy_obj = BoundedCyclicReviewPolicy(
-                max_iterations=getattr(args, "max_iterations", 3)
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "policy": "cyclic-review",
+                        "error": (
+                            "BoundedCyclicReviewPolicy requires a configured reviewer_fn "
+                            "(CLI reviewer wiring is scheduled in Task 34b)."
+                        ),
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
             )
-        else:
-            policy_obj = SingleShotExecutionPolicy()
+            return 1
+        policy_obj = SingleShotExecutionPolicy()
 
+        auto_merge = getattr(args, "auto_merge", False)
         runner = WaveRunner(
             repo_root=repo_root,
             harness=args.harness,
@@ -1013,9 +1024,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         summary = runner.run_wave(
             plan=plan,
             wave_number=args.wave,
-            auto_merge=getattr(args, "auto_merge", False),
+            auto_merge=auto_merge,
         )
         print(json.dumps(summary.to_dict(), indent=2, ensure_ascii=False))
+        if auto_merge:
+            return 0 if (summary.all_succeeded and summary.auto_merged) else 1
         return 0 if summary.all_succeeded else 1
 
     if args.command == "abort-wave":

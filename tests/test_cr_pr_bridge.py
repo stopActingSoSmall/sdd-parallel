@@ -93,6 +93,32 @@ Start the head at the synthetic base.
     )
 
 
+def test_parse_coderabbit_emoji_major_badge() -> None:
+    body = """
+_**⚠️ Potential issue**_ | _**🟠 Major**_
+
+**Compare deleted modules in AST signature drift check.**
+
+When a module is deleted in a branch, inspect the base snapshot.
+"""
+    parsed = cr_pr_bridge.parse_coderabbit_comment_body(body)
+    assert parsed["severity"] == "HIGH"
+    assert parsed["bucket"] == "BLOCKER"
+    assert parsed["title"] == "Compare deleted modules in AST signature drift check."
+
+    inline_emoji_body = """
+**🟠 Major** · **Functional Correctness** · **Quick win**
+
+**Check empty reviewer_fn before iteration loop.**
+
+Fail closed immediately.
+"""
+    parsed_inline = cr_pr_bridge.parse_coderabbit_comment_body(inline_emoji_body)
+    assert parsed_inline["severity"] == "HIGH"
+    assert parsed_inline["bucket"] == "BLOCKER"
+    assert parsed_inline["title"] == "Check empty reviewer_fn before iteration loop."
+
+
 def test_detect_whack_a_mole_on_round_2_plus() -> None:
     findings = [
         cr_pr_bridge.ReviewFinding(
