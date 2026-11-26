@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-26
+
+### Conceptual Highlights (Before → After)
+- **Fail-Closed Runner & Process Tree Cleanup:** Previously, `BoundedCyclicReviewPolicy` could qualify failing executors, exhausted preflight gates, or missing reviewers (`reviewer_fn=None`), and track timeouts on Windows/POSIX could leave descendant processes holding `stdout`/`stderr` pipes open; now `_run_harness_subprocess()` kills the entire process tree (`taskkill /F /T` / `os.killpg`) and `BoundedCyclicReviewPolicy` fails closed before invoking any reviewer.
+- **Honest Autopilot Exit & Partial Merge Reporting:** Previously, `sdd-parallel autopilot --execute --auto-merge` returned exit code `0` even when `verify_wave` or partial merge rejected tracks; now `WaveRunSummary` surfaces `partial_merge_used`, `merged_tracks`, `rejected_tracks`, and `backup_branches`, setting `auto_merged=False` and returning exit code `1` on incomplete merges.
+- **Scoped ID Resolution & Read-Only Safety Across All 6 SDD Adapters:** Previously, rollback or state inspection could reset prefix-colliding IDs (`1-1` vs `1-10`), drop `spec-*.md` files, mutate Beads Dolt state during read-only loads, or touch archived OpenSpec changes; now all 6 adapters (`Beads`, `BMAD`, `Custom`, `GSD`, `OpenSpec`, `Spec Kit`) enforce strict scoped ID boundaries and read-only `bd export`.
+- **Canonical Graph Paths, Monotonic Mergers & AST Registry Safety:** Previously, `/**/` globs missed zero-segment paths, relative `ImportFrom` nodes were skipped, deleted Python modules bypassed signature drift checks, and `server.py` fell back to `ADDITIVE_REGISTRY` unconditionally; now path normalization, relative imports, deleted-module drift, monotonic Beads/checklist tie-breaking, and atomic manifest writes are enforced end-to-end.
+
+### Default Behavior & CLI Changes
+- **`sdd-parallel autopilot --execute --policy cyclic-review`:** Fails closed with a structured JSON error and exit code `1` until external reviewer wiring lands in `v0.3.1`.
+- **`sdd-parallel autopilot --execute --auto-merge`:** Exits `0` only when both `summary.all_succeeded` and `summary.auto_merged` are `True` (partial merges with rejected tracks now exit `1` and report `rejected_tracks` / `merged_tracks`).
+
+### Changed & Hardened
+- **Core Graph & AST Diff Gate:** Unified `normalize_rel_path()` and zero-segment `/**/` matching in `matches_path_pattern()`; shared `resolve_import_from_targets()` across `ASTHotspotScanner` and `ast_diff_gate`; added deleted-module drift detection in `check_signature_and_default_drift()`, completed-wave `SPINE_ORDER` preservation via `completed_wave_of`, and 2-char CLI flag detection (`--id`, `--db`) in `extract_namespace_tokens()`.
+- **3-Way Status & AST Registry Mergers:** Narrowed `_CHECKLIST_KEY_RE` against `S3`/`OAuth2`/`V2` collisions, enforced monotonic `closed > in-progress` ranking in `Beads`, added branch-aware tie-breaking, atomic `.tmp-*` + `os.replace()` writes in `save_wave_manifest()`, strict `is_python_registry_candidate()` gating, and 5 fail-closed AST invariants in `registry_merger.py`.
+- **SDD Adapters (`beads`, `bmad`, `custom`, `gsd_hijack`, `openspec`, `spec_kit`):** Read-only `bd export` and scoped `bd update`; structural round-trip `stories.yaml` reset and `spec-*.md` preservation in `BMAD`; duplicate ID qualification and YAML/JSON reset in `CustomManifestAdapter`; exact ID boundary matching in `GSDHijackAdapter`, `OpenSpecAdapter` (ignoring `archive/`), and `SpecKitAdapter`.
+- **Subprocess & Runner Lifecycle:** Added `_run_harness_subprocess()` with process-group/tree termination and bounded pipe drain, strict fail-closed gates in `BoundedCyclicReviewPolicy.execute()`, and `PartialMergeOutcome` propagation in `WaveRunner.run_wave()`.
+
 ## [0.2.2] - 2026-11-25
 
 ### Conceptual Highlights (Before → After)
@@ -65,7 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Standalone Merge-Bomb Demo (`sdd-parallel demo`):** Self-contained, zero-API-key demonstration of Type 2 conflict detection and 3-way resolution running in <5 seconds.
 - **CI / CD Automation:** GitHub Actions workflow testing on Ubuntu, Windows, and macOS across Python 3.11, 3.12, and 3.13 with automated packaging and PyPI Trusted Publishing.
 
-[Unreleased]: https://github.com/stopActingSoSmall/sdd-parallel/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/stopActingSoSmall/sdd-parallel/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/stopActingSoSmall/sdd-parallel/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/stopActingSoSmall/sdd-parallel/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/stopActingSoSmall/sdd-parallel/compare/v0.1.1...v0.2.1
 [0.1.1]: https://github.com/stopActingSoSmall/sdd-parallel/compare/v0.1.0...v0.1.1
