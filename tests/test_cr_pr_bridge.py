@@ -70,13 +70,27 @@ Consider sorting imports alphabetically for style consistency.
     minor_body = """
 _🟡 Minor_
 
-**Consider caching regex compilation in helper.**
+**Consider caching regex compilation in critical section helper.**
 
-Small performance optimization on rare fallback branch.
+Small performance optimization on rare fallback branch in critical section.
 """
     parsed_dr = cr_pr_bridge.parse_coderabbit_comment_body(minor_body)
     assert parsed_dr["severity"] == "MEDIUM"
     assert parsed_dr["bucket"] == "DIMINISHING_RETURNS"
+
+    major_2026_body = """
+**Major** · **Functional Correctness** · **Quick win**
+
+**Build the audit head on the commit that removes the cluster files.**
+
+Start the head at the synthetic base.
+"""
+    parsed_major = cr_pr_bridge.parse_coderabbit_comment_body(major_2026_body)
+    assert parsed_major["severity"] == "HIGH"
+    assert parsed_major["bucket"] == "BLOCKER"
+    assert parsed_major["title"] == (
+        "Build the audit head on the commit that removes the cluster files."
+    )
 
 
 def test_detect_whack_a_mole_on_round_2_plus() -> None:
@@ -238,6 +252,8 @@ def test_merge_pr_and_sync_master_guards_and_success(
         args: list[str], cwd: Path, *, input_text: str | None = None, check: bool = True
     ) -> FakeProc:
         git_calls.append(list(args))
+        if args[:2] == ["rev-parse", "--verify"]:
+            return FakeProc("abc123\n")
         return FakeProc("")
 
     monkeypatch.setattr(cr_pr_bridge, "_run_git", fake_run_git)
@@ -250,7 +266,7 @@ def test_merge_pr_and_sync_master_guards_and_success(
     assert (
         "PUT",
         "/repos/stopActingSoSmall/sdd-parallel/pulls/48/merge",
-        {"merge_method": "squash"},
+        {"merge_method": "squash", "sha": "abc123"},
     ) in rest_calls
     assert (
         "DELETE",

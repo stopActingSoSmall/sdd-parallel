@@ -82,6 +82,8 @@ class PRStatusReport:
     unresolved_blockers: int
     whack_a_mole_paths: list[str]
     ready_to_merge: bool
+    threads_verified: bool = True
+    head_repo_matches_base: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize report into a JSON-compatible dictionary."""
@@ -254,34 +256,67 @@ def parse_origin_repo(repo_root: Path) -> tuple[str, str]:
     return match.group("owner"), match.group("repo")
 
 
+_SEVERITY_BADGE_LINE_RE = re.compile(
+    r"^(?:_⚠️\s*Potential issue_|_🧹\s*Nitpick_|"
+    r"\*\*(?:Critical|Major|High|Minor|Medium|Trivial|Low|Nitpick)\*\*\s*·)",
+    re.IGNORECASE,
+)
+
+
+def _extract_header_severity(header_lines: Sequence[str]) -> str:
+    """Parse severity strictly from the finding header line(s), never from body prose."""
+    header = " ".join(header_lines[:2]).lower()
+    if (
+        "🔴 critical" in header
+        or "_critical_" in header
+        or "**critical**" in header
+        or "[blocker]" in header
+        or re.search(r"\bseverity\s*:\s*critical\b", header)
+    ):
+        return "CRITICAL"
+    if (
+        "🟠 major" in header
+        or "_major_" in header
+        or "**major**" in header
+        or "_high_" in header
+        or "**high**" in header
+        or re.search(r"\bseverity\s*:\s*(?:major|high)\b", header)
+    ):
+        return "HIGH"
+    if (
+        "🧹 nitpick" in header
+        or "_nitpick_" in header
+        or "**nitpick**" in header
+        or re.search(r"\bseverity\s*:\s*nitpick\b", header)
+    ):
+        return "NITPICK"
+    if (
+        "🔵 trivial" in header
+        or "_trivial_" in header
+        or "**trivial**" in header
+        or "_low_" in header
+        or "**low**" in header
+        or re.search(r"\bseverity\s*:\s*(?:trivial|low)\b", header)
+    ):
+        return "LOW"
+    if (
+        "🟡 minor" in header
+        or "_minor_" in header
+        or "**minor**" in header
+        or "_medium_" in header
+        or "**medium**" in header
+        or re.search(r"\bseverity\s*:\s*(?:minor|medium)\b", header)
+    ):
+        return "MEDIUM"
+    return "MEDIUM"
+
+
 def parse_coderabbit_comment_body(body: str) -> dict[str, Any]:
     """Extract severity, triage bucket, suggestion diff, AI prompt, and clean text."""
     text = body.strip()
-    lower = text.lower()
-
-    if (
-        "🔴 critical" in lower
-        or "_critical_" in lower
-        or "[blocker]" in lower
-        or re.search(r"\bcritical\b", lower)
-        and "potential issue" in lower
-    ):
-        severity = "CRITICAL"
-    elif (
-        "🟠 major" in lower
-        or "_major_" in lower
-        or re.search(r"\b(?:major|high)\b", lower)
-        and ("potential issue" in lower or "severity" in lower)
-    ):
-        severity = "HIGH"
-    elif "🧹 nitpick" in lower or "_nitpick_" in lower or "nitpick" in lower:
-        severity = "NITPICK"
-    elif "🔵 trivial" in lower or re.search(r"\blow\b", lower) and "severity" in lower:
-        severity = "LOW"
-    elif "🟡 minor" in lower or "_minor_" in lower or re.search(r"\bmedium\b", lower):
-        severity = "MEDIUM"
-    else:
-        severity = "MEDIUM"
+    no_comments = _HTML_COMMENT_RE.sub("", text).strip()
+    raw_non_empty = [ln.strip() for ln in no_comments.splitlines() if ln.strip()]
+    severity = _extract_header_severity(raw_non_empty)
 
     suggestion_match = _SUGGESTION_BLOCK_RE.search(text)
     suggested_diff = suggestion_match.group(1).strip("\r\n") if suggestion_match else None
@@ -293,19 +328,16 @@ def parse_coderabbit_comment_body(body: str) -> dict[str, Any]:
         fenced = re.search(r"```[a-zA-Z0-9_-]*\r?\n(.*?)```", raw_prompt, re.DOTALL)
         ai_prompt = (fenced.group(1) if fenced else raw_prompt).strip()
 
-    cleaned = _HTML_COMMENT_RE.sub("", text)
-    cleaned = _DETAILS_BLOCK_RE.sub("", cleaned)
+    cleaned = _DETAILS_BLOCK_RE.sub("", no_comments)
     cleaned = _SUGGESTION_BLOCK_RE.sub("", cleaned)
     cleaned = _HTML_TAG_RE.sub("", cleaned)
 
     lines: list[str] = []
     for raw_line in cleaned.splitlines():
         s = raw_line.strip()
-        if not s:
+        if not s or s.startswith("<!--"):
             continue
-        if s.startswith("_⚠️ Potential issue_") or s.startswith("_🧹 Nitpick_"):
-            continue
-        if s.startswith("<!--"):
+        if _SEVERITY_BADGE_LINE_RE.match(s):
             continue
         lines.append(s)
 
@@ -592,6 +624,28 @@ class GitHubPRClient:
             )
         return findings
 
+    def _fetch_all_check_runs(self, head_sha: str) -> list[dict[str, Any]]:
+        """Fetch all check-run pages for `head_sha` without truncation at 100 runs."""
+        raw_runs: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            payload = self._rest(
+                "GET",
+                f"/repos/{self.owner}/{self.repo}/commits/{head_sha}/check-runs"
+                f"?per_page=100&page={page}",
+            )
+            if not isinstance(payload, dict):
+                break
+            page_runs = payload.get("check_runs", [])
+            if not isinstance(page_runs, list) or not page_runs:
+                break
+            raw_runs.extend(page_runs)
+            total_count = int(payload.get("total_count") or len(raw_runs))
+            if len(page_runs) < 100 or len(raw_runs) >= total_count:
+                break
+            page += 1
+        return raw_runs
+
     def get_pr_status(
         self,
         pr_number: int,
@@ -609,11 +663,14 @@ class GitHubPRClient:
         mergeable_state = str(pr.get("mergeable_state") or "unknown")
         round_num = int(pr.get("commits") or 1)
 
-        checks_payload = self._rest(
-            "GET",
-            f"/repos/{self.owner}/{self.repo}/commits/{head_sha}/check-runs?per_page=100",
-        )
-        raw_runs = checks_payload.get("check_runs", []) if isinstance(checks_payload, dict) else []
+        head_repo = head.get("repo")
+        base_repo = base.get("repo")
+        if isinstance(head_repo, dict) and isinstance(base_repo, dict):
+            head_repo_matches_base = head_repo.get("id") == base_repo.get("id")
+        else:
+            head_repo_matches_base = True
+
+        raw_runs = self._fetch_all_check_runs(head_sha) if head_sha else []
 
         checks: list[dict[str, Any]] = []
         cr_runs: list[dict[str, Any]] = []
@@ -634,14 +691,45 @@ class GitHubPRClient:
             else:
                 ci_runs.append(entry)
 
+        if head_sha:
+            status_payload = self._rest(
+                "GET",
+                f"/repos/{self.owner}/{self.repo}/commits/{head_sha}/status",
+            )
+            raw_statuses = (
+                status_payload.get("statuses", [])
+                if isinstance(status_payload, dict)
+                else []
+            )
+            for st in raw_statuses if isinstance(raw_statuses, list) else []:
+                ctx = str(st.get("context") or "")
+                st_state = str(st.get("state") or "").lower()
+                mapped_status = "in_progress" if st_state == "pending" else "completed"
+                mapped_conclusion = (
+                    "success"
+                    if st_state == "success"
+                    else (None if st_state == "pending" else "failure")
+                )
+                st_entry = {
+                    "name": ctx,
+                    "status": mapped_status,
+                    "conclusion": mapped_conclusion,
+                    "app": "commit-status",
+                }
+                checks.append(st_entry)
+                if "coderabbit" in ctx.lower():
+                    cr_runs.append(st_entry)
+                else:
+                    ci_runs.append(st_entry)
+
         if ci_runs:
             ci_completed = all(r["status"] == "completed" for r in ci_runs)
             ci_passed = ci_completed and all(
                 r["conclusion"] in {"success", "neutral", "skipped"} for r in ci_runs
             )
         else:
-            ci_completed = True
-            ci_passed = True
+            ci_completed = False
+            ci_passed = False
 
         reviews = self._rest(
             "GET",
@@ -656,25 +744,42 @@ class GitHubPRClient:
             "GET",
             f"/repos/{self.owner}/{self.repo}/issues/{pr_number}/comments?per_page=100",
         )
-        cr_summary_present = any(
-            str((ic.get("user") or {}).get("login", "")).lower() in CODERABBIT_LOGINS
-            and (
-                "walkthrough" in str(ic.get("body", "")).lower()
-                or "review paused" in str(ic.get("body", "")).lower()
-                or "auto_reviewed_commits" in str(ic.get("body", "")).lower()
-            )
-            for ic in (issue_comments if isinstance(issue_comments, list) else [])
-        )
+        short_sha = head_sha[:7].lower() if len(head_sha) >= 7 else ""
+        cr_summary_present = False
+        if head_sha and isinstance(issue_comments, list):
+            for ic in issue_comments:
+                login = str((ic.get("user") or {}).get("login", "")).lower()
+                if login not in CODERABBIT_LOGINS:
+                    continue
+                body_low = str(ic.get("body", "")).lower()
+                sha_matched = head_sha.lower() in body_low or (
+                    bool(short_sha) and short_sha in body_low
+                )
+                if sha_matched and (
+                    "walkthrough" in body_low or "auto_reviewed_commits" in body_low
+                ):
+                    cr_summary_present = True
+                    break
 
         if cr_runs:
-            cr_completed = all(r["status"] == "completed" for r in cr_runs) or cr_review_for_sha
+            cr_runs_ok = all(
+                r["status"] == "completed"
+                and r["conclusion"] in {"success", "neutral", "skipped"}
+                for r in cr_runs
+            )
+            cr_completed = cr_runs_ok or cr_review_for_sha
         else:
             cr_completed = cr_review_for_sha or cr_summary_present
 
+        threads_verified = True
         try:
             findings = self._fetch_review_threads_graphql(pr_number)
         except Exception:
-            findings = self._fetch_review_comments_rest(pr_number)
+            try:
+                findings = self._fetch_review_threads_graphql(pr_number)
+            except Exception:
+                threads_verified = False
+                findings = self._fetch_review_comments_rest(pr_number)
 
         unresolved_blockers = sum(
             1 for f in findings if not f.is_resolved and f.bucket == "BLOCKER"
@@ -686,6 +791,7 @@ class GitHubPRClient:
             and ci_completed
             and ci_passed
             and cr_completed
+            and threads_verified
             and unresolved_blockers == 0
         )
 
@@ -706,6 +812,8 @@ class GitHubPRClient:
             unresolved_blockers=unresolved_blockers,
             whack_a_mole_paths=whack_a_mole_paths,
             ready_to_merge=ready_to_merge,
+            threads_verified=threads_verified,
+            head_repo_matches_base=head_repo_matches_base,
         )
 
     def resolve_thread(self, thread_id: str) -> bool:
@@ -779,19 +887,30 @@ class GitHubPRClient:
             )
         if not status.cr_completed:
             raise RuntimeError(f"PR #{pr_number} CodeRabbit review has not completed yet.")
+        if not status.threads_verified:
+            raise RuntimeError(
+                f"PR #{pr_number} review thread resolution could not be verified via GraphQL."
+            )
         if status.unresolved_blockers > 0:
             raise RuntimeError(
                 f"PR #{pr_number} still has {status.unresolved_blockers} unresolved BLOCKER(s)."
             )
+        if not status.head_sha:
+            raise RuntimeError(f"PR #{pr_number} has an empty head_sha.")
 
         merge_res = self._rest(
             "PUT",
             f"/repos/{self.owner}/{self.repo}/pulls/{pr_number}/merge",
-            {"merge_method": method},
+            {"merge_method": method, "sha": status.head_sha},
         )
 
         remote_deleted = False
-        if delete_branch and status.head_branch and status.head_branch != "master":
+        if (
+            delete_branch
+            and status.head_repo_matches_base
+            and status.head_branch
+            and status.head_branch != "master"
+        ):
             remote_deleted = self.delete_remote_branch(status.head_branch)
 
         local_synced = False
@@ -805,7 +924,17 @@ class GitHubPRClient:
             _run_git(["checkout", "master"], cwd=self.repo_root, check=True)
             _run_git(["pull", "--ff-only", "origin", "master"], cwd=self.repo_root, check=True)
             if delete_branch and status.head_branch and status.head_branch != "master":
-                _run_git(["branch", "-D", status.head_branch], cwd=self.repo_root, check=False)
+                local_ref = _run_git(
+                    ["rev-parse", "--verify", status.head_branch],
+                    cwd=self.repo_root,
+                    check=False,
+                )
+                if local_ref.returncode == 0 and local_ref.stdout.strip() == status.head_sha:
+                    _run_git(
+                        ["branch", "-D", status.head_branch],
+                        cwd=self.repo_root,
+                        check=False,
+                    )
             _run_git(["remote", "prune", "origin"], cwd=self.repo_root, check=False)
             local_synced = True
 
@@ -862,6 +991,18 @@ def prepare_cluster_audit_pr(
     base_branch = f"audit/base-cluster-{cluster_id}"
     head_branch = f"audit/head-cluster-{cluster_id}"
 
+    existing_pr = gh.find_open_pr(head_branch, base_branch=base_branch)
+    if existing_pr is not None:
+        return {
+            "cluster_id": cluster_id,
+            "slug": spec.slug,
+            "pr_number": existing_pr.get("number"),
+            "pr_url": existing_pr.get("html_url"),
+            "base_branch": base_branch,
+            "head_branch": head_branch,
+            "reused_existing": True,
+        }
+
     _run_git(["fetch", "origin", "master"], cwd=repo_root, check=True)
     wt_root = repo_root / ".tmp" / f"cr-audit-wt-{cluster_id}"
     if wt_root.exists():
@@ -876,7 +1017,10 @@ def prepare_cluster_audit_pr(
             cwd=repo_root,
             check=True,
         )
-        _run_git(["checkout", "-B", base_branch, "origin/master"], cwd=wt_root, check=True)
+        master_sha = _run_git(
+            ["rev-parse", "origin/master"], cwd=wt_root, check=True
+        ).stdout.strip()
+        _run_git(["checkout", "-B", base_branch, master_sha], cwd=wt_root, check=True)
         existing_targets = [f for f in spec.files if (wt_root / f).exists()]
         if not existing_targets:
             raise RuntimeError(f"No cluster {cluster_id} files found on origin/master.")
@@ -892,21 +1036,35 @@ def prepare_cluster_audit_pr(
         )
         _run_git(["push", "-f", "origin", f"{base_branch}:{base_branch}"], cwd=wt_root, check=True)
 
-        # 2. Create head branch with full files + cluster lens config
-        _run_git(["checkout", "-B", head_branch, "origin/master"], cwd=wt_root, check=True)
+        # 2. Build head branch on top of base_branch so 3-dot merge-base is base_branch
+        _run_git(["checkout", "-B", head_branch, base_branch], cwd=wt_root, check=True)
+        _run_git(["checkout", master_sha, "--", *existing_targets], cwd=wt_root, check=True)
         cr_yaml = wt_root / ".coderabbit.yaml"
         if cr_yaml.is_file():
             original_yaml = cr_yaml.read_text(encoding="utf-8")
             cr_yaml.write_text(_inject_audit_lens_yaml(original_yaml, spec), encoding="utf-8")
             _run_git(["add", ".coderabbit.yaml"], cwd=wt_root, check=True)
+        _run_git(["add", "--", *existing_targets], cwd=wt_root, check=True)
+        _run_git(
+            [
+                "commit",
+                "-m",
+                f"chore(audit): restore cluster {cluster_id} ({spec.slug}) with audit lens",
+            ],
+            cwd=wt_root,
+            check=True,
+        )
+        three_dot_files = set(
             _run_git(
-                [
-                    "commit",
-                    "-m",
-                    f"chore(audit): attach lens for cluster {cluster_id} ({spec.slug})",
-                ],
+                ["diff", "--name-only", f"{base_branch}...{head_branch}"],
                 cwd=wt_root,
                 check=True,
+            ).stdout.splitlines()
+        )
+        missing_in_diff = [f for f in existing_targets if f not in three_dot_files]
+        if missing_in_diff:
+            raise RuntimeError(
+                f"Cluster {cluster_id} 3-dot diff missing target files: {missing_in_diff}"
             )
         _run_git(["push", "-f", "origin", f"{head_branch}:{head_branch}"], cwd=wt_root, check=True)
     finally:
@@ -987,6 +1145,21 @@ def _render_retro_audit_report(audit_dir: Path) -> Path:
     return report_path
 
 
+def _validate_cluster_audit_pr(status: PRStatusReport, cluster_id: int) -> None:
+    """Ensure a PR number actually belongs to the requested audit cluster."""
+    expected_head = f"audit/head-cluster-{cluster_id}"
+    expected_base = f"audit/base-cluster-{cluster_id}"
+    if (
+        not status.head_repo_matches_base
+        or status.head_branch != expected_head
+        or status.base_branch != expected_base
+    ):
+        raise RuntimeError(
+            f"PR #{status.pr_number} ({status.head_branch} -> {status.base_branch}) "
+            f"does not match Cluster {cluster_id} audit refs ({expected_head} -> {expected_base})."
+        )
+
+
 def harvest_and_cleanup_cluster_audit(
     cluster_id: int,
     pr_number: int,
@@ -1006,6 +1179,7 @@ def harvest_and_cleanup_cluster_audit(
         gh = GitHubPRClient(owner, repo, get_github_token(repo_root), repo_root=repo_root)
 
     status = gh.get_pr_status(pr_number)
+    _validate_cluster_audit_pr(status, cluster_id)
     audit_dir = repo_root / ".tmp" / "cr-audit"
     audit_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1024,7 +1198,7 @@ def harvest_and_cleanup_cluster_audit(
     report_path = _render_retro_audit_report(audit_dir)
 
     cleaned = False
-    if cleanup:
+    if cleanup and status.cr_completed:
         gh.close_pr(pr_number)
         gh.delete_remote_branch(f"audit/head-cluster-{cluster_id}")
         gh.delete_remote_branch(f"audit/base-cluster-{cluster_id}")
@@ -1095,7 +1269,7 @@ def run_all_clusters_audit(
             elapsed += max(poll_interval_sec, 1)
 
         harvested = harvest_and_cleanup_cluster_audit(
-            cid, pr_num, repo_root, client=gh, cleanup=True
+            cid, pr_num, repo_root, client=gh, cleanup=cr_done
         )
         harvested["timed_out"] = not cr_done
         results.append(harvested)
@@ -1322,9 +1496,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.action == "cleanup":
             if args.pr is not None:
+                st = client.get_pr_status(args.pr)
+                _validate_cluster_audit_pr(st, args.cluster)
                 client.close_pr(args.pr)
             else:
-                existing = client.find_open_pr(f"audit/head-cluster-{args.cluster}")
+                existing = client.find_open_pr(
+                    f"audit/head-cluster-{args.cluster}",
+                    base_branch=f"audit/base-cluster-{args.cluster}",
+                )
                 if existing and existing.get("number"):
                     client.close_pr(int(existing["number"]))
             d1 = client.delete_remote_branch(f"audit/head-cluster-{args.cluster}")
