@@ -13,8 +13,8 @@ reviews:
   auto_review:
     enabled: true
     auto_incremental_review: true
-    auto_pause_after_reviewed_commits: 3
-    drafts: false
+    auto_pause_after_reviewed_commits: 1
+    drafts: true
     base_branches:
       - "master"
   path_filters:
@@ -28,6 +28,15 @@ reviews:
     - "!.tmp/**"
     - "!.parallel/**"
   path_instructions:
+    - path: "src/sdd_parallel/status_merger.py"
+      instructions: |
+        RETRO AUDIT LENS 3 (Data Consistency & Atomic Writes): Report ONLY Critical/High bugs causing status loss during 3-way merge, non-monotonic status regressions, unsafe AST merging of non-additive edits in registry_merger, or partial file corruption without atomic replacement.
+    - path: "src/sdd_parallel/registry_merger.py"
+      instructions: |
+        RETRO AUDIT LENS 3 (Data Consistency & Atomic Writes): Report ONLY Critical/High bugs causing status loss during 3-way merge, non-monotonic status regressions, unsafe AST merging of non-additive edits in registry_merger, or partial file corruption without atomic replacement.
+    - path: "src/sdd_parallel/manifest.py"
+      instructions: |
+        RETRO AUDIT LENS 3 (Data Consistency & Atomic Writes): Report ONLY Critical/High bugs causing status loss during 3-way merge, non-monotonic status regressions, unsafe AST merging of non-additive edits in registry_merger, or partial file corruption without atomic replacement.
     - path: "src/sdd_parallel/**/*.py"
       instructions: |
         Enforce strict architectural invariants from AGENTS.md and ADR-0009:
